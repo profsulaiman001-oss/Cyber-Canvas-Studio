@@ -47,9 +47,10 @@ export default function BottomToolbar({ hasSelection }: BottomToolbarProps) {
 
   return (
     <div
-      className="flex-shrink-0 flex items-center justify-around px-2"
+      className="flex-shrink-0 flex items-start justify-around px-2 pt-3"
       style={{
-        height: '64px',
+        minHeight: '64px',
+        paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
         background: '#11141A',
         borderTop: '1px solid rgba(0,245,255,0.15)',
       }}

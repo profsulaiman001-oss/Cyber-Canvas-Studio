@@ -66,8 +66,8 @@ export default function DesignEditor() {
 
   return (
     <div
-      className="flex flex-col w-full h-screen overflow-hidden select-none"
-      style={{ background: '#0B0C10', touchAction: 'none' }}
+      className="flex flex-col w-full overflow-hidden select-none"
+      style={{ background: '#0B0C10', touchAction: 'none', height: '100dvh' }}
       data-testid="design-editor"
     >
       <TopBar onUndo={controller.undo} onRedo={controller.redo} />

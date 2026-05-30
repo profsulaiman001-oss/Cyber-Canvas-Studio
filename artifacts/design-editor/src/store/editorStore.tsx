@@ -1,7 +1,17 @@
 import { createContext, useContext, useReducer, ReactNode } from 'react';
 
-export type ActivePanel = 'layers' | 'properties' | 'add' | 'export' | 'project' | 'canvasSize' | null;
-export type ActiveTool = 'select' | 'pan';
+export type ActivePanel =
+  | 'layers' | 'properties' | 'add' | 'export' | 'project'
+  | 'canvasSize' | 'alignment' | 'canvasBg' | null;
+
+export type ActiveTool = 'select' | 'pan' | 'pen';
+
+export interface CanvasBgConfig {
+  type: 'solid' | 'transparent' | 'gradient';
+  color: string;
+  gradientType: 'linear' | 'radial';
+  gradientStops: { offset: number; color: string }[];
+}
 
 export interface EditorState {
   activeTool: ActiveTool;
@@ -13,6 +23,10 @@ export interface EditorState {
   isDirty: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  gridEnabled: boolean;
+  snapToGrid: boolean;
+  gridSize: number;
+  canvasBg: CanvasBgConfig;
 }
 
 type EditorAction =
@@ -24,7 +38,21 @@ type EditorAction =
   | { type: 'SET_PROJECT_NAME'; payload: string }
   | { type: 'ADD_CUSTOM_FONT'; payload: string }
   | { type: 'SET_DIRTY'; payload: boolean }
-  | { type: 'SET_UNDO_REDO'; payload: { canUndo: boolean; canRedo: boolean } };
+  | { type: 'SET_UNDO_REDO'; payload: { canUndo: boolean; canRedo: boolean } }
+  | { type: 'TOGGLE_GRID' }
+  | { type: 'TOGGLE_SNAP' }
+  | { type: 'SET_GRID_SIZE'; payload: number }
+  | { type: 'SET_CANVAS_BG'; payload: CanvasBgConfig };
+
+const defaultBg: CanvasBgConfig = {
+  type: 'solid',
+  color: '#ffffff',
+  gradientType: 'linear',
+  gradientStops: [
+    { offset: 0, color: '#00F5FF' },
+    { offset: 1, color: '#7B2FFF' },
+  ],
+};
 
 const initialState: EditorState = {
   activeTool: 'select',
@@ -36,6 +64,10 @@ const initialState: EditorState = {
   isDirty: false,
   canUndo: false,
   canRedo: false,
+  gridEnabled: false,
+  snapToGrid: false,
+  gridSize: 20,
+  canvasBg: defaultBg,
 };
 
 function reducer(state: EditorState, action: EditorAction): EditorState {
@@ -60,6 +92,14 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, isDirty: action.payload };
     case 'SET_UNDO_REDO':
       return { ...state, canUndo: action.payload.canUndo, canRedo: action.payload.canRedo };
+    case 'TOGGLE_GRID':
+      return { ...state, gridEnabled: !state.gridEnabled };
+    case 'TOGGLE_SNAP':
+      return { ...state, snapToGrid: !state.snapToGrid };
+    case 'SET_GRID_SIZE':
+      return { ...state, gridSize: action.payload };
+    case 'SET_CANVAS_BG':
+      return { ...state, canvasBg: action.payload };
     default:
       return state;
   }

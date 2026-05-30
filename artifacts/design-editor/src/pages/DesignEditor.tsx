@@ -11,6 +11,8 @@ import AddElementSheet from '@/components/editor/AddElementSheet';
 import ExportDialog from '@/components/editor/ExportDialog';
 import CanvasSizeDialog from '@/components/editor/CanvasSizeDialog';
 import ProjectManager from '@/components/editor/ProjectManager';
+import AlignmentPanel from '@/components/editor/AlignmentPanel';
+import CanvasBgDialog from '@/components/editor/CanvasBgDialog';
 import { useToast } from '@/hooks/use-toast';
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -22,23 +24,20 @@ export default function DesignEditor() {
   const { toast } = useToast();
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
 
+  // Track viewport transform for grid alignment
+  const [vpX, setVpX] = useState(0);
+  const [vpY, setVpY] = useState(0);
+
   const handleSelectionChange = useCallback(
-    (ids: string[]) => {
-      dispatch({ type: 'SET_SELECTED', payload: ids });
-    },
+    (ids: string[]) => { dispatch({ type: 'SET_SELECTED', payload: ids }); },
     [dispatch]
   );
 
   const handleCanvasChanged = useCallback(() => {
     dispatch({ type: 'SET_DIRTY', payload: true });
-
-    // Auto-save debounce
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
     autoSaveTimer = setTimeout(() => {
-      // We'll trigger a save notification only if a project exists
-      if (currentProjectId) {
-        toast({ title: 'Auto-saved', description: '' });
-      }
+      if (currentProjectId) toast({ title: 'Auto-saved', description: '' });
     }, 3000);
   }, [dispatch, currentProjectId, toast]);
 
@@ -58,11 +57,39 @@ export default function DesignEditor() {
   });
 
   // Load custom fonts on mount
-  useEffect(() => {
-    loadStoredFonts((action) => dispatch(action));
-  }, [dispatch]);
+  useEffect(() => { loadStoredFonts((action) => dispatch(action)); }, [dispatch]);
 
+  // Sync grid options into canvas controller whenever they change
+  useEffect(() => {
+    controller.setGridOptions(state.gridEnabled, state.snapToGrid, state.gridSize);
+  }, [state.gridEnabled, state.snapToGrid, state.gridSize, controller.setGridOptions]);
+
+  // Track viewport position for grid overlay alignment — poll after:render
+  useEffect(() => {
+    const c = controller.getCanvas();
+    if (!c) return;
+    const onRender = () => {
+      const vp = c.viewportTransform;
+      if (vp) { setVpX(vp[4]); setVpY(vp[5]); }
+    };
+    c.on('after:render', onRender);
+    return () => { c.off('after:render', onRender); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync canvas bg whenever it changes from state (e.g. after project load)
+  useEffect(() => {
+    controller.setCanvasBackground(state.canvasBg);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const penActive = state.activeTool === 'pen';
   const hasSelection = state.selectedObjectIds.length > 0;
+
+  const handlePenCancel = useCallback(() => {
+    controller.cancelPenTool();
+    dispatch({ type: 'SET_TOOL', payload: 'select' });
+  }, [controller, dispatch]);
 
   return (
     <div
@@ -76,9 +103,22 @@ export default function DesignEditor() {
         canvasRef={canvasRef}
         containerRef={containerRef}
         hasObjects={controller.objects.length > 0}
+        gridEnabled={state.gridEnabled}
+        gridSize={state.gridSize}
+        transparentBg={state.canvasBg.type === 'transparent'}
+        penPoints={controller.penPoints}
+        penActive={penActive}
+        onPenClose={controller.closePenPath}
+        zoom={controller.zoom}
+        vpX={vpX}
+        vpY={vpY}
       />
 
-      <BottomToolbar hasSelection={hasSelection} />
+      <BottomToolbar
+        hasSelection={hasSelection}
+        penActive={penActive}
+        onPenCancel={handlePenCancel}
+      />
 
       {/* Panels & Dialogs */}
       <LayersPanel controller={controller} />
@@ -86,6 +126,8 @@ export default function DesignEditor() {
       <AddElementSheet controller={controller} />
       <ExportDialog controller={controller} />
       <CanvasSizeDialog controller={controller} />
+      <AlignmentPanel controller={controller} />
+      <CanvasBgDialog controller={controller} />
       <ProjectManager
         controller={controller}
         currentProjectId={currentProjectId}

@@ -12,24 +12,18 @@ import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject, Shadow, IText, Rect } from 'fabric';
 
-interface PropertiesPanelProps {
-  controller: CanvasController;
-}
+interface PropertiesPanelProps { controller: CanvasController }
 
 const SYSTEM_FONTS = ['Inter', 'Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Impact'];
+const TEXTURES = ['none', 'noise', 'lines', 'dots', 'crosshatch', 'grid'];
 
 function ColorInput({ label, value, onChange, testId }: { label: string; value: string; onChange: (v: string) => void; testId: string }) {
   return (
     <div className="flex items-center justify-between">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent p-0.5"
-          data-testid={testId}
-        />
+        <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
+          className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent p-0.5" data-testid={testId} />
         <span className="text-xs font-mono text-muted-foreground w-16">{value.toUpperCase()}</span>
       </div>
     </div>
@@ -50,27 +44,56 @@ function SliderRow({ label, value, min, max, step = 1, onChange, unit = '' }: {
   );
 }
 
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs font-semibold text-primary uppercase tracking-wider pt-1">{children}</p>;
+}
+
 export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'properties';
   const obj = controller.selectedObject;
 
+  // Base style
   const [fill, setFill] = useState('#00F5FF');
   const [stroke, setStroke] = useState('#000000');
   const [strokeWidth, setStrokeWidth] = useState(0);
   const [opacity, setOpacity] = useState(100);
+  const [rx, setRx] = useState(0);
+
+  // Drop shadow
   const [shadowEnabled, setShadowEnabled] = useState(false);
   const [shadowColor, setShadowColor] = useState('#000000');
   const [shadowBlur, setShadowBlur] = useState(10);
   const [shadowOffsetX, setShadowOffsetX] = useState(5);
   const [shadowOffsetY, setShadowOffsetY] = useState(5);
-  const [rx, setRx] = useState(0);
+  const [shadowOpacity, setShadowOpacity] = useState(80);
+
+  // Inner shadow
+  const [innerEnabled, setInnerEnabled] = useState(false);
+  const [innerColor, setInnerColor] = useState('#000000');
+  const [innerBlur, setInnerBlur] = useState(15);
+  const [innerOffsetX, setInnerOffsetX] = useState(0);
+  const [innerOffsetY, setInnerOffsetY] = useState(0);
+  const [innerOpacity, setInnerOpacity] = useState(60);
+
+  // 3D / depth
+  const [depthEnabled, setDepthEnabled] = useState(false);
+  const [depthAmount, setDepthAmount] = useState(8);
+  const [depthColor, setDepthColor] = useState('#000000');
+  const [skewX, setSkewX] = useState(0);
+  const [skewY, setSkewY] = useState(0);
+
+  // Texture
+  const [texture, setTexture] = useState('none');
+
+  // Typography
   const [fontSize, setFontSize] = useState(40);
   const [fontFamily, setFontFamily] = useState('Inter');
   const [fontWeight, setFontWeight] = useState('normal');
   const [fontStyle, setFontStyle] = useState('normal');
   const [textAlign, setTextAlign] = useState('left');
   const [charSpacing, setCharSpacing] = useState(0);
+  const [lineHeight, setLineHeight] = useState(1.16);
 
   const isText = obj?.type === 'i-text' || obj?.type === 'text';
   const isRect = obj?.type === 'rect';
@@ -90,9 +113,7 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
       setShadowBlur(shadow.blur || 10);
       setShadowOffsetX(shadow.offsetX || 5);
       setShadowOffsetY(shadow.offsetY || 5);
-    } else {
-      setShadowEnabled(false);
-    }
+    } else { setShadowEnabled(false); }
     if (isRect) setRx(typeof o.rx === 'number' ? o.rx : 0);
     if (isText) {
       const t = obj as IText;
@@ -102,7 +123,26 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
       setFontStyle((t.fontStyle as string) || 'normal');
       setTextAlign((t.textAlign as string) || 'left');
       setCharSpacing(typeof t.charSpacing === 'number' ? t.charSpacing / 10 : 0);
+      setLineHeight(typeof t.lineHeight === 'number' ? t.lineHeight : 1.16);
     }
+    const inner = (o as Record<string, unknown>)._innerShadow as { enabled?: boolean; color?: string; blur?: number; offsetX?: number; offsetY?: number; opacity?: number } | undefined;
+    if (inner) {
+      setInnerEnabled(!!inner.enabled);
+      setInnerColor(inner.color || '#000000');
+      setInnerBlur(inner.blur ?? 15);
+      setInnerOffsetX(inner.offsetX ?? 0);
+      setInnerOffsetY(inner.offsetY ?? 0);
+      setInnerOpacity(inner.opacity ?? 60);
+    } else { setInnerEnabled(false); }
+    setSkewX(typeof o.skewX === 'number' ? o.skewX : 0);
+    setSkewY(typeof o.skewY === 'number' ? o.skewY : 0);
+    const depthShadow = (o as Record<string, unknown>)._depthShadow as Shadow | null | undefined;
+    setDepthEnabled(!!depthShadow);
+    if (depthShadow) {
+      setDepthAmount(depthShadow.offsetX || 8);
+      setDepthColor(depthShadow.color || '#000000');
+    }
+    setTexture(((o as Record<string, unknown>)._textureKey as string) || 'none');
   }, [obj, isText, isRect]);
 
   useEffect(() => { syncFromObject(); }, [syncFromObject]);
@@ -121,28 +161,47 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const applyRx = (v: number) => { setRx(v); apply({ rx: v, ry: v }); };
   const applyFontSize = (v: number) => { setFontSize(v); apply({ fontSize: v }); };
   const applyFontFamily = (v: string) => { setFontFamily(v); apply({ fontFamily: v }); };
-  const applyBold = () => {
-    const next = fontWeight === 'bold' ? 'normal' : 'bold';
-    setFontWeight(next);
-    apply({ fontWeight: next });
-  };
-  const applyItalic = () => {
-    const next = fontStyle === 'italic' ? 'normal' : 'italic';
-    setFontStyle(next);
-    apply({ fontStyle: next });
-  };
+  const applyBold = () => { const n = fontWeight === 'bold' ? 'normal' : 'bold'; setFontWeight(n); apply({ fontWeight: n }); };
+  const applyItalic = () => { const n = fontStyle === 'italic' ? 'normal' : 'italic'; setFontStyle(n); apply({ fontStyle: n }); };
   const applyTextAlign = (v: string) => { if (!v) return; setTextAlign(v); apply({ textAlign: v }); };
   const applyCharSpacing = (v: number) => { setCharSpacing(v); apply({ charSpacing: v * 10 }); };
+  const applyLineHeight = (v: number) => { setLineHeight(v); apply({ lineHeight: v }); };
 
-  const applyShadow = useCallback((enabled: boolean, color: string, blur: number, ox: number, oy: number) => {
+  const applyDropShadow = useCallback((en: boolean, color: string, blur: number, ox: number, oy: number, opa: number) => {
     if (!obj) return;
-    if (enabled) {
-      obj.set('shadow', new Shadow({ color, blur, offsetX: ox, offsetY: oy }));
-    } else {
-      obj.set('shadow', null);
-    }
+    if (en) {
+      const hex = color.replace('#', '');
+      const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+      obj.set('shadow', new Shadow({ color: `rgba(${r},${g},${b},${opa/100})`, blur, offsetX: ox, offsetY: oy }));
+    } else { obj.set('shadow', null); }
     controller.getCanvas()?.renderAll();
   }, [obj, controller]);
+
+  const applyInnerShadowEffect = useCallback((en: boolean, color: string, blur: number, ox: number, oy: number, opa: number) => {
+    controller.applyInnerShadow(obj, en ? { enabled: true, color, blur, offsetX: ox, offsetY: oy, opacity: opa } : null);
+  }, [obj, controller]);
+
+  const applyDepth = useCallback((en: boolean, amount: number, color: string) => {
+    if (!obj) return;
+    if (en) {
+      const depthShadow = new Shadow({ color, blur: 0, offsetX: amount, offsetY: amount });
+      (obj as FabricObject & { _depthShadow: Shadow })._depthShadow = depthShadow;
+      // Add multiple stacked shadows via the main shadow prop to simulate depth
+      obj.set('shadow', new Shadow({ color, blur: 1, offsetX: amount, offsetY: amount }));
+    } else {
+      (obj as FabricObject & { _depthShadow?: Shadow })._depthShadow = undefined;
+      obj.set('shadow', shadowEnabled ? new Shadow({ color: shadowColor, blur: shadowBlur, offsetX: shadowOffsetX, offsetY: shadowOffsetY }) : null);
+    }
+    controller.getCanvas()?.renderAll();
+  }, [obj, controller, shadowEnabled, shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY]);
+
+  const applySkewX = (v: number) => { setSkewX(v); apply({ skewX: v }); };
+  const applySkewY = (v: number) => { setSkewY(v); apply({ skewY: v }); };
+
+  const applyTexture = (v: string) => {
+    setTexture(v);
+    controller.applyTexture(obj, v === 'none' ? null : v);
+  };
 
   if (!obj) return null;
 
@@ -151,11 +210,11 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
       <SheetContent
         side="bottom"
         className="rounded-t-2xl p-0"
-        style={{ maxHeight: '65vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
+        style={{ maxHeight: '75vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="properties-panel"
       >
         <SheetHeader className="px-4 pt-4 pb-2 flex flex-row items-center justify-between">
-          <SheetTitle className="text-sm font-semibold">Style</SheetTitle>
+          <SheetTitle className="text-sm font-semibold">Style & Effects</SheetTitle>
           <div className="flex gap-1">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => controller.duplicateSelected()} data-testid="button-duplicate">
               <Copy size={13} />
@@ -166,90 +225,129 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
           </div>
         </SheetHeader>
 
-        <div className="px-4 pb-6 space-y-4">
+        <div className="px-4 space-y-4" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+
+          {/* ── Fill & Stroke ── */}
+          <SectionLabel>Fill & Stroke</SectionLabel>
           <ColorInput label="Fill" value={fill} onChange={applyFill} testId="color-fill" />
           <ColorInput label="Stroke" value={stroke} onChange={applyStroke} testId="color-stroke" />
           <SliderRow label="Stroke Width" value={strokeWidth} min={0} max={30} onChange={applyStrokeWidth} />
           <SliderRow label="Opacity" value={opacity} min={0} max={100} onChange={applyOpacity} unit="%" />
           {isRect && <SliderRow label="Corner Radius" value={rx} min={0} max={100} onChange={applyRx} />}
 
+          {/* ── Texture Overlay ── */}
           <Separator />
-
-          <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground">Drop Shadow</Label>
-            <Switch
-              checked={shadowEnabled}
-              onCheckedChange={(v) => {
-                setShadowEnabled(v);
-                applyShadow(v, shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY);
-              }}
-              data-testid="switch-shadow"
-            />
+          <SectionLabel>Texture Overlay</SectionLabel>
+          <div className="grid grid-cols-3 gap-2">
+            {TEXTURES.map((t) => (
+              <button
+                key={t}
+                onClick={() => applyTexture(t)}
+                className="py-2 px-1 rounded-lg text-xs capitalize transition-all border"
+                style={{
+                  background: texture === t ? 'rgba(0,245,255,0.15)' : 'rgba(255,255,255,0.04)',
+                  borderColor: texture === t ? '#00F5FF' : 'rgba(255,255,255,0.1)',
+                  color: texture === t ? '#00F5FF' : '#9ca3af',
+                }}
+              >
+                {t}
+              </button>
+            ))}
           </div>
 
+          {/* ── Drop Shadow ── */}
+          <Separator />
+          <div className="flex items-center justify-between">
+            <SectionLabel>Drop Shadow</SectionLabel>
+            <Switch checked={shadowEnabled} onCheckedChange={(v) => {
+              setShadowEnabled(v);
+              applyDropShadow(v, shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY, shadowOpacity);
+            }} data-testid="switch-shadow" />
+          </div>
           {shadowEnabled && (
             <div className="space-y-3 pl-2 border-l border-border">
-              <ColorInput label="Shadow Color" value={shadowColor} onChange={(v) => { setShadowColor(v); applyShadow(true, v, shadowBlur, shadowOffsetX, shadowOffsetY); }} testId="color-shadow" />
-              <SliderRow label="Blur" value={shadowBlur} min={0} max={50} onChange={(v) => { setShadowBlur(v); applyShadow(true, shadowColor, v, shadowOffsetX, shadowOffsetY); }} />
-              <SliderRow label="Offset X" value={shadowOffsetX} min={-50} max={50} onChange={(v) => { setShadowOffsetX(v); applyShadow(true, shadowColor, shadowBlur, v, shadowOffsetY); }} />
-              <SliderRow label="Offset Y" value={shadowOffsetY} min={-50} max={50} onChange={(v) => { setShadowOffsetY(v); applyShadow(true, shadowColor, shadowBlur, shadowOffsetX, v); }} />
+              <ColorInput label="Color" value={shadowColor} onChange={(v) => { setShadowColor(v); applyDropShadow(true, v, shadowBlur, shadowOffsetX, shadowOffsetY, shadowOpacity); }} testId="color-shadow" />
+              <SliderRow label="Blur" value={shadowBlur} min={0} max={80} onChange={(v) => { setShadowBlur(v); applyDropShadow(true, shadowColor, v, shadowOffsetX, shadowOffsetY, shadowOpacity); }} />
+              <SliderRow label="Offset X" value={shadowOffsetX} min={-80} max={80} onChange={(v) => { setShadowOffsetX(v); applyDropShadow(true, shadowColor, shadowBlur, v, shadowOffsetY, shadowOpacity); }} />
+              <SliderRow label="Offset Y" value={shadowOffsetY} min={-80} max={80} onChange={(v) => { setShadowOffsetY(v); applyDropShadow(true, shadowColor, shadowBlur, shadowOffsetX, v, shadowOpacity); }} />
+              <SliderRow label="Opacity" value={shadowOpacity} min={0} max={100} onChange={(v) => { setShadowOpacity(v); applyDropShadow(true, shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY, v); }} unit="%" />
             </div>
           )}
 
+          {/* ── Inner Shadow ── */}
+          <Separator />
+          <div className="flex items-center justify-between">
+            <SectionLabel>Inner Shadow</SectionLabel>
+            <Switch checked={innerEnabled} onCheckedChange={(v) => {
+              setInnerEnabled(v);
+              applyInnerShadowEffect(v, innerColor, innerBlur, innerOffsetX, innerOffsetY, innerOpacity);
+            }} />
+          </div>
+          {innerEnabled && (
+            <div className="space-y-3 pl-2 border-l border-border">
+              <ColorInput label="Color" value={innerColor} onChange={(v) => { setInnerColor(v); applyInnerShadowEffect(true, v, innerBlur, innerOffsetX, innerOffsetY, innerOpacity); }} testId="color-inner-shadow" />
+              <SliderRow label="Blur" value={innerBlur} min={0} max={60} onChange={(v) => { setInnerBlur(v); applyInnerShadowEffect(true, innerColor, v, innerOffsetX, innerOffsetY, innerOpacity); }} />
+              <SliderRow label="Offset X" value={innerOffsetX} min={-40} max={40} onChange={(v) => { setInnerOffsetX(v); applyInnerShadowEffect(true, innerColor, innerBlur, v, innerOffsetY, innerOpacity); }} />
+              <SliderRow label="Offset Y" value={innerOffsetY} min={-40} max={40} onChange={(v) => { setInnerOffsetY(v); applyInnerShadowEffect(true, innerColor, innerBlur, innerOffsetX, v, innerOpacity); }} />
+              <SliderRow label="Opacity" value={innerOpacity} min={0} max={100} onChange={(v) => { setInnerOpacity(v); applyInnerShadowEffect(true, innerColor, innerBlur, innerOffsetX, innerOffsetY, v); }} unit="%" />
+            </div>
+          )}
+
+          {/* ── 3D / Depth ── */}
+          <Separator />
+          <div className="flex items-center justify-between">
+            <SectionLabel>3D Depth Effect</SectionLabel>
+            <Switch checked={depthEnabled} onCheckedChange={(v) => {
+              setDepthEnabled(v);
+              applyDepth(v, depthAmount, depthColor);
+            }} />
+          </div>
+          {depthEnabled && (
+            <div className="space-y-3 pl-2 border-l border-border">
+              <ColorInput label="Depth Color" value={depthColor} onChange={(v) => { setDepthColor(v); applyDepth(true, depthAmount, v); }} testId="color-depth" />
+              <SliderRow label="Depth Amount" value={depthAmount} min={1} max={40} onChange={(v) => { setDepthAmount(v); applyDepth(true, v, depthColor); }} />
+            </div>
+          )}
+          <div className="space-y-3">
+            <SliderRow label="3D Rotation X (Skew)" value={skewX} min={-45} max={45} onChange={applySkewX} unit="°" />
+            <SliderRow label="3D Rotation Y (Skew)" value={skewY} min={-45} max={45} onChange={applySkewY} unit="°" />
+          </div>
+
+          {/* ── Typography (text only) ── */}
           {isText && (
             <>
               <Separator />
-              <p className="text-xs font-medium text-primary">Typography</p>
+              <SectionLabel>Typography</SectionLabel>
               <Select value={fontFamily} onValueChange={applyFontFamily}>
                 <SelectTrigger className="w-full text-xs h-8" data-testid="select-font-family">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {allFonts.map((f) => (
-                    <SelectItem key={f} value={f} style={{ fontFamily: f }}>
-                      {f}
-                    </SelectItem>
+                    <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-
               <SliderRow label="Font Size" value={fontSize} min={8} max={300} onChange={applyFontSize} />
               <SliderRow label="Letter Spacing" value={charSpacing} min={-50} max={200} onChange={applyCharSpacing} />
-
+              <SliderRow label="Line Height" value={lineHeight} min={0.5} max={4} step={0.05} onChange={applyLineHeight} />
               <div className="flex gap-2">
-                <Button
-                  variant={fontWeight === 'bold' ? 'default' : 'secondary'}
-                  size="sm"
-                  className="flex-1 h-8"
-                  onClick={applyBold}
-                  data-testid="button-bold"
-                >
+                <Button variant={fontWeight === 'bold' ? 'default' : 'secondary'} size="sm" className="flex-1 h-8" onClick={applyBold} data-testid="button-bold">
                   <Bold size={13} />
                 </Button>
-                <Button
-                  variant={fontStyle === 'italic' ? 'default' : 'secondary'}
-                  size="sm"
-                  className="flex-1 h-8 italic"
-                  onClick={applyItalic}
-                  data-testid="button-italic"
-                >
+                <Button variant={fontStyle === 'italic' ? 'default' : 'secondary'} size="sm" className="flex-1 h-8 italic" onClick={applyItalic} data-testid="button-italic">
                   <Italic size={13} />
                 </Button>
               </div>
-
-              <ToggleGroup
-                type="single"
-                value={textAlign}
-                onValueChange={applyTextAlign}
-                className="justify-start gap-1"
-                data-testid="toggle-text-align"
-              >
+              <ToggleGroup type="single" value={textAlign} onValueChange={applyTextAlign} className="justify-start gap-1" data-testid="toggle-text-align">
                 <ToggleGroupItem value="left" className="h-8 w-8 p-0" data-testid="align-left"><AlignLeft size={13} /></ToggleGroupItem>
                 <ToggleGroupItem value="center" className="h-8 w-8 p-0" data-testid="align-center"><AlignCenter size={13} /></ToggleGroupItem>
                 <ToggleGroupItem value="right" className="h-8 w-8 p-0" data-testid="align-right"><AlignRight size={13} /></ToggleGroupItem>
               </ToggleGroup>
             </>
           )}
+
+          <div className="h-2" />
         </div>
       </SheetContent>
     </Sheet>

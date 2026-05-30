@@ -1,0 +1,1 @@
+- [Fabric v6 TypeScript quirks](fabric-v6-quirks.md) — several Canvas methods need `(c as any)` casts; TFiller not exported from root

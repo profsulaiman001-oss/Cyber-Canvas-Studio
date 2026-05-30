@@ -1,6 +1,14 @@
 import { RefObject } from 'react';
 import { PenPoint } from '@/hooks/useFabricCanvas';
 
+export interface DragInfo {
+  w: number;
+  h: number;
+  angle: number;
+  clientX: number;
+  clientY: number;
+}
+
 interface CanvasProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   containerRef: RefObject<HTMLDivElement | null>;
@@ -14,6 +22,7 @@ interface CanvasProps {
   zoom: number;
   vpX: number;
   vpY: number;
+  dragInfo: DragInfo | null;
 }
 
 export default function CanvasWorkspace({
@@ -21,10 +30,20 @@ export default function CanvasWorkspace({
   gridEnabled, gridSize, transparentBg,
   penPoints, penActive,
   zoom, vpX, vpY,
+  dragInfo,
 }: CanvasProps) {
   const tileSize = gridSize * zoom;
   const showEmptyHint = !hasObjects && !penActive;
   const showPenSvg = penActive && penPoints.length > 0;
+
+  /* ── Telemetry tooltip position (clamped inside container) ── */
+  let tooltipLeft = 0;
+  let tooltipTop = 0;
+  if (dragInfo && containerRef.current) {
+    const rect = containerRef.current.getBoundingClientRect();
+    tooltipLeft = Math.min(dragInfo.clientX - rect.left + 14, rect.width - 130);
+    tooltipTop  = Math.max(dragInfo.clientY - rect.top  - 38, 4);
+  }
 
   return (
     <div
@@ -41,8 +60,7 @@ export default function CanvasWorkspace({
       {/*
         All overlay layers are ALWAYS present in the DOM.
         Visibility is controlled via `opacity` / `display` so React never
-        inserts or removes siblings adjacent to <canvas>, which would
-        trigger the "insertBefore: node is not a child" reconciliation crash.
+        inserts or removes siblings adjacent to <canvas>.
       */}
 
       {/* Grid overlay — stable node, opacity driven */}
@@ -91,7 +109,6 @@ export default function CanvasWorkspace({
           const cx = p.x * zoom + vpX;
           const cy = p.y * zoom + vpY;
           const isFirst = i === 0;
-          // Key on coordinates + index — never uses bare index so deletions stay stable
           return (
             <g key={`pt-${i}-${Math.round(p.x)}-${Math.round(p.y)}`}>
               <circle
@@ -123,6 +140,23 @@ export default function CanvasWorkspace({
             ? `${penPoints.length} point${penPoints.length > 1 ? 's' : ''} — keep tapping`
             : 'Tap first point to close shape'}
         </div>
+      </div>
+
+      {/* Transformation telemetry — shown while dragging / scaling / rotating */}
+      <div
+        aria-hidden={!dragInfo}
+        className="absolute pointer-events-none z-30 px-2 py-1 rounded-lg text-xs font-mono whitespace-nowrap"
+        style={{
+          display: dragInfo ? 'block' : 'none',
+          left: tooltipLeft,
+          top: tooltipTop,
+          background: 'rgba(0,0,0,0.88)',
+          color: '#00F5FF',
+          border: '1px solid rgba(0,245,255,0.35)',
+          boxShadow: '0 0 8px rgba(0,245,255,0.2)',
+        }}
+      >
+        {dragInfo ? `${dragInfo.w} × ${dragInfo.h} px${dragInfo.angle !== 0 ? `  ·  ${dragInfo.angle}°` : ''}` : ''}
       </div>
 
       <canvas

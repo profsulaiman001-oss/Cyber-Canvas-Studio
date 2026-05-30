@@ -112,6 +112,7 @@ export default function DesignEditor() {
         zoom={controller.zoom}
         vpX={vpX}
         vpY={vpY}
+        dragInfo={controller.dragInfo}
       />
 
       <BottomToolbar

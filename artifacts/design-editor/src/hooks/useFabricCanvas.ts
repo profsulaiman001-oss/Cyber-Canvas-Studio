@@ -822,8 +822,19 @@ export function useFabricCanvas(
 
   const deleteObject = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
-    c.remove(obj); c.renderAll();
-  }, []);
+    // Clear selection state BEFORE removal so React never reconciles against
+    // a stale selectedObject that no longer exists in the canvas.
+    if (c.getActiveObject() === obj || c.getActiveObjects().includes(obj)) {
+      c.discardActiveObject();
+      setSelectedObject(null);
+      options.onSelectionChange([]);
+    }
+    c.remove(obj);
+    c.renderAll();
+    // syncObjects is called via the object:removed canvas event → handleChange,
+    // but we call it explicitly here too as a safety net.
+    syncObjects();
+  }, [options, syncObjects]);
 
   const getObjectById = useCallback((id: string): FabricObject | null => {
     const c = canvasRef.current; if (!c) return null;

@@ -14,6 +14,7 @@ import {
   ActiveSelection,
   Gradient,
   Pattern,
+  PencilBrush,
 } from 'fabric';
 
 export interface ObjectMeta {
@@ -32,6 +33,11 @@ export interface CanvasBgConfig {
 }
 
 export type AlignType = 'left' | 'right' | 'top' | 'bottom' | 'centerH' | 'centerV';
+export type BrushPreset = 'standard' | 'glow' | 'airbrush';
+
+export interface DragInfo {
+  w: number; h: number; angle: number; clientX: number; clientY: number;
+}
 
 interface UseFabricCanvasOptions {
   width: number;
@@ -44,6 +50,7 @@ interface UseFabricCanvasOptions {
 export interface PenPoint { x: number; y: number }
 
 const MAX_UNDO = 50;
+const EXTRA_PROPS = ['_uid', '_name', '_innerShadow', '_textureKey', '_depth3d', '_glow'];
 let objectSeq: Record<string, number> = {};
 
 function nextName(type: string): string {
@@ -52,7 +59,7 @@ function nextName(type: string): string {
     rect: 'Rectangle', circle: 'Circle', triangle: 'Triangle',
     line: 'Line', path: 'Path', 'i-text': 'Text', image: 'Image',
     star: 'Star', hexagon: 'Hexagon', pentagon: 'Pentagon',
-    heart: 'Heart', arrow: 'Arrow',
+    heart: 'Heart', arrow: 'Arrow', brush: 'Brush Stroke',
   };
   return `${labels[type] || type} ${objectSeq[type]}`;
 }
@@ -91,12 +98,10 @@ function polygonPath(n: number, r = 60, startAngle = 0): string {
 
 const HEART_PATH =
   'M 0,-35 C 5,-50 25,-50 25,-32 C 25,-15 0,10 0,30 C 0,10 -25,-15 -25,-32 C -25,-50 -5,-50 0,-35 Z';
-
 const RIGHT_TRI_PATH = 'M -50,50 L -50,-50 L 50,50 Z';
-
 const ARROW_PATH = 'M -55,-18 L 10,-18 L 10,-45 L 55,0 L 10,45 L 10,18 L -55,18 Z';
 
-/* ─── Inner shadow canvas renderer (called in after:render) ─── */
+/* ─── Inner shadow canvas renderer ─── */
 function drawInnerShadow(
   ctx: CanvasRenderingContext2D,
   obj: FabricObject,
@@ -112,7 +117,6 @@ function drawInnerShadow(
   const h = (obj.height ?? 100);
   const pad = Math.max(cfg.blur * 3, 50);
 
-  // Clip to object shape
   ctx.beginPath();
   if (obj.type === 'circle') {
     const r = (obj as Circle).radius ?? w / 2;
@@ -121,36 +125,62 @@ function drawInnerShadow(
     const rx = (obj as Rect).rx ?? 0;
     if (rx > 0) {
       const x = -w / 2, y = -h / 2;
-      ctx.moveTo(x + rx, y);
-      ctx.lineTo(x + w - rx, y);
-      ctx.arcTo(x + w, y, x + w, y + rx, rx);
-      ctx.lineTo(x + w, y + h - rx);
-      ctx.arcTo(x + w, y + h, x + w - rx, y + h, rx);
-      ctx.lineTo(x + rx, y + h);
-      ctx.arcTo(x, y + h, x, y + h - rx, rx);
-      ctx.lineTo(x, y + rx);
-      ctx.arcTo(x, y, x + rx, y, rx);
-      ctx.closePath();
+      ctx.moveTo(x + rx, y); ctx.lineTo(x + w - rx, y);
+      ctx.arcTo(x + w, y, x + w, y + rx, rx); ctx.lineTo(x + w, y + h - rx);
+      ctx.arcTo(x + w, y + h, x + w - rx, y + h, rx); ctx.lineTo(x + rx, y + h);
+      ctx.arcTo(x, y + h, x, y + h - rx, rx); ctx.lineTo(x, y + rx);
+      ctx.arcTo(x, y, x + rx, y, rx); ctx.closePath();
     } else {
       ctx.rect(-w / 2, -h / 2, w, h);
     }
   }
   ctx.clip();
 
-  // Draw large ring outside + shadow bleeds inward through the clip
   ctx.shadowColor = cfg.color;
   ctx.shadowBlur = cfg.blur;
   ctx.shadowOffsetX = cfg.offsetX;
   ctx.shadowOffsetY = cfg.offsetY;
   ctx.globalAlpha = cfg.opacity / 100;
   ctx.fillStyle = cfg.color;
-
   ctx.beginPath();
-  ctx.rect(-w / 2 - pad, -h / 2 - pad, w + pad * 2, h + pad * 2); // outer
-  ctx.rect(-w / 2 + 0.5, -h / 2 + 0.5, w - 1, h - 1);             // inner hole (even-odd)
+  ctx.rect(-w / 2 - pad, -h / 2 - pad, w + pad * 2, h + pad * 2);
+  ctx.rect(-w / 2 + 0.5, -h / 2 + 0.5, w - 1, h - 1);
   ctx.fill('evenodd');
-
   ctx.restore();
+}
+
+/* ─── True 3D extrusion renderer ─── */
+function draw3DLayer(
+  ctx: CanvasRenderingContext2D,
+  obj: FabricObject,
+  cfg: { steps: number; color: string; angle: number },
+  vp: number[]
+) {
+  const { steps, color, angle } = cfg;
+  const ar = (angle * Math.PI) / 180;
+  const baseOpacity = obj.opacity ?? 1;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const o = obj as any;
+  const origFill = o.fill;
+  const origShadow = o.shadow;
+  const origSW = o.strokeWidth;
+  o.fill = color;
+  o.shadow = null;
+  o.strokeWidth = 0;
+  for (let i = 1; i <= steps; i++) {
+    const ox = Math.cos(ar) * i;
+    const oy = Math.sin(ar) * i;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.globalAlpha = baseOpacity * Math.max(0.25, 1 - 0.65 * (i / steps));
+    ctx.setTransform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
+    ctx.translate(ox, oy);
+    obj.render(ctx);
+    ctx.restore();
+  }
+  o.fill = origFill;
+  o.shadow = origShadow;
+  o.strokeWidth = origSW;
 }
 
 export function useFabricCanvas(
@@ -167,14 +197,20 @@ export function useFabricCanvas(
   const [objects, setObjects] = useState<ObjectMeta[]>([]);
   const [selectedObject, setSelectedObject] = useState<FabricObject | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [dragInfo, setDragInfo] = useState<DragInfo | null>(null);
+  const [isBrushActive, setIsBrushActive] = useState(false);
+  const [eyedropperActive, setEyedropperActive] = useState(false);
 
-  // Grid / snap refs (mutable, read inside Fabric event handlers)
+  // Mutable refs for event handlers
   const gridEnabledRef = useRef(false);
   const snapToGridRef = useRef(false);
   const gridSizeRef = useRef(20);
+  const penActiveRef = useRef(false);
+  const brushActiveRef = useRef(false);
+  const eyedropperActiveRef = useRef(false);
+  const eyedropperCallbackRef = useRef<((color: string) => void) | null>(null);
 
   // Pen tool state
-  const penActiveRef = useRef(false);
   const [penPoints, setPenPoints] = useState<PenPoint[]>([]);
   const penPointsRef = useRef<PenPoint[]>([]);
   const penPreviewRef = useRef<Path | null>(null);
@@ -183,7 +219,8 @@ export function useFabricCanvas(
   const syncObjects = useCallback(() => {
     const c = canvasRef.current;
     if (!c) return;
-    const objs = c.getObjects().filter((o) => !(o as FabricObject & { _isPenAux?: boolean })._isPenAux);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const objs = c.getObjects().filter((o) => !(o as any)._isPenAux && !(o as any)._isAuxLayer);
     setObjects(
       [...objs].reverse().map((obj) => ({
         id: objId(obj),
@@ -199,7 +236,7 @@ export function useFabricCanvas(
     const c = canvasRef.current;
     if (!c || isUndoRedo.current) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json = JSON.stringify((c as any).toJSON(['_uid', '_name', '_innerShadow', '_textureKey']));
+    const json = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
     undoStack.current.push(json);
     if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
     redoStack.current = [];
@@ -237,13 +274,8 @@ export function useFabricCanvas(
     if (!c || pts.length < 2) return;
     if (penPreviewRef.current) c.remove(penPreviewRef.current);
     const p = new Path(buildPreviewPathStr(pts, false), {
-      stroke: '#00F5FF',
-      strokeWidth: 2,
-      fill: 'transparent',
-      selectable: false,
-      evented: false,
-      hasControls: false,
-      hasBorders: false,
+      stroke: '#00F5FF', strokeWidth: 2, fill: 'transparent',
+      selectable: false, evented: false, hasControls: false, hasBorders: false,
       strokeDashArray: [6, 3],
     });
     (p as unknown as Record<string, unknown>)._isPenAux = true;
@@ -256,11 +288,7 @@ export function useFabricCanvas(
     const c = canvasRef.current;
     if (!c) return;
     const pts = penPointsRef.current;
-    if (pts.length < 2) {
-      cancelPenTool();
-      return;
-    }
-    // Remove aux objects
+    if (pts.length < 2) { cancelPenTool(); return; }
     if (penPreviewRef.current) { c.remove(penPreviewRef.current); penPreviewRef.current = null; }
     penAnchorRefs.current.forEach((ci) => c.remove(ci));
     penAnchorRefs.current = [];
@@ -268,15 +296,12 @@ export function useFabricCanvas(
     const isClosed = pts.length >= 3;
     const pathStr = buildPreviewPathStr(pts, isClosed);
     const finalPath = new Path(pathStr, {
-      stroke: '#00F5FF',
-      strokeWidth: 3,
+      stroke: '#00F5FF', strokeWidth: 3,
       fill: isClosed ? 'rgba(0,245,255,0.25)' : 'transparent',
     });
     tagObj(finalPath, 'path');
     c.add(finalPath);
     c.setActiveObject(finalPath);
-
-    // Reset pen state
     penPointsRef.current = [];
     setPenPoints([]);
     penActiveRef.current = false;
@@ -318,7 +343,6 @@ export function useFabricCanvas(
       preserveObjectStacking: true,
     });
     canvasRef.current = c;
-
     designWidth.current = options.width;
     designHeight.current = options.height;
     fitToContainer();
@@ -341,38 +365,79 @@ export function useFabricCanvas(
     c.on('object:modified', handleChange);
     c.on('object:removed', handleChange);
 
-    /* ─── Snap to grid ─── */
+    /* ─── Snap to grid + drag telemetry ─── */
     c.on('object:moving', (e) => {
-      if (!snapToGridRef.current || !gridEnabledRef.current) return;
-      const obj = e.target;
-      const g = gridSizeRef.current;
-      obj.set({
-        left: Math.round((obj.left ?? 0) / g) * g,
-        top: Math.round((obj.top ?? 0) / g) * g,
-      });
+      if (snapToGridRef.current && gridEnabledRef.current) {
+        const obj = e.target;
+        const g = gridSizeRef.current;
+        obj.set({
+          left: Math.round((obj.left ?? 0) / g) * g,
+          top: Math.round((obj.top ?? 0) / g) * g,
+        });
+      }
+      const t = e.target;
+      if (t) setDragInfo({ w: Math.round(t.getScaledWidth()), h: Math.round(t.getScaledHeight()), angle: Math.round(t.angle ?? 0), clientX: (e.e as MouseEvent).clientX ?? 0, clientY: (e.e as MouseEvent).clientY ?? 0 });
+    });
+    c.on('object:scaling', (e) => {
+      const t = e.target;
+      if (t) setDragInfo({ w: Math.round(t.getScaledWidth()), h: Math.round(t.getScaledHeight()), angle: Math.round(t.angle ?? 0), clientX: (e.e as MouseEvent).clientX ?? 0, clientY: (e.e as MouseEvent).clientY ?? 0 });
+    });
+    c.on('object:rotating', (e) => {
+      const t = e.target;
+      if (t) setDragInfo({ w: Math.round(t.getScaledWidth()), h: Math.round(t.getScaledHeight()), angle: Math.round(t.angle ?? 0), clientX: (e.e as MouseEvent).clientX ?? 0, clientY: (e.e as MouseEvent).clientY ?? 0 });
     });
 
-    /* ─── Inner shadow afterRender ─── */
+    /* ─── After:render – inner shadow + 3D extrusion ─── */
     c.on('after:render', ({ ctx }) => {
       const vp = c.viewportTransform;
       if (!vp) return;
       c.getObjects().forEach((obj) => {
+        // Inner shadow
         const cfg = (obj as FabricObject & { _innerShadow?: { enabled: boolean; color: string; blur: number; offsetX: number; offsetY: number; opacity: number } })._innerShadow;
-        if (!cfg?.enabled) return;
-        drawInnerShadow(ctx, obj, cfg, vp);
+        if (cfg?.enabled) drawInnerShadow(ctx, obj, cfg, vp);
+        // True 3D extrusion
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const depth3d = (obj as any)._depth3d as { enabled: boolean; steps: number; color: string; angle: number } | undefined;
+        if (depth3d?.enabled) draw3DLayer(ctx, obj, depth3d, vp);
       });
     });
 
-    /* ─── Mouse:down – pen tool & pan ─── */
+    /* ─── Brush stroke complete ─── */
+    c.on('path:created', (e: { path: Path }) => {
+      if (brushActiveRef.current) {
+        tagObj(e.path, 'brush');
+        pushUndo();
+      }
+    });
+
+    /* ─── Mouse:down – eyedropper, pen tool, pan ─── */
     let isPanning = false;
     let lastPanX = 0, lastPanY = 0;
 
     c.on('mouse:down', (opt) => {
+      // Eyedropper intercept
+      if (eyedropperActiveRef.current && eyedropperCallbackRef.current) {
+        const lc = c.getElement() as HTMLCanvasElement;
+        const lCtx = lc.getContext('2d');
+        if (lCtx) {
+          const me = opt.e as MouseEvent;
+          const rect = lc.getBoundingClientRect();
+          const sx = Math.max(0, Math.round(me.clientX - rect.left));
+          const sy = Math.max(0, Math.round(me.clientY - rect.top));
+          const px = lCtx.getImageData(sx, sy, 1, 1).data;
+          const hex = `#${[px[0], px[1], px[2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+          eyedropperCallbackRef.current(hex);
+        }
+        eyedropperActiveRef.current = false;
+        eyedropperCallbackRef.current = null;
+        setEyedropperActive(false);
+        return;
+      }
+
       const me = opt.e as MouseEvent | TouchEvent;
       if (penActiveRef.current) {
         const pointer = c.getScenePoint(opt.e as MouseEvent);
         const pts = penPointsRef.current;
-        // Close if clicking near first point
         if (pts.length >= 3) {
           const first = pts[0];
           if (Math.hypot(pointer.x - first.x, pointer.y - first.y) < 20 / c.getZoom()) {
@@ -383,19 +448,11 @@ export function useFabricCanvas(
         const newPts = [...pts, { x: pointer.x, y: pointer.y }];
         penPointsRef.current = newPts;
         setPenPoints([...newPts]);
-
-        // Add anchor circle
         const anchor = new Circle({
-          left: pointer.x - 5,
-          top: pointer.y - 5,
-          radius: 5,
+          left: pointer.x - 5, top: pointer.y - 5, radius: 5,
           fill: pts.length === 0 ? '#ff6b6b' : '#00F5FF',
-          stroke: '#ffffff',
-          strokeWidth: 1.5,
-          selectable: false,
-          evented: false,
-          hasControls: false,
-          hasBorders: false,
+          stroke: '#ffffff', strokeWidth: 1.5,
+          selectable: false, evented: false, hasControls: false, hasBorders: false,
         });
         (anchor as unknown as Record<string, unknown>)._isPenAux = true;
         c.add(anchor);
@@ -410,6 +467,7 @@ export function useFabricCanvas(
         lastPanY = (me as MouseEvent).clientY;
       }
     });
+
     c.on('mouse:move', (opt) => {
       if (isPanning) {
         const dx = (opt.e as MouseEvent).clientX - lastPanX;
@@ -419,7 +477,12 @@ export function useFabricCanvas(
         lastPanY = (opt.e as MouseEvent).clientY;
       }
     });
-    c.on('mouse:up', () => { isPanning = false; if (!penActiveRef.current) c.selection = true; });
+
+    c.on('mouse:up', () => {
+      isPanning = false;
+      if (!penActiveRef.current && !brushActiveRef.current) c.selection = true;
+      setDragInfo(null);
+    });
 
     /* ─── Pinch to zoom ─── */
     let lastDist = 0, lastMidX = 0, lastMidY = 0;
@@ -452,7 +515,7 @@ export function useFabricCanvas(
 
     /* ─── Mouse wheel zoom ─── */
     c.on('mouse:wheel', (opt) => {
-      let z = Math.min(Math.max(c.getZoom() * 0.999 ** (opt.e as WheelEvent).deltaY, 0.1), 10);
+      const z = Math.min(Math.max(c.getZoom() * 0.999 ** (opt.e as WheelEvent).deltaY, 0.1), 10);
       c.zoomToPoint(new Point((opt.e as WheelEvent).offsetX, (opt.e as WheelEvent).offsetY), z);
       opt.e.preventDefault();
       opt.e.stopPropagation();
@@ -493,10 +556,9 @@ export function useFabricCanvas(
       const stops = cfg.gradientStops.map((s) => ({ offset: s.offset, color: s.color }));
       const grad = new Gradient({
         type: cfg.gradientType === 'radial' ? 'radial' : 'linear',
-        coords:
-          cfg.gradientType === 'radial'
-            ? { r1: 0, r2: Math.max(w, h) / 2, x1: w / 2, y1: h / 2, x2: w / 2, y2: h / 2 }
-            : { x1: 0, y1: 0, x2: w, y2: 0 },
+        coords: cfg.gradientType === 'radial'
+          ? { r1: 0, r2: Math.max(w, h) / 2, x1: w / 2, y1: h / 2, x2: w / 2, y2: h / 2 }
+          : { x1: 0, y1: 0, x2: w, y2: 0 },
         colorStops: stops,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -612,19 +674,14 @@ export function useFabricCanvas(
     const c = canvasRef.current; if (!c) return;
     const objs = c.getActiveObjects();
     if (!objs.length) return;
-
     const cw = designWidth.current;
     const ch = designHeight.current;
     const zoom = c.getZoom();
     const vp = c.viewportTransform || [1, 0, 0, 1, 0, 0];
-
     const toDesign = (br: { left: number; top: number; width: number; height: number }) => ({
-      left: (br.left - vp[4]) / zoom,
-      top: (br.top - vp[5]) / zoom,
-      width: br.width / zoom,
-      height: br.height / zoom,
+      left: (br.left - vp[4]) / zoom, top: (br.top - vp[5]) / zoom,
+      width: br.width / zoom, height: br.height / zoom,
     });
-
     if (objs.length === 1) {
       const obj = objs[0];
       const dr = toDesign(obj.getBoundingRect());
@@ -683,10 +740,8 @@ export function useFabricCanvas(
     if (!textureKey) {
       obj.set('fill', (obj as FabricObject & { _origFill?: string })._origFill || '#00F5FF');
       (obj as FabricObject & { _textureKey?: string })._textureKey = undefined;
-      c.requestRenderAll();
-      return;
+      c.requestRenderAll(); return;
     }
-    // Store original fill
     if (!(obj as FabricObject & { _origFill?: string })._origFill && typeof obj.fill === 'string') {
       (obj as FabricObject & { _origFill?: string })._origFill = obj.fill;
     }
@@ -716,13 +771,155 @@ export function useFabricCanvas(
     []
   );
 
+  /* ─── True 3D Extrusion ─── */
+  const apply3DDepth = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; steps: number; color: string; angle: number } | null) => {
+    if (!obj) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any)._depth3d = cfg;
+    canvasRef.current?.requestRenderAll();
+  }, []);
+
+  /* ─── Glow / Neon ─── */
+  const applyGlow = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; color: string; intensity: number } | null) => {
+    if (!obj) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any)._glow = cfg;
+    if (cfg?.enabled) {
+      obj.set('shadow', new Shadow({ color: cfg.color, blur: cfg.intensity * 2.5, offsetX: 0, offsetY: 0 }));
+    } else {
+      obj.set('shadow', null);
+    }
+    canvasRef.current?.requestRenderAll();
+  }, []);
+
+  /* ─── Gradient Fill ─── */
+  const applyGradientFill = useCallback((obj: FabricObject | null, type: 'linear' | 'radial', stops: { offset: number; color: string }[]) => {
+    if (!obj) return;
+    const c = canvasRef.current; if (!c) return;
+    const w = obj.width ?? 100;
+    const h = obj.height ?? 100;
+    const grad = new Gradient({
+      type: type === 'radial' ? 'radial' : 'linear',
+      coords: type === 'radial'
+        ? { x1: 0, y1: 0, r1: 0, x2: 0, y2: 0, r2: Math.max(w, h) / 2 }
+        : { x1: -w / 2, y1: 0, x2: w / 2, y2: 0 },
+      colorStops: stops,
+      gradientUnits: 'pixels',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    obj.set('fill', grad as any);
+    c.requestRenderAll();
+  }, []);
+
+  /* ─── Fill Shape with Image ─── */
+  const fillShapeWithImage = useCallback(async (obj: FabricObject, file: File) => {
+    const c = canvasRef.current; if (!c) return;
+    const url = URL.createObjectURL(file);
+    try {
+      const fabImg = await FabricImage.fromURL(url);
+      const w = obj.width ?? 100;
+      const h = obj.height ?? 100;
+      const imgW = fabImg.width || 1;
+      const imgH = fabImg.height || 1;
+      const scaleX = w / imgW;
+      const scaleY = h / imgH;
+      const pat = new Pattern({
+        source: fabImg.getElement() as HTMLImageElement,
+        repeat: 'no-repeat',
+        patternTransform: [scaleX, 0, 0, scaleY, -w / 2, -h / 2],
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      obj.set('fill', pat as any);
+      c.requestRenderAll();
+      pushUndo();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }, [pushUndo]);
+
+  /* ─── Crop Image ─── */
+  const cropImage = useCallback((obj: FabricObject, cropX: number, cropY: number, cropW: number, cropH: number) => {
+    const c = canvasRef.current; if (!c) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).set({ cropX, cropY, width: cropW, height: cropH });
+    obj.setCoords();
+    c.requestRenderAll();
+    pushUndo();
+  }, [pushUndo]);
+
+  /* ─── Brush Engine ─── */
+  const activateBrush = useCallback((preset: BrushPreset, color: string, size: number) => {
+    const c = canvasRef.current; if (!c) return;
+    brushActiveRef.current = true;
+    setIsBrushActive(true);
+    c.isDrawingMode = true;
+    c.selection = false;
+    c.discardActiveObject();
+
+    const brush = new PencilBrush(c);
+    brush.width = size;
+
+    if (preset === 'standard') {
+      brush.color = color;
+      brush.shadow = null;
+    } else if (preset === 'glow') {
+      // Thin white/color core + heavy neon shadowBlur
+      brush.color = color;
+      brush.width = Math.max(2, size * 0.4);
+      brush.shadow = new Shadow({ color, blur: size * 4, offsetX: 0, offsetY: 0 });
+    } else if (preset === 'airbrush') {
+      // Wide, very low-opacity strokes
+      const [r, g, b] = [
+        parseInt(color.slice(1, 3), 16),
+        parseInt(color.slice(3, 5), 16),
+        parseInt(color.slice(5, 7), 16),
+      ];
+      brush.color = `rgba(${r},${g},${b},0.08)`;
+      brush.width = size * 4;
+      brush.shadow = null;
+    }
+
+    brush.strokeLineCap = 'round';
+    brush.strokeLineJoin = 'round';
+    c.freeDrawingBrush = brush;
+    c.requestRenderAll();
+  }, []);
+
+  const deactivateBrush = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    brushActiveRef.current = false;
+    setIsBrushActive(false);
+    c.isDrawingMode = false;
+    c.selection = true;
+    c.requestRenderAll();
+  }, []);
+
+  /* ─── Eyedropper ─── */
+  const activateEyedropper = useCallback((callback: (color: string) => void) => {
+    eyedropperActiveRef.current = true;
+    eyedropperCallbackRef.current = callback;
+    setEyedropperActive(true);
+    const c = canvasRef.current; if (!c) return;
+    c.discardActiveObject();
+    c.selection = false;
+    c.requestRenderAll();
+  }, []);
+
+  const deactivateEyedropper = useCallback(() => {
+    eyedropperActiveRef.current = false;
+    eyedropperCallbackRef.current = null;
+    setEyedropperActive(false);
+    const c = canvasRef.current; if (!c) return;
+    c.selection = true;
+  }, []);
+
   /* ─── Undo / Redo ─── */
   const undo = useCallback(async () => {
     const c = canvasRef.current;
     if (!c || undoStack.current.length === 0) return;
     isUndoRedo.current = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    redoStack.current.push(JSON.stringify((c as any).toJSON(['_uid', '_name', '_innerShadow', '_textureKey'])));
+    redoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
     const prev = undoStack.current.pop()!;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (c as any).loadFromJSON(JSON.parse(prev));
@@ -737,7 +934,7 @@ export function useFabricCanvas(
     if (!c || redoStack.current.length === 0) return;
     isUndoRedo.current = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    undoStack.current.push(JSON.stringify((c as any).toJSON(['_uid', '_name', '_innerShadow', '_textureKey'])));
+    undoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
     const next = redoStack.current.pop()!;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (c as any).loadFromJSON(JSON.parse(next));
@@ -763,7 +960,7 @@ export function useFabricCanvas(
   const getJSON = useCallback((): object => {
     const c = canvasRef.current; if (!c) return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (c as any).toJSON(['_uid', '_name', '_innerShadow', '_textureKey']);
+    return (c as any).toJSON(EXTRA_PROPS);
   }, []);
 
   const loadFromJSON = useCallback(async (json: object) => {
@@ -822,18 +1019,12 @@ export function useFabricCanvas(
 
   const deleteObject = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
-    // Clear selection state BEFORE removal so React never reconciles against
-    // a stale selectedObject that no longer exists in the canvas.
     if (c.getActiveObject() === obj || c.getActiveObjects().includes(obj)) {
       c.discardActiveObject();
       setSelectedObject(null);
       options.onSelectionChange([]);
     }
-    c.remove(obj);
-    c.renderAll();
-    // syncObjects is called via the object:removed canvas event → handleChange,
-    // but we call it explicitly here too as a safety net.
-    syncObjects();
+    c.remove(obj); c.renderAll(); syncObjects();
   }, [options, syncObjects]);
 
   const getObjectById = useCallback((id: string): FabricObject | null => {
@@ -851,11 +1042,16 @@ export function useFabricCanvas(
 
   return {
     getCanvas, objects, selectedObject, zoom, penPoints,
+    dragInfo, isBrushActive, eyedropperActive,
     // Shapes
     addRect, addCircle, addTriangle, addLine, addText, addImageFromFile,
     addStar, addHexagon, addPentagon, addHeart, addRightTriangle, addArrow,
     // Pen tool
     activatePenTool, cancelPenTool, closePenPath,
+    // Brush engine
+    activateBrush, deactivateBrush,
+    // Eyedropper
+    activateEyedropper, deactivateEyedropper,
     // Undo/redo/export
     undo, redo, exportCanvas, getJSON, loadFromJSON,
     // Canvas ops
@@ -866,7 +1062,8 @@ export function useFabricCanvas(
     // Alignment
     alignObjects,
     // Effects
-    applyInnerShadow, applyTexture,
+    applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
+    applyGradientFill, fillShapeWithImage, cropImage,
     // Util
     syncObjects, fitToContainer,
   };

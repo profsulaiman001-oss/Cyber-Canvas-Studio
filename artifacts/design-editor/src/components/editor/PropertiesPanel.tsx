@@ -390,7 +390,8 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
               <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={() => setCropOpen(true)}>
                 ✂ Crop Image
               </Button>
-              <CropDialog open={cropOpen} onClose={() => setCropOpen(false)} obj={obj} onApply={controller.cropImage} />
+              <CropDialog open={cropOpen} onClose={() => setCropOpen(false)} obj={obj}
+                onApply={(cx, cy, cw, ch) => controller.cropImage(obj!, cx, cy, cw, ch)} />
             </>
           )}
 

@@ -1,10 +1,11 @@
 import { createContext, useContext, useReducer, ReactNode } from 'react';
+import type { BrushPreset } from '@/hooks/useFabricCanvas';
 
 export type ActivePanel =
   | 'layers' | 'properties' | 'add' | 'export' | 'project'
   | 'canvasSize' | 'alignment' | 'canvasBg' | null;
 
-export type ActiveTool = 'select' | 'pan' | 'pen';
+export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush';
 
 export interface CanvasBgConfig {
   type: 'solid' | 'transparent' | 'gradient';
@@ -27,6 +28,9 @@ export interface EditorState {
   snapToGrid: boolean;
   gridSize: number;
   canvasBg: CanvasBgConfig;
+  brushPreset: BrushPreset;
+  brushColor: string;
+  brushSize: number;
 }
 
 type EditorAction =
@@ -42,7 +46,10 @@ type EditorAction =
   | { type: 'TOGGLE_GRID' }
   | { type: 'TOGGLE_SNAP' }
   | { type: 'SET_GRID_SIZE'; payload: number }
-  | { type: 'SET_CANVAS_BG'; payload: CanvasBgConfig };
+  | { type: 'SET_CANVAS_BG'; payload: CanvasBgConfig }
+  | { type: 'SET_BRUSH_PRESET'; payload: BrushPreset }
+  | { type: 'SET_BRUSH_COLOR'; payload: string }
+  | { type: 'SET_BRUSH_SIZE'; payload: number };
 
 const defaultBg: CanvasBgConfig = {
   type: 'solid',
@@ -68,6 +75,9 @@ const initialState: EditorState = {
   snapToGrid: false,
   gridSize: 20,
   canvasBg: defaultBg,
+  brushPreset: 'standard',
+  brushColor: '#00F5FF',
+  brushSize: 8,
 };
 
 function reducer(state: EditorState, action: EditorAction): EditorState {
@@ -100,6 +110,12 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, gridSize: action.payload };
     case 'SET_CANVAS_BG':
       return { ...state, canvasBg: action.payload };
+    case 'SET_BRUSH_PRESET':
+      return { ...state, brushPreset: action.payload };
+    case 'SET_BRUSH_COLOR':
+      return { ...state, brushColor: action.payload };
+    case 'SET_BRUSH_SIZE':
+      return { ...state, brushSize: action.payload };
     default:
       return state;
   }

@@ -24,7 +24,6 @@ export default function DesignEditor() {
   const { toast } = useToast();
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
 
-  // Track viewport transform for grid alignment
   const [vpX, setVpX] = useState(0);
   const [vpY, setVpY] = useState(0);
 
@@ -64,7 +63,7 @@ export default function DesignEditor() {
     controller.setGridOptions(state.gridEnabled, state.snapToGrid, state.gridSize);
   }, [state.gridEnabled, state.snapToGrid, state.gridSize, controller.setGridOptions]);
 
-  // Track viewport position for grid overlay alignment — poll after:render
+  // Track viewport position for grid overlay alignment
   useEffect(() => {
     const c = controller.getCanvas();
     if (!c) return;
@@ -77,19 +76,69 @@ export default function DesignEditor() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync canvas bg whenever it changes from state (e.g. after project load)
+  // Sync canvas bg on mount
   useEffect(() => {
     controller.setCanvasBackground(state.canvasBg);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ── Brush activation: whenever tool or brush params change ── */
+  useEffect(() => {
+    if (state.activeTool === 'brush') {
+      controller.activateBrush(state.brushPreset, state.brushColor, state.brushSize);
+    } else if (controller.isBrushActive) {
+      controller.deactivateBrush();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.activeTool, state.brushPreset, state.brushColor, state.brushSize]);
+
   const penActive = state.activeTool === 'pen';
+  const brushActive = state.activeTool === 'brush';
   const hasSelection = state.selectedObjectIds.length > 0;
 
   const handlePenCancel = useCallback(() => {
     controller.cancelPenTool();
     dispatch({ type: 'SET_TOOL', payload: 'select' });
   }, [controller, dispatch]);
+
+  const handleBrushDone = useCallback(() => {
+    controller.deactivateBrush();
+    dispatch({ type: 'SET_TOOL', payload: 'select' });
+  }, [controller, dispatch]);
+
+  const handleBrushColorChange = useCallback((color: string) => {
+    dispatch({ type: 'SET_BRUSH_COLOR', payload: color });
+  }, [dispatch]);
+
+  const handleBrushSizeChange = useCallback((size: number) => {
+    dispatch({ type: 'SET_BRUSH_SIZE', payload: size });
+  }, [dispatch]);
+
+  /* ── Eyedropper: close panel, pick a color, apply to selected fill ── */
+  const handleEyedropper = useCallback(() => {
+    if (controller.eyedropperActive) {
+      controller.deactivateEyedropper();
+      return;
+    }
+    dispatch({ type: 'CLOSE_PANEL' });
+    controller.activateEyedropper((color) => {
+      // Apply to selected object's fill if one is selected
+      const obj = controller.selectedObject;
+      if (obj) {
+        obj.set('fill', color);
+        controller.getCanvas()?.renderAll();
+        toast({
+          title: `Color applied: ${color.toUpperCase()}`,
+          description: 'Fill color updated from canvas sample',
+        });
+      } else {
+        toast({
+          title: `Color picked: ${color.toUpperCase()}`,
+          description: 'Select an object first to apply the color',
+        });
+      }
+    });
+  }, [controller, dispatch, toast]);
 
   return (
     <div
@@ -113,12 +162,20 @@ export default function DesignEditor() {
         vpX={vpX}
         vpY={vpY}
         dragInfo={controller.dragInfo}
+        brushActive={brushActive}
+        eyedropperActive={controller.eyedropperActive}
       />
 
       <BottomToolbar
         hasSelection={hasSelection}
         penActive={penActive}
+        brushActive={brushActive}
+        eyedropperActive={controller.eyedropperActive}
         onPenCancel={handlePenCancel}
+        onBrushDone={handleBrushDone}
+        onBrushColorChange={handleBrushColorChange}
+        onBrushSizeChange={handleBrushSizeChange}
+        onEyedropper={handleEyedropper}
       />
 
       {/* Panels & Dialogs */}

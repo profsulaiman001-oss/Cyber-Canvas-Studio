@@ -23,6 +23,8 @@ interface CanvasProps {
   vpX: number;
   vpY: number;
   dragInfo: DragInfo | null;
+  brushActive?: boolean;
+  eyedropperActive?: boolean;
 }
 
 export default function CanvasWorkspace({
@@ -30,11 +32,13 @@ export default function CanvasWorkspace({
   gridEnabled, gridSize, transparentBg,
   penPoints, penActive,
   zoom, vpX, vpY,
-  dragInfo,
+  dragInfo, brushActive, eyedropperActive,
 }: CanvasProps) {
   const tileSize = gridSize * zoom;
-  const showEmptyHint = !hasObjects && !penActive;
+  const showEmptyHint = !hasObjects && !penActive && !brushActive;
   const showPenSvg = penActive && penPoints.length > 0;
+
+  const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : 'default';
 
   /* ── Telemetry tooltip position (clamped inside container) ── */
   let tooltipLeft = 0;
@@ -53,7 +57,7 @@ export default function CanvasWorkspace({
         background: transparentBg
           ? `repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 20px 20px`
           : `radial-gradient(circle at 50% 50%, #0f1118 0%, #0B0C10 100%)`,
-        cursor: penActive ? 'crosshair' : 'default',
+        cursor: canvasCursor,
       }}
       data-testid="canvas-workspace"
     >

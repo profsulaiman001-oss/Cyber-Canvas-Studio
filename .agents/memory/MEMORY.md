@@ -1,1 +1,4 @@
-- [Fabric v6 TypeScript quirks](fabric-v6-quirks.md) — several Canvas methods need `(c as any)` casts; TFiller not exported from root
+- [useFabricCanvas architecture](fabric-hook.md) — hook exports: apply3DDepth, applyGlow, applyGradientFill, fillShapeWithImage, cropImage, activateBrush, deactivateBrush, activateEyedropper, deactivateEyedropper, dragInfo, isBrushActive, eyedropperActive
+- [Brush engine](brush-engine.md) — uses Fabric PencilBrush; glow preset uses Shadow with blur=size*4; airbrush uses rgba(r,g,b,0.08) and width*4; brushActive stored in editorStore
+- [3D extrusion](3d-extrusion.md) — draw3DLayer renders offset copies via destination-over in after:render, not Fabric shadow; stores _depth3d on obj
+- [Fabric v6 quirks](fabric-v6-quirks.md) — toJSON needs explicit extra props array; bringObjectForward/sendObjectBackwards via (c as any); loadFromJSON via (c as any); PencilBrush.shadow works for glow

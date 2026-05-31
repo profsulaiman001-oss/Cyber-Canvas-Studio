@@ -55,6 +55,35 @@ export default function DesignEditor() {
     onUndoRedoChange: handleUndoRedoChange,
   });
 
+  /* ── Directional Nudge Vector Engine Movement Pipeline ── */
+  const handleNudgeElement = useCallback((direction: 'up' | 'down' | 'left' | 'right', amount: number) => {
+    const activeObject = controller.selectedObject;
+    const fabricCanvas = controller.getCanvas();
+
+    if (!activeObject || !fabricCanvas) return;
+
+    // Adjust positional metadata maps along correct canvas layout axes
+    switch (direction) {
+      case 'up':
+        activeObject.set('top', (activeObject.top || 0) - amount);
+        break;
+      case 'down':
+        activeObject.set('top', (activeObject.top || 0) + amount);
+        break;
+      case 'left':
+        activeObject.set('left', (activeObject.left || 0) - amount);
+        break;
+      case 'right':
+        activeObject.set('left', (activeObject.left || 0) + amount);
+        break;
+    }
+
+    // Force vector matrix calculation and update canvas frames instantly
+    activeObject.setCoords();
+    fabricCanvas.renderAll();
+    handleCanvasChanged();
+  }, [controller, handleCanvasChanged]);
+
   // Load custom fonts on mount
   useEffect(() => { loadStoredFonts((action) => dispatch(action)); }, [dispatch]);
 
@@ -164,6 +193,12 @@ export default function DesignEditor() {
         dragInfo={controller.dragInfo}
         brushActive={brushActive}
         eyedropperActive={controller.eyedropperActive}
+
+        // Dynamic live sizes hooked straight to layout engine states
+        canvasWidth={state.canvasSize.width}
+        canvasHeight={state.canvasSize.height}
+        selectedElementId={state.selectedObjectIds[0] || null}
+        onNudgeElement={handleNudgeElement}
       />
 
       <BottomToolbar

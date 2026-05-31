@@ -191,7 +191,7 @@ export function useFabricCanvas(
   const canvasRef = useRef<Canvas | null>(null);
   const undoStack = useRef<string[]>([]);
   const redoStack = useRef<string[]>([]);
-  const isUndoRedo = useRef(false);
+  const isUndoRedoRef = useRef<boolean>(false);
   const designWidth = useRef(options.width);
   const designHeight = useRef(options.height);
   const [objects, setObjects] = useState<ObjectMeta[]>([]);
@@ -234,7 +234,7 @@ export function useFabricCanvas(
 
   const pushUndo = useCallback(() => {
     const c = canvasRef.current;
-    if (!c || isUndoRedo.current) return;
+    if (!c || isUndoRedoRef.current) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
     undoStack.current.push(json);
@@ -356,7 +356,7 @@ export function useFabricCanvas(
       }
     };
     const handleDeselect = () => { setSelectedObject(null); options.onSelectionChange([]); };
-    const handleChange = () => { if (!isUndoRedo.current) pushUndo(); syncObjects(); };
+    const handleChange = () => { if (!isUndoRedoRef.current) pushUndo(); syncObjects(); };
 
     c.on('selection:created', handleSelect);
     c.on('selection:updated', handleSelect);
@@ -669,56 +669,72 @@ export function useFabricCanvas(
     } finally { URL.revokeObjectURL(url); }
   }, [getCenter]);
 
-  /* ─── Alignment ─── */
+  /* ─── Alignment (Fixed: Uses strict visual bounding calculation matrix) ─── */
   const alignObjects = useCallback((type: AlignType) => {
     const c = canvasRef.current; if (!c) return;
     const objs = c.getActiveObjects();
     if (!objs.length) return;
+
     const cw = designWidth.current;
     const ch = designHeight.current;
-    const zoom = c.getZoom();
+    const currentZoom = c.getZoom();
     const vp = c.viewportTransform || [1, 0, 0, 1, 0, 0];
-    const toDesign = (br: { left: number; top: number; width: number; height: number }) => ({
-      left: (br.left - vp[4]) / zoom, top: (br.top - vp[5]) / zoom,
-      width: br.width / zoom, height: br.height / zoom,
+
+    // Helper maps bounding dimensions back into localized canvas coordinate space
+    const toDesignSpace = (rect: { left: number; top: number; width: number; height: number }) => ({
+      left: (rect.left - vp[4]) / currentZoom,
+      top: (rect.top - vp[5]) / currentZoom,
+      width: rect.width / currentZoom,
+      height: rect.height / currentZoom,
     });
+
     if (objs.length === 1) {
       const obj = objs[0];
-      const dr = toDesign(obj.getBoundingRect());
-      const dLeft = (obj.left ?? 0) - dr.left;
-      const dTop = (obj.top ?? 0) - dr.top;
+      // Passing true, true pulls the true outer pixels including all custom stroke-widths and independent scales
+      const visualRect = toDesignSpace(obj.getBoundingRect(true, true));
+      const deltaLeft = (obj.left ?? 0) - visualRect.left;
+      const deltaTop = (obj.top ?? 0) - visualRect.top;
+
       switch (type) {
-        case 'left': obj.set({ left: dLeft }); break;
-        case 'right': obj.set({ left: cw - dr.width + dLeft }); break;
-        case 'top': obj.set({ top: dTop }); break;
-        case 'bottom': obj.set({ top: ch - dr.height + dTop }); break;
-        case 'centerH': obj.set({ left: (cw - dr.width) / 2 + dLeft }); break;
-        case 'centerV': obj.set({ top: (ch - dr.height) / 2 + dTop }); break;
+        case 'left': obj.set({ left: deltaLeft }); break;
+        case 'right': obj.set({ left: cw - visualRect.width + deltaLeft }); break;
+        case 'top': obj.set({ top: deltaTop }); break;
+        case 'bottom': obj.set({ top: ch - visualRect.height + deltaTop }); break;
+        case 'centerH': obj.set({ left: (cw - visualRect.width) / 2 + deltaLeft }); break;
+        case 'centerV': obj.set({ top: (ch - visualRect.height) / 2 + deltaTop }); break;
       }
       obj.setCoords();
     } else {
       c.discardActiveObject();
-      const infos = objs.map((obj) => {
-        const dr = toDesign(obj.getBoundingRect());
-        return { obj, dr, dLeft: (obj.left ?? 0) - dr.left, dTop: (obj.top ?? 0) - dr.top };
+      const objectsMetadata = objs.map((obj) => {
+        const visualRect = toDesignSpace(obj.getBoundingRect(true, true));
+        return { 
+          obj, 
+          rect: visualRect, 
+          deltaLeft: (obj.left ?? 0) - visualRect.left, 
+          deltaTop: (obj.top ?? 0) - visualRect.top 
+        };
       });
-      const minLeft = Math.min(...infos.map((i) => i.dr.left));
-      const maxRight = Math.max(...infos.map((i) => i.dr.left + i.dr.width));
-      const minTop = Math.min(...infos.map((i) => i.dr.top));
-      const maxBottom = Math.max(...infos.map((i) => i.dr.top + i.dr.height));
-      const totalW = maxRight - minLeft;
-      const totalH = maxBottom - minTop;
-      infos.forEach(({ obj, dr, dLeft, dTop }) => {
+
+      const absoluteMinLeft = Math.min(...objectsMetadata.map((i) => i.rect.left));
+      const absoluteMaxRight = Math.max(...objectsMetadata.map((i) => i.rect.left + i.rect.width));
+      const absoluteMinTop = Math.min(...objectsMetadata.map((i) => i.rect.top));
+      const absoluteMaxBottom = Math.max(...objectsMetadata.map((i) => i.rect.top + i.rect.height));
+      const dynamicGroupWidth = absoluteMaxRight - absoluteMinLeft;
+      const dynamicGroupHeight = absoluteMaxBottom - absoluteMinTop;
+
+      objectsMetadata.forEach(({ obj, rect, deltaLeft, deltaTop }) => {
         switch (type) {
-          case 'left': obj.set({ left: minLeft + dLeft }); break;
-          case 'right': obj.set({ left: maxRight - dr.width + dLeft }); break;
-          case 'top': obj.set({ top: minTop + dTop }); break;
-          case 'bottom': obj.set({ top: maxBottom - dr.height + dTop }); break;
-          case 'centerH': obj.set({ left: minLeft + (totalW - dr.width) / 2 + dLeft }); break;
-          case 'centerV': obj.set({ top: minTop + (totalH - dr.height) / 2 + dTop }); break;
+          case 'left': obj.set({ left: absoluteMinLeft + deltaLeft }); break;
+          case 'right': obj.set({ left: absoluteMaxRight - rect.width + deltaLeft }); break;
+          case 'top': obj.set({ top: absoluteMinTop + deltaTop }); break;
+          case 'bottom': obj.set({ top: absoluteMaxBottom - rect.height + deltaTop }); break;
+          case 'centerH': obj.set({ left: absoluteMinLeft + (dynamicGroupWidth - rect.width) / 2 + deltaLeft }); break;
+          case 'centerV': obj.set({ top: absoluteMinTop + (dynamicGroupHeight - rect.height) / 2 + deltaTop }); break;
         }
         obj.setCoords();
       });
+
       const sel = new ActiveSelection(objs, { canvas: c });
       c.setActiveObject(sel);
     }
@@ -863,12 +879,10 @@ export function useFabricCanvas(
       brush.color = color;
       brush.shadow = null;
     } else if (preset === 'glow') {
-      // Thin white/color core + heavy neon shadowBlur
       brush.color = color;
       brush.width = Math.max(2, size * 0.4);
       brush.shadow = new Shadow({ color, blur: size * 4, offsetX: 0, offsetY: 0 });
     } else if (preset === 'airbrush') {
-      // Wide, very low-opacity strokes
       const [r, g, b] = [
         parseInt(color.slice(1, 3), 16),
         parseInt(color.slice(3, 5), 16),
@@ -917,14 +931,14 @@ export function useFabricCanvas(
   const undo = useCallback(async () => {
     const c = canvasRef.current;
     if (!c || undoStack.current.length === 0) return;
-    isUndoRedo.current = true;
+    isUndoRedoRef.current = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     redoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
     const prev = undoStack.current.pop()!;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (c as any).loadFromJSON(JSON.parse(prev));
     c.renderAll();
-    isUndoRedo.current = false;
+    isUndoRedoRef.current = false;
     options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
     syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
   }, [options, syncObjects]);
@@ -932,26 +946,52 @@ export function useFabricCanvas(
   const redo = useCallback(async () => {
     const c = canvasRef.current;
     if (!c || redoStack.current.length === 0) return;
-    isUndoRedo.current = true;
+    isUndoRedoRef.current = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     undoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
     const next = redoStack.current.pop()!;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (c as any).loadFromJSON(JSON.parse(next));
     c.renderAll();
-    isUndoRedo.current = false;
+    isUndoRedoRef.current = false;
     options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
     syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
   }, [options, syncObjects]);
 
-  /* ─── Export ─── */
+  /* ─── Export (Fixed: Enforces explicit snapshot clipping parameters) ─── */
   const exportCanvas = useCallback((format: 'png' | 'jpeg', quality: number, multiplier: number): string => {
     const c = canvasRef.current; if (!c) return '';
-    const vt = c.viewportTransform;
+    
+    // Save current active selection and viewport transformation configs
+    const activeObj = c.getActiveObject();
+    const savedVpTransform = c.viewportTransform;
+    
+    // Deselect any highlighted borders to avoid bounding-box artifacts on final export image
+    c.discardActiveObject();
+    
+    // Lock viewport rendering origin directly to physical vector boundary bounds (left: 0, top: 0)
     c.setViewportTransform([1, 0, 0, 1, 0, 0]);
     c.setDimensions({ width: designWidth.current, height: designHeight.current });
-    const dataUrl = c.toDataURL({ format, quality, multiplier });
-    c.setViewportTransform(vt || [1, 0, 0, 1, 0, 0]);
+    
+    // Generate data stream specifying precise output boundaries matching configuration layout aspect
+    const dataUrl = c.toDataURL({ 
+      format, 
+      quality, 
+      multiplier,
+      left: 0,
+      top: 0,
+      width: designWidth.current,
+      height: designHeight.current
+    });
+    
+    // Restore layout matrix state seamlessly back to screen viewport workspace settings
+    if (savedVpTransform) {
+      c.setViewportTransform(savedVpTransform);
+    }
+    if (activeObj) {
+      c.setActiveObject(activeObj);
+    }
+    
     fitToContainer();
     return dataUrl;
   }, [fitToContainer]);

@@ -28,7 +28,79 @@ export default function AlignmentPanel({ controller }: AlignmentPanelProps) {
   const hasSelection = state.selectedObjectIds.length > 0;
   const multi = state.selectedObjectIds.length > 1;
 
-  const align = (type: AlignType) => controller.alignObjects(type);
+  const align = (type: AlignType) => {
+    const activeObject = controller.selectedObject;
+    const fabricCanvas = controller.getCanvas();
+
+    if (multi || !activeObject || !fabricCanvas) {
+      controller.alignObjects(type);
+      return;
+    }
+
+    // Capture explicit current canvas size
+    const canvasW = state.canvasSize.width;
+    const canvasH = state.canvasSize.height;
+
+    // Use getScaledWidth/Height to accurately track large/scaled elements
+    const objW = activeObject.getScaledWidth();
+    const objH = activeObject.getScaledHeight();
+
+    // Secure the object's current origin configuration 
+    const origX = activeObject.originX || 'left';
+    const origY = activeObject.originY || 'top';
+
+    // Calculate exact Top-Left absolute standard baseline coordinates
+    let targetLeft = activeObject.left || 0;
+    let targetTop = activeObject.top || 0;
+
+    // Horizontal Calculations
+    if (type === 'left' || type === 'centerH' || type === 'right') {
+      if (type === 'left') {
+        targetLeft = 0;
+      } else if (type === 'centerH') {
+        targetLeft = (canvasW - objW) / 2;
+      } else if (type === 'right') {
+        targetLeft = canvasW - objW;
+      }
+
+      // If the object's anchor origin is centered, offset the coordinates by half its width
+      if (origX === 'center') {
+        targetLeft += objW / 2;
+      } else if (origX === 'right') {
+        targetLeft += objW;
+      }
+      
+      activeObject.set('left', targetLeft);
+    }
+
+    // Vertical Calculations
+    if (type === 'top' || type === 'centerV' || type === 'bottom') {
+      if (type === 'top') {
+        targetTop = 0;
+      } else if (type === 'centerV') {
+        targetTop = (canvasH - objH) / 2;
+      } else if (type === 'bottom') {
+        targetTop = canvasH - objH;
+      }
+
+      // If the object's anchor origin is centered, offset the coordinates by half its height
+      if (origY === 'center') {
+        targetTop += objH / 2;
+      } else if (origY === 'bottom') {
+        targetTop += objH;
+      }
+
+      activeObject.set('top', targetTop);
+    }
+
+    // Force vector updates and render canvas space
+    activeObject.setCoords();
+    fabricCanvas.renderAll();
+    
+    if (typeof fabricCanvas.fire === 'function') {
+      fabricCanvas.fire('object:modified', { target: activeObject });
+    }
+  };
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>

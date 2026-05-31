@@ -26,30 +26,31 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
   const multiplier = scalePreset === 'custom' ? parseFloat(customScale) || 1 : parseFloat(scalePreset);
 
   const handleExport = () => {
+    // controller.exportCanvas now handles the viewport preservation and edge cropping internally!
     const dataUrl = controller.exportCanvas(format, quality / 100, multiplier);
     if (!dataUrl) return;
     const ext = format === 'jpeg' ? 'jpg' : 'png';
-    const filename = `${state.projectName.replace(/\s+/g, '-').toLowerCase()}.${ext}`;
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = filename;
-    a.click();
-    dispatch({ type: 'CLOSE_PANEL' });
+    const filename = `${state.projectTitle || 'untitled'}_design.${ext}`;
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    dispatch({ type: 'SET_ACTIVE_PANEL', payload: null });
   };
 
-  const { canvasSize } = state;
+  const canvasSize = state.canvasSize || { width: 1080, height: 1080 };
   const exportW = Math.round(canvasSize.width * multiplier);
   const exportH = Math.round(canvasSize.height * multiplier);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <DialogContent
-        className="max-w-xs mx-auto rounded-2xl"
-        style={{ background: '#11141A', border: '1px solid rgba(0,245,255,0.15)' }}
-        data-testid="export-dialog"
-      >
+    <Dialog open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'SET_ACTIVE_PANEL', payload: null })}>
+      <DialogContent className="sm:max-w-md gap-4 p-4" data-testid="dialog-export">
         <DialogHeader>
-          <DialogTitle className="text-sm font-semibold">Export Canvas</DialogTitle>
+          <DialogTitle className="text-sm font-semibold">Export Design</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -58,29 +59,41 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
             <ToggleGroup
               type="single"
               value={format}
-              onValueChange={(v) => v && setFormat(v as 'png' | 'jpeg')}
-              className="gap-2"
-              data-testid="toggle-format"
+              onValueChange={(val) => val && setFormat(val as 'png' | 'jpeg')}
+              className="justify-start gap-2"
+              data-testid="toggle-group-format"
             >
-              <ToggleGroupItem value="png" className="flex-1 text-xs" data-testid="format-png">PNG</ToggleGroupItem>
-              <ToggleGroupItem value="jpeg" className="flex-1 text-xs" data-testid="format-jpg">JPG</ToggleGroupItem>
+              <ToggleGroupItem value="png" className="h-8 text-xs px-4" data-testid="toggle-item-png">
+                PNG
+              </ToggleGroupItem>
+              <ToggleGroupItem value="jpeg" className="h-8 text-xs px-4" data-testid="toggle-item-jpeg">
+                JPEG
+              </ToggleGroupItem>
             </ToggleGroup>
           </div>
 
           {format === 'jpeg' && (
             <div className="space-y-1.5">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <Label className="text-xs text-muted-foreground">Quality</Label>
-                <span className="text-xs text-muted-foreground">{quality}%</span>
+                <span className="text-xs font-mono">{quality}%</span>
               </div>
-              <Slider min={10} max={100} step={5} value={[quality]} onValueChange={([v]) => setQuality(v)} data-testid="slider-quality" />
+              <Slider
+                value={[quality]}
+                onValueChange={(vals) => setQuality(vals[0])}
+                min={10}
+                max={100}
+                step={1}
+                className="py-2"
+                data-testid="slider-quality"
+              />
             </div>
           )}
 
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Scale / Resolution</Label>
-            <Select value={scalePreset} onValueChange={setScalePreset}>
-              <SelectTrigger className="text-xs h-8" data-testid="select-scale">
+            <Label className="text-xs text-muted-foreground">Size Options</Label>
+            <Select value={scalePreset} onValueChange={setScalePreset} data-testid="select-scale-preset">
+              <SelectTrigger className="h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

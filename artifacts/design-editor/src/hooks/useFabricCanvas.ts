@@ -690,8 +690,8 @@ export function useFabricCanvas(
 
     if (objs.length === 1) {
       const obj = objs[0];
-      // Passing true, true pulls the true outer pixels including all custom stroke-widths and independent scales
-      const visualRect = toDesignSpace(obj.getBoundingRect(true, true));
+      // getBoundingRect() returns the absolute bounding box including strokes and scale (Fabric v6 takes no args)
+      const visualRect = toDesignSpace(obj.getBoundingRect());
       const deltaLeft = (obj.left ?? 0) - visualRect.left;
       const deltaTop = (obj.top ?? 0) - visualRect.top;
 
@@ -707,7 +707,7 @@ export function useFabricCanvas(
     } else {
       c.discardActiveObject();
       const objectsMetadata = objs.map((obj) => {
-        const visualRect = toDesignSpace(obj.getBoundingRect(true, true));
+        const visualRect = toDesignSpace(obj.getBoundingRect());
         return { 
           obj, 
           rect: visualRect, 

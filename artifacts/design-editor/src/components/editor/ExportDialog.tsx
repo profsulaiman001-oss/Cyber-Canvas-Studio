@@ -30,7 +30,7 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
     const dataUrl = controller.exportCanvas(format, quality / 100, multiplier);
     if (!dataUrl) return;
     const ext = format === 'jpeg' ? 'jpg' : 'png';
-    const filename = `${state.projectTitle || 'untitled'}_design.${ext}`;
+    const filename = `${state.projectName || 'untitled'}_design.${ext}`;
 
     const link = document.createElement('a');
     link.href = dataUrl;
@@ -39,7 +39,7 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
     link.click();
     document.body.removeChild(link);
 
-    dispatch({ type: 'SET_ACTIVE_PANEL', payload: null });
+    dispatch({ type: 'CLOSE_PANEL' });
   };
 
   const canvasSize = state.canvasSize || { width: 1080, height: 1080 };
@@ -47,7 +47,7 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
   const exportH = Math.round(canvasSize.height * multiplier);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'SET_ACTIVE_PANEL', payload: null })}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
       <DialogContent className="sm:max-w-md gap-4 p-4" data-testid="dialog-export">
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">Export Design</DialogTitle>

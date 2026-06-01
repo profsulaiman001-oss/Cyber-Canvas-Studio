@@ -669,77 +669,75 @@ export function useFabricCanvas(
     } finally { URL.revokeObjectURL(url); }
   }, [getCenter]);
 
-  /* ─── Alignment (Fixed: Employs Exact Scene-to-Viewport Coordinate Matrix) ─── */
   const alignObjects = useCallback((type: AlignType) => {
-    const c = canvasRef.current; if (!c) return;
+    const c = canvasRef.current;
+    if (!c) return;
+
+    const activeSelection = c.getActiveObject();
+    if (!activeSelection) return;
+
+    // Gather active objects and immediately dissolve the selection to unlock raw absolute coordinates
     const objs = c.getActiveObjects();
-    if (!objs.length) return;
+    if (objs.length === 0) return;
 
     const cw = designWidth.current;
     const ch = designHeight.current;
-    const currentZoom = c.getZoom();
-    const vp = c.viewportTransform || [1, 0, 0, 1, 0, 0];
-
-    // Explicitly converts global viewport bounding rectangles back to design space values
-    const toDesignSpace = (rect: { left: number; top: number; width: number; height: number }) => ({
-      left: (rect.left - vp[4]) / currentZoom,
-      top: (rect.top - vp[5]) / currentZoom,
-      width: rect.width / currentZoom,
-      height: rect.height / currentZoom,
-    });
 
     if (objs.length === 1) {
       const obj = objs[0];
-      const visualRect = toDesignSpace(obj.getBoundingRect());
-      const deltaLeft = (obj.left ?? 0) - visualRect.left;
-      const deltaTop = (obj.top ?? 0) - visualRect.top;
+      const rect = obj.getBoundingRect();
+      const deltaLeft = (obj.left ?? 0) - rect.left;
+      const deltaTop = (obj.top ?? 0) - rect.top;
 
       switch (type) {
         case 'left': obj.set({ left: deltaLeft }); break;
-        case 'right': obj.set({ left: cw - visualRect.width + deltaLeft }); break;
+        case 'right': obj.set({ left: cw - rect.width + deltaLeft }); break;
         case 'top': obj.set({ top: deltaTop }); break;
-        case 'bottom': obj.set({ top: ch - visualRect.height + deltaTop }); break;
-        case 'centerH': obj.set({ left: (cw - visualRect.width) / 2 + deltaLeft }); break;
-        case 'centerV': obj.set({ top: (ch - visualRect.height) / 2 + deltaTop }); break;
+        case 'bottom': obj.set({ top: ch - rect.height + deltaTop }); break;
+        case 'centerH': obj.set({ left: (cw - rect.width) / 2 + deltaLeft }); break;
+        case 'centerV': obj.set({ top: (ch - rect.height) / 2 + deltaTop }); break;
       }
       obj.setCoords();
     } else {
-      // Temporarily clear selection context so objects are calculated in absolute coordinates
+      // Multi-object alignment: destroy selection context to process raw coordinates safely
       c.discardActiveObject();
-      
+
       const objectsMetadata = objs.map((obj) => {
-        const visualRect = toDesignSpace(obj.getBoundingRect());
-        return { 
-          obj, 
-          rect: visualRect, 
-          deltaLeft: (obj.left ?? 0) - visualRect.left, 
-          deltaTop: (obj.top ?? 0) - visualRect.top 
+        const rect = obj.getBoundingRect();
+        return {
+          obj,
+          rect,
+          deltaLeft: (obj.left ?? 0) - rect.left,
+          deltaTop: (obj.top ?? 0) - rect.top,
         };
       });
 
-      const absoluteMinLeft = Math.min(...objectsMetadata.map((i) => i.rect.left));
-      const absoluteMaxRight = Math.max(...objectsMetadata.map((i) => i.rect.left + i.rect.width));
-      const absoluteMinTop = Math.min(...objectsMetadata.map((i) => i.rect.top));
-      const absoluteMaxBottom = Math.max(...objectsMetadata.map((i) => i.rect.top + i.rect.height));
-      const dynamicGroupWidth = absoluteMaxRight - absoluteMinLeft;
-      const dynamicGroupHeight = absoluteMaxBottom - absoluteMinTop;
+      const bounds = {
+        left: Math.min(...objectsMetadata.map((o) => o.rect.left)),
+        right: Math.max(...objectsMetadata.map((o) => o.rect.left + o.rect.width)),
+        top: Math.min(...objectsMetadata.map((o) => o.rect.top)),
+        bottom: Math.max(...objectsMetadata.map((o) => o.rect.top + o.rect.height)),
+      };
+      const groupW = bounds.right - bounds.left;
+      const groupH = bounds.bottom - bounds.top;
 
       objectsMetadata.forEach(({ obj, rect, deltaLeft, deltaTop }) => {
         switch (type) {
-          case 'left': obj.set({ left: absoluteMinLeft + deltaLeft }); break;
-          case 'right': obj.set({ left: absoluteMaxRight - rect.width + deltaLeft }); break;
-          case 'top': obj.set({ top: absoluteMinTop + deltaTop }); break;
-          case 'bottom': obj.set({ top: absoluteMaxBottom - rect.height + deltaTop }); break;
-          case 'centerH': obj.set({ left: absoluteMinLeft + (dynamicGroupWidth - rect.width) / 2 + deltaLeft }); break;
-          case 'centerV': obj.set({ top: absoluteMinTop + (dynamicGroupHeight - rect.height) / 2 + deltaTop }); break;
+          case 'left': obj.set({ left: bounds.left + deltaLeft }); break;
+          case 'right': obj.set({ left: bounds.right - rect.width + deltaLeft }); break;
+          case 'top': obj.set({ top: bounds.top + deltaTop }); break;
+          case 'bottom': obj.set({ top: bounds.bottom - rect.height + deltaTop }); break;
+          case 'centerH': obj.set({ left: bounds.left + (groupW - rect.width) / 2 + deltaLeft }); break;
+          case 'centerV': obj.set({ top: bounds.top + (groupH - rect.height) / 2 + deltaTop }); break;
         }
         obj.setCoords();
       });
 
-      // Re-encapsulate objects cleanly into active selection state
-      const sel = new ActiveSelection(objs, { canvas: c });
-      c.setActiveObject(sel);
+      // Cleanly reconstruct the selection container over the newly aligned positions
+      const newSelection = new ActiveSelection(objs, { canvas: c });
+      c.setActiveObject(newSelection);
     }
+
     c.requestRenderAll();
     pushUndo();
   }, [pushUndo]);

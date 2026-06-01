@@ -18,9 +18,29 @@ interface Handle { corner: 'tl' | 'tr' | 'bl' | 'br' }
 
 export default function CropDialog({ open, onClose, obj, onApply, onFlipH, onFlipV, onRotate90 }: CropDialogProps) {
   const img = obj as FabricImage | null;
-  const srcW = img ? ((img.getElement?.() as HTMLImageElement)?.naturalWidth ?? img.width ?? 1) : 1;
-  const srcH = img ? ((img.getElement?.() as HTMLImageElement)?.naturalHeight ?? img.height ?? 1) : 1;
-  const imgSrc = img ? (img.getElement?.() as HTMLImageElement)?.src ?? '' : '';
+  const imgEl = img ? (img.getElement?.() as HTMLImageElement | undefined) : undefined;
+  const srcW = imgEl?.naturalWidth || imgEl?.width || img?.width || 1;
+  const srcH = imgEl?.naturalHeight || imgEl?.height || img?.height || 1;
+
+  /* ─── Generate a stable data-URL thumbnail so the preview never shows a broken image ─── */
+  const [dataSrc, setDataSrc] = useState('');
+  useEffect(() => {
+    if (!open || !imgEl) { setDataSrc(''); return; }
+    try {
+      const nw = imgEl.naturalWidth || imgEl.width || 1;
+      const nh = imgEl.naturalHeight || imgEl.height || 1;
+      const MAX = 800;
+      const scale = Math.min(1, MAX / Math.max(nw, nh));
+      const tw = Math.max(1, Math.round(nw * scale));
+      const th = Math.max(1, Math.round(nh * scale));
+      const cv = document.createElement('canvas');
+      cv.width = tw; cv.height = th;
+      cv.getContext('2d')?.drawImage(imgEl, 0, 0, tw, th);
+      setDataSrc(cv.toDataURL('image/jpeg', 0.88));
+    } catch {
+      setDataSrc(imgEl.src || '');
+    }
+  }, [open, imgEl]);
 
   const [left, setLeft] = useState(0);
   const [top, setTop] = useState(0);
@@ -43,18 +63,20 @@ export default function CropDialog({ open, onClose, obj, onApply, onFlipH, onFli
 
   /* ─── Draggable crop frame ─── */
   const frameRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const dragHandle = useRef<Handle['corner'] | null>(null);
   const dragStart = useRef({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0 });
 
-  const PREVIEW_W = 280;
-  const aspect = srcH / srcW;
-  const PREVIEW_H = Math.round(PREVIEW_W * aspect);
-  const displayH = Math.min(PREVIEW_H, 200);
+  /* Container dimensions are dynamic — read from the DOM ref */
+  const getContainerSize = useCallback((): { w: number; h: number } => {
+    if (!containerRef.current) return { w: 280, h: 200 };
+    return { w: containerRef.current.clientWidth, h: containerRef.current.clientHeight };
+  }, []);
 
-  const pxToPercent = useCallback((dx: number, dy: number) => ({
-    px: (dx / PREVIEW_W) * 100,
-    py: (dy / displayH) * 100,
-  }), [displayH]);
+  const pxToPercent = useCallback((dx: number, dy: number) => {
+    const { w, h } = getContainerSize();
+    return { px: (dx / w) * 100, py: (dy / h) * 100 };
+  }, [getContainerSize]);
 
   const startDrag = useCallback((corner: Handle['corner'], e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
@@ -113,16 +135,23 @@ export default function CropDialog({ open, onClose, obj, onApply, onFlipH, onFli
   }, [left, top, srcW, srcH, previewW, previewH, onApply, onClose]);
 
   const handleStyle: React.CSSProperties = {
-    position: 'absolute', width: 14, height: 14, borderRadius: 3,
-    background: '#00F5FF', border: '2px solid white',
+    position: 'absolute', width: 16, height: 16, borderRadius: 3,
+    background: '#00F5FF', border: '2.5px solid white',
     cursor: 'nwse-resize', touchAction: 'none', zIndex: 10,
   };
+
+  const hasSrc = Boolean(dataSrc);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
-        className="max-w-sm mx-auto rounded-2xl"
-        style={{ background: '#11141A', border: '1px solid rgba(0,245,255,0.15)' }}
+        className="mx-auto rounded-2xl"
+        style={{
+          background: '#11141A',
+          border: '1px solid rgba(0,245,255,0.15)',
+          maxWidth: 'min(92vw, 480px)',
+          width: '100%',
+        }}
       >
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">Crop Image</DialogTitle>
@@ -157,92 +186,116 @@ export default function CropDialog({ open, onClose, obj, onApply, onFlipH, onFli
             </button>
           </div>
 
-          {/* Visual crop frame preview */}
-          <div className="flex justify-center">
-            <div
-              className="relative overflow-hidden rounded-lg select-none"
-              style={{
-                width: PREVIEW_W,
-                height: displayH,
-                background: '#0B0C10',
-                border: '1px solid rgba(0,245,255,0.2)',
-              }}
-            >
-              {imgSrc && (
-                <img
-                  src={imgSrc}
-                  draggable={false}
-                  style={{
-                    position: 'absolute', inset: 0, width: '100%', height: '100%',
-                    objectFit: 'fill', opacity: 0.4, userSelect: 'none',
-                  }}
-                />
-              )}
-              {/* Dark overlay outside crop zone */}
-              {imgSrc && (
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  background: 'rgba(0,0,0,0.55)',
-                  clipPath: `polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${left}% ${top}%, ${left}% ${100 - bottom}%, ${100 - right}% ${100 - bottom}%, ${100 - right}% ${top}%, ${left}% ${top}%)`,
-                  pointerEvents: 'none',
-                }} />
-              )}
-              {/* Bright crop zone */}
-              {imgSrc && (
-                <div style={{
-                  position: 'absolute',
-                  left: `${left}%`, top: `${top}%`,
-                  right: `${right}%`, bottom: `${bottom}%`,
-                }}>
-                  <img
-                    src={imgSrc}
-                    draggable={false}
-                    style={{
-                      position: 'absolute', inset: 0, width: '100%', height: '100%',
-                      objectFit: 'fill', userSelect: 'none',
-                    }}
-                  />
-                </div>
-              )}
-              {/* Crop border + handles */}
-              <div
-                ref={frameRef}
+          {/* Visual crop preview — responsive, max-height 400px, object-fit: contain */}
+          <div
+            ref={containerRef}
+            className="relative overflow-hidden rounded-lg select-none w-full"
+            style={{
+              maxWidth: '100%',
+              maxHeight: 400,
+              aspectRatio: `${srcW} / ${srcH}`,
+              background: '#0B0C10',
+              border: '1px solid rgba(0,245,255,0.2)',
+            }}
+          >
+            {/* Base image — dimmed for the cropped-out region */}
+            {hasSrc && (
+              <img
+                src={dataSrc}
+                draggable={false}
                 style={{
-                  position: 'absolute',
-                  left: `${left}%`, top: `${top}%`,
-                  right: `${right}%`, bottom: `${bottom}%`,
-                  border: '2px solid #00F5FF',
+                  position: 'absolute', inset: 0,
+                  width: '100%', height: '100%',
+                  objectFit: 'contain',
+                  opacity: 0.38,
+                  userSelect: 'none',
                   pointerEvents: 'none',
                 }}
-              >
-                {/* Rule-of-thirds grid */}
-                {[1, 2].map((i) => (
-                  <div key={`v${i}`} style={{ position: 'absolute', top: 0, bottom: 0, left: `${(i / 3) * 100}%`, width: 1, background: 'rgba(0,245,255,0.3)' }} />
-                ))}
-                {[1, 2].map((i) => (
-                  <div key={`h${i}`} style={{ position: 'absolute', left: 0, right: 0, top: `${(i / 3) * 100}%`, height: 1, background: 'rgba(0,245,255,0.3)' }} />
-                ))}
-              </div>
-              {/* Draggable corner handles */}
-              {(['tl', 'tr', 'bl', 'br'] as const).map((corner) => (
-                <div
-                  key={corner}
+              />
+            )}
+
+            {/* Dark overlay outside crop zone — clip-path cuts out the bright crop area */}
+            {hasSrc && (
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: 'rgba(0,0,0,0.52)',
+                clipPath: `polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${left}% ${top}%, ${left}% ${100 - bottom}%, ${100 - right}% ${100 - bottom}%, ${100 - right}% ${top}%, ${left}% ${top}%)`,
+                pointerEvents: 'none',
+              }} />
+            )}
+
+            {/* Crop zone — full-brightness image clipped to selected area */}
+            {hasSrc && (
+              <div style={{
+                position: 'absolute',
+                left: `${left}%`, top: `${top}%`,
+                right: `${right}%`, bottom: `${bottom}%`,
+                overflow: 'hidden',
+                pointerEvents: 'none',
+              }}>
+                {/* Inner img must be positioned/sized to match the outer container */}
+                <img
+                  src={dataSrc}
+                  draggable={false}
                   style={{
-                    ...handleStyle,
-                    ...(corner === 'tl' ? { left: `${left}%`, top: `${top}%`, transform: 'translate(-50%,-50%)', cursor: 'nwse-resize' } : {}),
-                    ...(corner === 'tr' ? { right: `${right}%`, top: `${top}%`, transform: 'translate(50%,-50%)', cursor: 'nesw-resize' } : {}),
-                    ...(corner === 'bl' ? { left: `${left}%`, bottom: `${bottom}%`, transform: 'translate(-50%,50%)', cursor: 'nesw-resize' } : {}),
-                    ...(corner === 'br' ? { right: `${right}%`, bottom: `${bottom}%`, transform: 'translate(50%,50%)', cursor: 'nwse-resize' } : {}),
+                    position: 'absolute',
+                    left: `${-left / (1 - (left + right) / 100)}%`,
+                    top: `${-top / (1 - (top + bottom) / 100)}%`,
+                    width: `${100 / (1 - (left + right) / 100)}%`,
+                    height: `${100 / (1 - (top + bottom) / 100)}%`,
+                    objectFit: 'contain',
+                    userSelect: 'none',
                   }}
-                  onMouseDown={(e) => startDrag(corner, e)}
-                  onTouchStart={(e) => startDrag(corner, e)}
                 />
+              </div>
+            )}
+
+            {/* Crop frame border */}
+            <div
+              ref={frameRef}
+              style={{
+                position: 'absolute',
+                left: `${left}%`, top: `${top}%`,
+                right: `${right}%`, bottom: `${bottom}%`,
+                border: '2px solid #00F5FF',
+                pointerEvents: 'none',
+              }}
+            >
+              {/* Rule-of-thirds grid */}
+              {[1, 2].map((i) => (
+                <div key={`v${i}`} style={{ position: 'absolute', top: 0, bottom: 0, left: `${(i / 3) * 100}%`, width: 1, background: 'rgba(0,245,255,0.3)' }} />
+              ))}
+              {[1, 2].map((i) => (
+                <div key={`h${i}`} style={{ position: 'absolute', left: 0, right: 0, top: `${(i / 3) * 100}%`, height: 1, background: 'rgba(0,245,255,0.3)' }} />
               ))}
             </div>
+
+            {/* Draggable corner handles */}
+            {(['tl', 'tr', 'bl', 'br'] as const).map((corner) => (
+              <div
+                key={corner}
+                style={{
+                  ...handleStyle,
+                  ...(corner === 'tl' ? { left: `${left}%`, top: `${top}%`, transform: 'translate(-50%,-50%)', cursor: 'nwse-resize' } : {}),
+                  ...(corner === 'tr' ? { right: `${right}%`, top: `${top}%`, transform: 'translate(50%,-50%)', cursor: 'nesw-resize' } : {}),
+                  ...(corner === 'bl' ? { left: `${left}%`, bottom: `${bottom}%`, transform: 'translate(-50%,50%)', cursor: 'nesw-resize' } : {}),
+                  ...(corner === 'br' ? { right: `${right}%`, bottom: `${bottom}%`, transform: 'translate(50%,50%)', cursor: 'nwse-resize' } : {}),
+                }}
+                onMouseDown={(e) => startDrag(corner, e)}
+                onTouchStart={(e) => startDrag(corner, e)}
+              />
+            ))}
+
+            {/* No-image fallback */}
+            {!hasSrc && (
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+                Loading preview…
+              </div>
+            )}
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            Preview: {Math.round(previewW)} × {Math.round(previewH)} px
+            Output: {Math.round(previewW)} × {Math.round(previewH)} px
           </p>
         </div>
 

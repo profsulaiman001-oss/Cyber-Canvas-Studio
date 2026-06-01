@@ -35,13 +35,24 @@ function lerpStopColor(stops: Stop[], pos: number): string {
       const t = (pos - sorted[i].offset) / (sorted[i + 1].offset - sorted[i].offset);
       const [r1, g1, b1] = hexToRgbArr(sorted[i].color);
       const [r2, g2, b2] = hexToRgbArr(sorted[i + 1].color);
-      return rgbToHexStr(Math.round(r1 + (r2 - r1) * t), Math.round(g1 + (g2 - g1) * t), Math.round(b1 + (b2 - b1) * t));
+      return rgbToHexStr(
+        Math.round(r1 + (r2 - r1) * t),
+        Math.round(g1 + (g2 - g1) * t),
+        Math.round(b1 + (b2 - b1) * t),
+      );
     }
   }
   return '#888888';
 }
 
-/* ─── Gradient bar with draggable stop markers ─── */
+function readColorHistory(): string[] {
+  try { return JSON.parse(localStorage.getItem('cs_color_history') || '[]'); } catch { return []; }
+}
+function saveColorHistory(h: string[]) {
+  try { localStorage.setItem('cs_color_history', JSON.stringify(h)); } catch { /* ignore */ }
+}
+
+/* ─── Gradient bar with individually draggable stop markers ─── */
 function GradientBar({
   stops, selectedIdx, onSelectStop, onMoveStop, onAddStop,
 }: {
@@ -53,63 +64,97 @@ function GradientBar({
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const dragIdxRef = useRef<number | null>(null);
+  const onMoveRef = useRef(onMoveStop);
+  useEffect(() => { onMoveRef.current = onMoveStop; }, [onMoveStop]);
 
   const sortedStops = useMemo(() => [...stops].sort((a, b) => a.offset - b.offset), [stops]);
   const gradCSS = sortedStops.length >= 2
     ? `linear-gradient(to right, ${sortedStops.map((s) => `${s.color} ${(s.offset * 100).toFixed(1)}%`).join(', ')})`
     : (sortedStops[0]?.color ?? '#888');
 
-  const getOffset = (e: React.PointerEvent | PointerEvent): number => {
+  const getBarOffset = useCallback((clientX: number): number => {
     if (!barRef.current) return 0;
     const rect = barRef.current.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  };
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }, []);
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    const offset = getOffset(e);
+  /* Global move/up — works even when pointer leaves the bar */
+  useEffect(() => {
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if (dragIdxRef.current === null) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      onMoveRef.current(dragIdxRef.current, getBarOffset(clientX));
+    };
+    const onUp = () => { dragIdxRef.current = null; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [getBarOffset]);
+
+  /* Clicking the track — add new stop, or select+drag existing one near cursor */
+  const handleBarMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const offset = getBarOffset(e.clientX);
     let nearestIdx = -1; let nearestDist = Infinity;
     stops.forEach((s, i) => {
       const d = Math.abs(s.offset - offset);
-      if (d < 0.075 && d < nearestDist) { nearestDist = d; nearestIdx = i; }
+      if (d < 0.08 && d < nearestDist) { nearestDist = d; nearestIdx = i; }
     });
     if (nearestIdx >= 0) {
-      dragIdxRef.current = nearestIdx;
       onSelectStop(nearestIdx);
+      dragIdxRef.current = nearestIdx;
     } else {
       onAddStop(offset);
     }
-    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragIdxRef.current === null) return;
-    onMoveStop(dragIdxRef.current, getOffset(e));
+  /* Individual stop marker mouse/touch — explicit select + drag start */
+  const handleStopMouseDown = (e: React.MouseEvent, idx: number) => {
+    e.stopPropagation();
+    onSelectStop(idx);
+    dragIdxRef.current = idx;
   };
-
-  const handlePointerUp = () => { dragIdxRef.current = null; };
+  const handleStopTouchStart = (e: React.TouchEvent, idx: number) => {
+    e.stopPropagation();
+    onSelectStop(idx);
+    dragIdxRef.current = idx;
+  };
 
   return (
     <div className="relative select-none" style={{ paddingBottom: 36 }}>
-      {/* Track */}
+      {/* Gradient track */}
       <div
         ref={barRef}
         className="h-10 rounded-xl w-full"
         style={{
           background: gradCSS,
           border: '1px solid rgba(255,255,255,0.12)',
-          touchAction: 'none',
           cursor: 'crosshair',
+          touchAction: 'none',
         }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
+        onMouseDown={handleBarMouseDown}
       />
-      {/* Stop markers rendered below the track */}
+      {/* Stop markers — individually draggable via global listeners */}
       {stops.map((stop, i) => (
         <div
           key={i}
-          className="absolute flex flex-col items-center pointer-events-none"
-          style={{ left: `${stop.offset * 100}%`, top: 42, transform: 'translateX(-50%)' }}
+          className="absolute flex flex-col items-center"
+          style={{
+            left: `${stop.offset * 100}%`,
+            top: 42,
+            transform: 'translateX(-50%)',
+            cursor: 'ew-resize',
+            touchAction: 'none',
+            zIndex: selectedIdx === i ? 2 : 1,
+          }}
+          onMouseDown={(e) => handleStopMouseDown(e, i)}
+          onTouchStart={(e) => handleStopTouchStart(e, i)}
         >
           <div style={{
             width: 0, height: 0,
@@ -130,6 +175,27 @@ function GradientBar({
   );
 }
 
+/* ─── Recent-color history swatches ─── */
+function ColorHistory({ history, onPick }: { history: string[]; onPick: (c: string) => void }) {
+  if (!history.length) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Recent</p>
+      <div className="flex flex-wrap gap-1.5">
+        {history.map((c) => (
+          <button
+            key={c}
+            title={c.toUpperCase()}
+            onClick={() => onPick(c)}
+            className="rounded-md border border-border hover:scale-110 transition-transform"
+            style={{ width: 24, height: 24, background: c, flexShrink: 0 }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main Color Studio Panel ─── */
 export default function ColorStudioPanel({ controller, eyedropperActive, onEyedropper }: ColorStudioProps) {
   const { state, dispatch } = useEditor();
@@ -144,8 +210,17 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
   ]);
   const [selectedStop, setSelectedStop] = useState(0);
   const [radialRadius, setRadialRadius] = useState(200);
+  const [colorHistory, setColorHistory] = useState<string[]>(readColorHistory);
 
-  /* Sync from currently selected object when panel opens */
+  const pushHistory = useCallback((color: string) => {
+    setColorHistory((prev) => {
+      const deduped = [color, ...prev.filter((c) => c.toLowerCase() !== color.toLowerCase())].slice(0, 8);
+      saveColorHistory(deduped);
+      return deduped;
+    });
+  }, []);
+
+  /* Sync from selected object when panel opens */
   useEffect(() => {
     if (!isOpen || !obj) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -186,13 +261,22 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
   const handleSolidChange = useCallback((color: string) => {
     setSolidColor(color);
     pushFill('solid', color, stops, radialRadius);
-  }, [pushFill, stops, radialRadius]);
+    pushHistory(color);
+  }, [pushFill, stops, radialRadius, pushHistory]);
+
+  const handleHistoryPick = useCallback((color: string) => {
+    setSolidColor(color);
+    setFillMode('solid');
+    pushFill('solid', color, stops, radialRadius);
+    pushHistory(color);
+  }, [pushFill, stops, radialRadius, pushHistory]);
 
   const handleStopColorChange = useCallback((color: string) => {
     const ns = stops.map((s, i) => i === selectedStop ? { ...s, color } : s);
     setStops(ns);
     pushFill(fillMode as 'linear' | 'radial', solidColor, ns, radialRadius);
-  }, [stops, selectedStop, fillMode, solidColor, radialRadius, pushFill]);
+    pushHistory(color);
+  }, [stops, selectedStop, fillMode, solidColor, radialRadius, pushFill, pushHistory]);
 
   const handleMoveStop = useCallback((idx: number, offset: number) => {
     const ns = stops.map((s, i) => i === idx ? { ...s, offset } : s);
@@ -261,7 +345,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
           </button>
         </SheetHeader>
 
-        <div className="px-4 space-y-5 pb-10">
+        <div className="px-4 space-y-4 pb-10">
 
           {/* Fill mode tabs */}
           <div className="flex gap-1.5">
@@ -283,7 +367,10 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
 
           {/* ── Solid mode ── */}
           {fillMode === 'solid' && (
-            <ColorPicker value={solidColor} onChange={handleSolidChange} />
+            <>
+              <ColorPicker value={solidColor} onChange={handleSolidChange} />
+              <ColorHistory history={colorHistory} onPick={handleHistoryPick} />
+            </>
           )}
 
           {/* ── Gradient mode ── */}
@@ -348,6 +435,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
                 Stop {selectedStop + 1} — Color
               </p>
               <ColorPicker value={currentStopColor} onChange={handleStopColorChange} />
+              <ColorHistory history={colorHistory} onPick={handleStopColorChange} />
 
               {/* Radial radius */}
               {fillMode === 'radial' && (
@@ -372,7 +460,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
 
           {/* No selection hint */}
           {!obj && (
-            <p className="text-xs text-muted-foreground text-center py-6">
+            <p className="text-xs text-muted-foreground text-center py-4">
               Select a shape or text on the canvas to apply colors.
             </p>
           )}

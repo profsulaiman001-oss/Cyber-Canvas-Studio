@@ -144,28 +144,46 @@ export default function DesignEditor() {
     dispatch({ type: 'SET_BRUSH_SIZE', payload: size });
   }, [dispatch]);
 
-  /* ── Eyedropper: close panel, pick a color, apply to selected fill ── */
-  const handleEyedropper = useCallback(() => {
+  /* ── Eyedropper: prefer native EyeDropper API, fall back to canvas sampler ── */
+  const handleEyedropper = useCallback(async () => {
+    // Native EyeDropper API (Chrome 95+, Edge 95+)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('EyeDropper' in window && typeof (window as any).EyeDropper === 'function') {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const eyeDropper = new (window as any).EyeDropper();
+        const result: { sRGBHex: string } = await eyeDropper.open();
+        const color = result.sRGBHex;
+        const obj = controller.selectedObject;
+        if (obj) {
+          obj.set('fill', color);
+          controller.getCanvas()?.renderAll();
+          controller.syncObjects();
+          toast({ title: `Color applied: ${color.toUpperCase()}`, description: 'Picked from screen' });
+        } else {
+          toast({ title: `Color picked: ${color.toUpperCase()}`, description: 'Select an object to apply it' });
+        }
+      } catch {
+        // User pressed Escape or browser denied — silently ignore
+      }
+      return;
+    }
+
+    // Fallback: canvas-based sampler (samples from the Fabric canvas on click)
     if (controller.eyedropperActive) {
       controller.deactivateEyedropper();
       return;
     }
     dispatch({ type: 'CLOSE_PANEL' });
     controller.activateEyedropper((color) => {
-      // Apply to selected object's fill if one is selected
       const obj = controller.selectedObject;
       if (obj) {
         obj.set('fill', color);
         controller.getCanvas()?.renderAll();
-        toast({
-          title: `Color applied: ${color.toUpperCase()}`,
-          description: 'Fill color updated from canvas sample',
-        });
+        controller.syncObjects();
+        toast({ title: `Color applied: ${color.toUpperCase()}`, description: 'Fill color updated from canvas sample' });
       } else {
-        toast({
-          title: `Color picked: ${color.toUpperCase()}`,
-          description: 'Select an object first to apply the color',
-        });
+        toast({ title: `Color picked: ${color.toUpperCase()}`, description: 'Select an object first to apply the color' });
       }
     });
   }, [controller, dispatch, toast]);

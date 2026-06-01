@@ -669,7 +669,7 @@ export function useFabricCanvas(
     } finally { URL.revokeObjectURL(url); }
   }, [getCenter]);
 
-  /* ─── Alignment (Fixed: Uses strict visual bounding calculation matrix) ─── */
+  /* ─── Alignment (Fixed: Employs Exact Scene-to-Viewport Coordinate Matrix) ─── */
   const alignObjects = useCallback((type: AlignType) => {
     const c = canvasRef.current; if (!c) return;
     const objs = c.getActiveObjects();
@@ -680,7 +680,7 @@ export function useFabricCanvas(
     const currentZoom = c.getZoom();
     const vp = c.viewportTransform || [1, 0, 0, 1, 0, 0];
 
-    // Helper maps bounding dimensions back into localized canvas coordinate space
+    // Explicitly converts global viewport bounding rectangles back to design space values
     const toDesignSpace = (rect: { left: number; top: number; width: number; height: number }) => ({
       left: (rect.left - vp[4]) / currentZoom,
       top: (rect.top - vp[5]) / currentZoom,
@@ -690,7 +690,6 @@ export function useFabricCanvas(
 
     if (objs.length === 1) {
       const obj = objs[0];
-      // getBoundingRect() returns the absolute bounding box including strokes and scale (Fabric v6 takes no args)
       const visualRect = toDesignSpace(obj.getBoundingRect());
       const deltaLeft = (obj.left ?? 0) - visualRect.left;
       const deltaTop = (obj.top ?? 0) - visualRect.top;
@@ -705,7 +704,9 @@ export function useFabricCanvas(
       }
       obj.setCoords();
     } else {
+      // Temporarily clear selection context so objects are calculated in absolute coordinates
       c.discardActiveObject();
+      
       const objectsMetadata = objs.map((obj) => {
         const visualRect = toDesignSpace(obj.getBoundingRect());
         return { 
@@ -735,6 +736,7 @@ export function useFabricCanvas(
         obj.setCoords();
       });
 
+      // Re-encapsulate objects cleanly into active selection state
       const sel = new ActiveSelection(objs, { canvas: c });
       c.setActiveObject(sel);
     }
@@ -958,22 +960,20 @@ export function useFabricCanvas(
     syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
   }, [options, syncObjects]);
 
-  /* ─── Export (Fixed: Enforces explicit snapshot clipping parameters) ─── */
+  /* ─── Export (Fixed: Enforces Explicit Snapshot Clipping Parameters) ─── */
   const exportCanvas = useCallback((format: 'png' | 'jpeg', quality: number, multiplier: number): string => {
     const c = canvasRef.current; if (!c) return '';
     
-    // Save current active selection and viewport transformation configs
     const activeObj = c.getActiveObject();
     const savedVpTransform = c.viewportTransform;
     
-    // Deselect any highlighted borders to avoid bounding-box artifacts on final export image
+    // Clear selection UI artifacts from export raster render
     c.discardActiveObject();
     
-    // Lock viewport rendering origin directly to physical vector boundary bounds (left: 0, top: 0)
+    // Lock workspace viewport rendering origin directly to physical vector artboard boundaries
     c.setViewportTransform([1, 0, 0, 1, 0, 0]);
     c.setDimensions({ width: designWidth.current, height: designHeight.current });
     
-    // Generate data stream specifying precise output boundaries matching configuration layout aspect
     const dataUrl = c.toDataURL({ 
       format, 
       quality, 
@@ -984,13 +984,9 @@ export function useFabricCanvas(
       height: designHeight.current
     });
     
-    // Restore layout matrix state seamlessly back to screen viewport workspace settings
-    if (savedVpTransform) {
-      c.setViewportTransform(savedVpTransform);
-    }
-    if (activeObj) {
-      c.setActiveObject(activeObj);
-    }
+    // Seamlessly restore view matrix to UI working states
+    if (savedVpTransform) c.setViewportTransform(savedVpTransform);
+    if (activeObj) c.setActiveObject(activeObj);
     
     fitToContainer();
     return dataUrl;

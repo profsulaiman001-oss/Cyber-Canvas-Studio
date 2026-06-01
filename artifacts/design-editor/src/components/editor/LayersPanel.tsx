@@ -1,4 +1,5 @@
-import { Eye, EyeOff, Lock, Unlock, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { useRef } from 'react';
+import { Eye, EyeOff, Lock, Unlock, Trash2, GripVertical } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
@@ -8,23 +9,112 @@ interface LayersPanelProps {
   controller: CanvasController;
 }
 
-const TYPE_ICONS: Record<string, string> = {
-  rect: '▭',
-  circle: '○',
-  triangle: '△',
-  line: '—',
-  path: '~',
-  'i-text': 'T',
-  image: '🖼',
-};
+/* ─── Shape thumbnail ─── */
+function LayerThumb({ type, fill, imgSrc }: { type: string; fill?: string; imgSrc?: string }) {
+  const color = fill && /^#[0-9a-fA-F]{3,8}$/.test(fill) ? fill : '#6b7280';
+
+  if (type === 'image' && imgSrc) {
+    return (
+      <img
+        src={imgSrc}
+        draggable={false}
+        className="rounded flex-shrink-0 object-cover border border-border"
+        style={{ width: 32, height: 32 }}
+      />
+    );
+  }
+
+  if (type === 'circle') {
+    return (
+      <div
+        className="flex-shrink-0 border border-border"
+        style={{ width: 32, height: 32, borderRadius: '50%', background: color }}
+      />
+    );
+  }
+
+  if (type === 'triangle') {
+    return (
+      <div className="flex-shrink-0 flex items-center justify-center" style={{ width: 32, height: 32 }}>
+        <div style={{
+          width: 0, height: 0,
+          borderLeft: '13px solid transparent',
+          borderRight: '13px solid transparent',
+          borderBottom: `22px solid ${color}`,
+        }} />
+      </div>
+    );
+  }
+
+  if (type === 'i-text' || type === 'text') {
+    return (
+      <div
+        className="flex-shrink-0 flex items-center justify-center rounded border border-border"
+        style={{ width: 32, height: 32, background: '#1a1d24' }}
+      >
+        <span style={{ fontWeight: 700, fontSize: 17, color, lineHeight: 1 }}>T</span>
+      </div>
+    );
+  }
+
+  if (type === 'line' || type === 'path') {
+    return (
+      <div
+        className="flex-shrink-0 flex items-center justify-center rounded border border-border"
+        style={{ width: 32, height: 32, background: '#1a1d24' }}
+      >
+        <div style={{ width: 22, height: 2.5, background: color, borderRadius: 2 }} />
+      </div>
+    );
+  }
+
+  // Default: rectangle / star / polygon / unknown
+  return (
+    <div
+      className="flex-shrink-0 rounded border border-border"
+      style={{ width: 32, height: 32, background: color }}
+    />
+  );
+}
 
 export default function LayersPanel({ controller }: LayersPanelProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'layers';
   const { objects, selectedObject, getObjectById } = controller;
 
-  const handleSelectLayer = (obj: ObjectMeta) => {
-    controller.selectObjectById(obj.id);
+  /* ─── Drag-and-drop state ─── */
+  const dragFromIdx = useRef<number | null>(null);
+  const dragOverIdx = useRef<number | null>(null);
+
+  const handleDragStart = (idx: number) => {
+    dragFromIdx.current = idx;
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    dragOverIdx.current = idx;
+  };
+
+  const handleDrop = (toIdx: number) => {
+    const fromIdx = dragFromIdx.current;
+    if (fromIdx === null || fromIdx === toIdx) {
+      dragFromIdx.current = null;
+      dragOverIdx.current = null;
+      return;
+    }
+    const total = objects.length;
+    // Panel order is reversed relative to canvas stack
+    const fromCanvasIdx = total - 1 - fromIdx;
+    const toCanvasIdx = total - 1 - toIdx;
+    const obj = getObjectById(objects[fromIdx].id);
+    if (obj) controller.moveObjectToIndex(obj, toCanvasIdx);
+    dragFromIdx.current = null;
+    dragOverIdx.current = null;
+  };
+
+  const handleDragEnd = () => {
+    dragFromIdx.current = null;
+    dragOverIdx.current = null;
   };
 
   const handleToggleVisibility = (obj: ObjectMeta) => {
@@ -35,16 +125,6 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   const handleToggleLock = (obj: ObjectMeta) => {
     const fabricObj = getObjectById(obj.id);
     if (fabricObj) controller.toggleLock(fabricObj);
-  };
-
-  const handleBringForward = (obj: ObjectMeta) => {
-    const fabricObj = getObjectById(obj.id);
-    if (fabricObj) controller.bringForward(fabricObj);
-  };
-
-  const handleSendBackward = (obj: ObjectMeta) => {
-    const fabricObj = getObjectById(obj.id);
-    if (fabricObj) controller.sendBackward(fabricObj);
   };
 
   const handleDelete = (obj: ObjectMeta) => {
@@ -61,11 +141,12 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
       <SheetContent
         side="bottom"
         className="rounded-t-2xl p-0"
-        style={{ maxHeight: '60vh', background: '#11141A', border: 'none' }}
+        style={{ maxHeight: '62vh', background: '#11141A', border: 'none' }}
         data-testid="layers-panel"
       >
         <SheetHeader className="px-4 pt-4 pb-2">
           <SheetTitle className="text-sm font-semibold text-foreground">Layers</SheetTitle>
+          <p className="text-xs text-muted-foreground">Drag to reorder</p>
         </SheetHeader>
 
         {objects.length === 0 ? (
@@ -73,71 +154,58 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
             No layers yet
           </div>
         ) : (
-          <div className="overflow-y-auto" style={{ maxHeight: 'calc(60vh - 60px)' }}>
-            {objects.map((obj) => {
+          <div className="overflow-y-auto" style={{ maxHeight: 'calc(62vh - 70px)' }}>
+            {objects.map((obj, idx) => {
               const isSelected = obj.id === selectedId;
               return (
                 <div
                   key={obj.id}
-                  onClick={() => handleSelectLayer(obj)}
-                  className="flex items-center gap-2 px-4 py-2.5 cursor-pointer transition-colors"
+                  draggable
+                  onDragStart={() => handleDragStart(idx)}
+                  onDragOver={(e) => handleDragOver(e, idx)}
+                  onDrop={() => handleDrop(idx)}
+                  onDragEnd={handleDragEnd}
+                  onClick={() => controller.selectObjectById(obj.id)}
+                  className="flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors"
                   style={{
                     background: isSelected ? 'rgba(0,245,255,0.08)' : 'transparent',
                     borderLeft: isSelected ? '2px solid #00F5FF' : '2px solid transparent',
+                    opacity: obj.visible ? 1 : 0.5,
                   }}
                   data-testid={`layer-item-${obj.id}`}
                 >
-                  <span className="text-muted-foreground text-xs w-4 text-center select-none">
-                    {TYPE_ICONS[obj.type] || '□'}
-                  </span>
+                  {/* Drag handle */}
+                  <GripVertical size={13} className="text-muted-foreground flex-shrink-0 cursor-grab" />
+
+                  {/* Thumbnail */}
+                  <LayerThumb type={obj.type} fill={obj.fill} imgSrc={obj.imgSrc} />
+
+                  {/* Name */}
                   <span
-                    className="flex-1 text-sm truncate"
+                    className="flex-1 text-xs truncate min-w-0"
                     style={{ color: obj.visible ? 'inherit' : '#4b5563' }}
                   >
                     {obj.name}
                   </span>
 
-                  <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                  {/* Controls */}
+                  <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
+                      variant="ghost" size="icon" className="h-7 w-7"
                       onClick={() => handleToggleVisibility(obj)}
                       data-testid={`layer-visibility-${obj.id}`}
                     >
                       {obj.visible ? <Eye size={13} /> : <EyeOff size={13} />}
                     </Button>
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
+                      variant="ghost" size="icon" className="h-7 w-7"
                       onClick={() => handleToggleLock(obj)}
                       data-testid={`layer-lock-${obj.id}`}
                     >
                       {obj.selectable ? <Unlock size={13} /> : <Lock size={13} />}
                     </Button>
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => handleBringForward(obj)}
-                      data-testid={`layer-forward-${obj.id}`}
-                    >
-                      <ChevronUp size={13} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => handleSendBackward(obj)}
-                      data-testid={`layer-backward-${obj.id}`}
-                    >
-                      <ChevronDown size={13} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
                       onClick={() => handleDelete(obj)}
                       data-testid={`layer-delete-${obj.id}`}
                     >

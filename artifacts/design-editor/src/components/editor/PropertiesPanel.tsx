@@ -12,21 +12,41 @@ import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject, Shadow, IText, Rect } from 'fabric';
 import CropDialog from './CropDialog';
+import ColorPicker from './ColorPicker';
 
 interface PropertiesPanelProps { controller: CanvasController }
 
 const SYSTEM_FONTS = ['Inter', 'Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Impact'];
 const TEXTURES = ['none', 'noise', 'lines', 'dots', 'crosshatch', 'grid'];
 
-function ColorInput({ label, value, onChange, testId }: { label: string; value: string; onChange: (v: string) => void; testId: string }) {
+/* ─── Expandable color field: shows swatch + hex; tapping expands the HSB picker ─── */
+function ColorField({ label, value, onChange, testId }: {
+  label: string; value: string; onChange: (v: string) => void; testId: string;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="flex items-center justify-between">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <div className="flex items-center gap-2">
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
-          className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent p-0.5" data-testid={testId} />
-        <span className="text-xs font-mono text-muted-foreground w-16">{value.toUpperCase()}</span>
-      </div>
+    <div>
+      <button
+        className="flex items-center justify-between w-full py-0.5"
+        onClick={() => setOpen((o) => !o)}
+        data-testid={testId}
+      >
+        <Label className="text-xs text-muted-foreground cursor-pointer pointer-events-none">{label}</Label>
+        <div className="flex items-center gap-2">
+          <div
+            className="w-6 h-6 rounded border border-border flex-shrink-0"
+            style={{ background: value }}
+          />
+          <span className="text-xs font-mono text-muted-foreground w-16 text-left">
+            {value.toUpperCase()}
+          </span>
+        </div>
+      </button>
+      {open && (
+        <div className="mt-2 mb-1">
+          <ColorPicker value={value} onChange={onChange} />
+        </div>
+      )}
     </div>
   );
 }
@@ -72,24 +92,20 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const isOpen = state.activePanel === 'properties';
   const obj = controller.selectedObject;
 
-  // ── Transform
   const [objWidth, setObjWidth] = useState(100);
   const [objHeight, setObjHeight] = useState(100);
   const [rotation, setRotation] = useState(0);
 
-  // ── Fill
   const [fill, setFill] = useState('#00F5FF');
   const [fillMode, setFillMode] = useState<'solid' | 'linear' | 'radial'>('solid');
   const [gradStop1, setGradStop1] = useState('#00F5FF');
   const [gradStop2, setGradStop2] = useState('#7B2FFF');
 
-  // ── Stroke
   const [stroke, setStroke] = useState('#000000');
   const [strokeWidth, setStrokeWidth] = useState(0);
   const [opacity, setOpacity] = useState(100);
   const [rx, setRx] = useState(0);
 
-  // ── Drop shadow
   const [shadowEnabled, setShadowEnabled] = useState(false);
   const [shadowColor, setShadowColor] = useState('#000000');
   const [shadowBlur, setShadowBlur] = useState(10);
@@ -97,7 +113,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const [shadowOffsetY, setShadowOffsetY] = useState(5);
   const [shadowOpacity, setShadowOpacity] = useState(80);
 
-  // ── Inner shadow
   const [innerEnabled, setInnerEnabled] = useState(false);
   const [innerColor, setInnerColor] = useState('#000000');
   const [innerBlur, setInnerBlur] = useState(15);
@@ -105,7 +120,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const [innerOffsetY, setInnerOffsetY] = useState(0);
   const [innerOpacity, setInnerOpacity] = useState(60);
 
-  // ── 3D depth
   const [depthEnabled, setDepthEnabled] = useState(false);
   const [depthAmount, setDepthAmount] = useState(8);
   const [depthColor, setDepthColor] = useState('#333333');
@@ -113,21 +127,15 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const [skewX, setSkewX] = useState(0);
   const [skewY, setSkewY] = useState(0);
 
-  // ── Glow / Neon
   const [glowEnabled, setGlowEnabled] = useState(false);
   const [glowColor, setGlowColor] = useState('#00F5FF');
   const [glowIntensity, setGlowIntensity] = useState(20);
 
-  // ── Texture
   const [texture, setTexture] = useState('none');
-
-  // ── Crop dialog
   const [cropOpen, setCropOpen] = useState(false);
 
-  // ── Fill-with-image
   const fillImageRef = useRef<HTMLInputElement>(null);
 
-  // ── Typography
   const [fontSize, setFontSize] = useState(40);
   const [fontFamily, setFontFamily] = useState('Inter');
   const [fontWeight, setFontWeight] = useState('normal');
@@ -146,12 +154,10 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
     if (!obj) return;
     const o = obj as FabricObject & Record<string, unknown>;
 
-    // Transform
     setObjWidth(Math.round(obj.getScaledWidth()));
     setObjHeight(Math.round(obj.getScaledHeight()));
     setRotation(Math.round(Number(obj.angle) || 0));
 
-    // Fill
     if (obj.fill && typeof obj.fill === 'object') {
       const gf = obj.fill as { type?: string; colorStops?: { offset: number; color: string }[] };
       if (gf.type === 'linear' || gf.type === 'radial') {
@@ -168,11 +174,10 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
     setStrokeWidth(typeof o.strokeWidth === 'number' ? o.strokeWidth : 0);
     setOpacity(typeof o.opacity === 'number' ? Math.round(o.opacity * 100) : 100);
 
-    // Drop shadow
     const shadow = o.shadow as Shadow | null;
     const glow = (o as Record<string, unknown>)._glow as { enabled?: boolean; color?: string; intensity?: number } | undefined;
     if (glow?.enabled) {
-      setShadowEnabled(false); // glow occupies the shadow slot
+      setShadowEnabled(false);
       setGlowEnabled(true);
       setGlowColor(glow.color || '#00F5FF');
       setGlowIntensity(glow.intensity || 20);
@@ -234,7 +239,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
     controller.syncObjects();
   }, [obj, controller]);
 
-  // ── Transform
   const applyWidth = useCallback((v: number) => {
     if (!obj) return;
     const baseW = obj.width ?? 1;
@@ -251,21 +255,18 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
 
   const applyRotation = useCallback((v: number) => { setRotation(v); apply({ angle: v }); }, [apply]);
 
-  // ── Fill & gradient
-  const applyFill = (v: string) => { setFill(v); apply({ fill: v }); };
+  const applyFill = useCallback((v: string) => { setFill(v); apply({ fill: v }); }, [apply]);
 
   const applyGradFill = useCallback((mode: 'linear' | 'radial', s1: string, s2: string) => {
     if (!obj) return;
     controller.applyGradientFill(obj, mode, [{ offset: 0, color: s1 }, { offset: 1, color: s2 }]);
   }, [obj, controller]);
 
-  // ── Stroke
-  const applyStroke = (v: string) => { setStroke(v); apply({ stroke: v }); };
+  const applyStroke = useCallback((v: string) => { setStroke(v); apply({ stroke: v }); }, [apply]);
   const applyStrokeWidth = (v: number) => { setStrokeWidth(v); apply({ strokeWidth: v }); };
   const applyOpacity = (v: number) => { setOpacity(v); apply({ opacity: v / 100 }); };
   const applyRx = (v: number) => { setRx(v); apply({ rx: v, ry: v }); };
 
-  // ── Drop shadow
   const applyDropShadow = useCallback((en: boolean, color: string, blur: number, ox: number, oy: number, opa: number) => {
     if (!obj) return;
     if (en) {
@@ -276,33 +277,27 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
     controller.getCanvas()?.renderAll();
   }, [obj, controller]);
 
-  // ── Inner shadow
   const applyInnerShadowEffect = useCallback((en: boolean, color: string, blur: number, ox: number, oy: number, opa: number) => {
     controller.applyInnerShadow(obj, en ? { enabled: true, color, blur, offsetX: ox, offsetY: oy, opacity: opa } : null);
   }, [obj, controller]);
 
-  // ── 3D depth (true multi-layer extrusion)
   const applyDepth = useCallback((en: boolean, amount: number, color: string, angle: number) => {
     if (!obj) return;
     controller.apply3DDepth(obj, en ? { enabled: true, steps: amount, color, angle } : null);
   }, [obj, controller]);
 
-  // ── Glow / neon
   const applyGlowEffect = useCallback((en: boolean, color: string, intensity: number) => {
     controller.applyGlow(obj, en ? { enabled: true, color, intensity } : null);
   }, [obj, controller]);
 
-  // ── Skew
   const applySkewX = (v: number) => { setSkewX(v); apply({ skewX: v }); };
   const applySkewY = (v: number) => { setSkewY(v); apply({ skewY: v }); };
 
-  // ── Texture
   const applyTexture = (v: string) => {
     setTexture(v);
     controller.applyTexture(obj, v === 'none' ? null : v);
   };
 
-  // ── Typography
   const applyFontSize = (v: number) => { setFontSize(v); apply({ fontSize: v }); };
   const applyFontFamily = (v: string) => { setFontFamily(v); apply({ fontFamily: v }); };
   const applyBold = () => { const n = fontWeight === 'bold' ? 'normal' : 'bold'; setFontWeight(n); apply({ fontWeight: n }); };
@@ -338,8 +333,8 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
           {/* ── Transform ── */}
           <SectionLabel>Transform</SectionLabel>
           <div className="grid grid-cols-3 gap-2">
-            <NumInput label="W (px)" value={objWidth} min={1} onChange={applyWidth} />
-            <NumInput label="H (px)" value={objHeight} min={1} onChange={applyHeight} />
+            <NumInput label="W (px)" value={objWidth} min={0} onChange={applyWidth} />
+            <NumInput label="H (px)" value={objHeight} min={0} onChange={applyHeight} />
             <NumInput label="Angle °" value={rotation} min={-180} max={360} onChange={applyRotation} />
           </div>
           <SliderRow label="Rotation" value={rotation} min={0} max={360} onChange={applyRotation} unit="°" />
@@ -348,7 +343,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
           <Separator />
           <SectionLabel>Fill & Stroke</SectionLabel>
 
-          {/* Fill type toggle */}
           <div className="flex gap-1">
             {(['solid', 'linear', 'radial'] as const).map((mode) => (
               <button key={mode} onClick={() => {
@@ -369,15 +363,19 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
           </div>
 
           {fillMode === 'solid'
-            ? <ColorInput label="Fill" value={fill} onChange={applyFill} testId="color-fill" />
+            ? <ColorField label="Fill" value={fill} onChange={applyFill} testId="color-fill" />
             : (
               <div className="space-y-2 pl-2 border-l border-border">
-                <ColorInput label="Color 1" value={gradStop1} onChange={(v) => { setGradStop1(v); applyGradFill(fillMode, v, gradStop2); }} testId="color-grad1" />
-                <ColorInput label="Color 2" value={gradStop2} onChange={(v) => { setGradStop2(v); applyGradFill(fillMode, gradStop1, v); }} testId="color-grad2" />
+                <ColorField label="Color 1" value={gradStop1}
+                  onChange={(v) => { setGradStop1(v); applyGradFill(fillMode, v, gradStop2); }}
+                  testId="color-grad1" />
+                <ColorField label="Color 2" value={gradStop2}
+                  onChange={(v) => { setGradStop2(v); applyGradFill(fillMode, gradStop1, v); }}
+                  testId="color-grad2" />
               </div>
             )}
 
-          <ColorInput label="Stroke" value={stroke} onChange={applyStroke} testId="color-stroke" />
+          <ColorField label="Stroke" value={stroke} onChange={applyStroke} testId="color-stroke" />
           <SliderRow label="Stroke Width" value={strokeWidth} min={0} max={30} onChange={applyStrokeWidth} />
           <SliderRow label="Opacity" value={opacity} min={0} max={100} onChange={applyOpacity} unit="%" />
           {isRect && <SliderRow label="Corner Radius" value={rx} min={0} max={100} onChange={applyRx} />}
@@ -390,8 +388,15 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
               <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={() => setCropOpen(true)}>
                 ✂ Crop Image
               </Button>
-              <CropDialog open={cropOpen} onClose={() => setCropOpen(false)} obj={obj}
-                onApply={(cx, cy, cw, ch) => controller.cropImage(obj!, cx, cy, cw, ch)} />
+              <CropDialog
+                open={cropOpen}
+                onClose={() => setCropOpen(false)}
+                obj={obj}
+                onApply={(cx, cy, cw, ch) => controller.cropImage(obj!, cx, cy, cw, ch)}
+                onFlipH={() => controller.flipHorizontal()}
+                onFlipV={() => controller.flipVertical()}
+                onRotate90={() => controller.rotate90()}
+              />
             </>
           )}
 
@@ -436,12 +441,12 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
             <Switch checked={glowEnabled} onCheckedChange={(v) => {
               setGlowEnabled(v);
               applyGlowEffect(v, glowColor, glowIntensity);
-              if (v) setShadowEnabled(false); // glow takes the shadow slot
+              if (v) setShadowEnabled(false);
             }} />
           </div>
           {glowEnabled && (
             <div className="space-y-3 pl-2 border-l border-border">
-              <ColorInput label="Color" value={glowColor}
+              <ColorField label="Color" value={glowColor}
                 onChange={(v) => { setGlowColor(v); applyGlowEffect(true, v, glowIntensity); }}
                 testId="color-glow" />
               <SliderRow label="Intensity" value={glowIntensity} min={1} max={60}
@@ -455,13 +460,14 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
             <SectionLabel>Drop Shadow</SectionLabel>
             <Switch checked={shadowEnabled} onCheckedChange={(v) => {
               setShadowEnabled(v);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               if (v) { setGlowEnabled(false); (obj as any)._glow = null; }
               applyDropShadow(v, shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY, shadowOpacity);
             }} data-testid="switch-shadow" />
           </div>
           {shadowEnabled && (
             <div className="space-y-3 pl-2 border-l border-border">
-              <ColorInput label="Color" value={shadowColor}
+              <ColorField label="Color" value={shadowColor}
                 onChange={(v) => { setShadowColor(v); applyDropShadow(true, v, shadowBlur, shadowOffsetX, shadowOffsetY, shadowOpacity); }}
                 testId="color-shadow" />
               <SliderRow label="Blur" value={shadowBlur} min={0} max={80}
@@ -487,7 +493,7 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
           </div>
           {innerEnabled && (
             <div className="space-y-3 pl-2 border-l border-border">
-              <ColorInput label="Color" value={innerColor}
+              <ColorField label="Color" value={innerColor}
                 onChange={(v) => { setInnerColor(v); applyInnerShadowEffect(true, v, innerBlur, innerOffsetX, innerOffsetY, innerOpacity); }}
                 testId="color-inner-shadow" />
               <SliderRow label="Blur" value={innerBlur} min={0} max={60}
@@ -513,7 +519,7 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
           </div>
           {depthEnabled && (
             <div className="space-y-3 pl-2 border-l border-border">
-              <ColorInput label="Depth Color" value={depthColor}
+              <ColorField label="Depth Color" value={depthColor}
                 onChange={(v) => { setDepthColor(v); applyDepth(true, depthAmount, v, depthAngle); }}
                 testId="color-depth" />
               <SliderRow label="Depth (steps)" value={depthAmount} min={1} max={30}
@@ -527,7 +533,7 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
             <SliderRow label="Skew Y" value={skewY} min={-45} max={45} onChange={applySkewY} unit="°" />
           </div>
 
-          {/* ── Typography (text only) ── */}
+          {/* ── Typography ── */}
           {isText && (
             <>
               <Separator />

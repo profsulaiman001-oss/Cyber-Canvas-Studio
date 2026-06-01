@@ -23,6 +23,8 @@ export interface ObjectMeta {
   type: string;
   visible: boolean;
   selectable: boolean;
+  fill?: string;
+  imgSrc?: string;
 }
 
 export interface CanvasBgConfig {
@@ -222,13 +224,22 @@ export function useFabricCanvas(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const objs = c.getObjects().filter((o) => !(o as any)._isPenAux && !(o as any)._isAuxLayer);
     setObjects(
-      [...objs].reverse().map((obj) => ({
-        id: objId(obj),
-        name: (obj as FabricObject & { _name?: string })._name || obj.type || 'Object',
-        type: obj.type || 'object',
-        visible: obj.visible !== false,
-        selectable: obj.selectable !== false,
-      }))
+      [...objs].reverse().map((obj) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const o = obj as any;
+        const fill = typeof obj.fill === 'string' ? obj.fill : undefined;
+        const imgEl = o.getElement?.() as HTMLImageElement | undefined;
+        const imgSrc = obj.type === 'image' ? (imgEl?.src ?? undefined) : undefined;
+        return {
+          id: objId(obj),
+          name: o._name || obj.type || 'Object',
+          type: obj.type || 'object',
+          visible: obj.visible !== false,
+          selectable: obj.selectable !== false,
+          fill,
+          imgSrc,
+        };
+      })
     );
   }, []);
 
@@ -341,6 +352,9 @@ export function useFabricCanvas(
       backgroundColor: '#ffffff',
       selection: true,
       preserveObjectStacking: true,
+      // Allow objects to scale to their absolute minimum — no artificial lower bound
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(({ minScaleLimit: 0 }) as any),
     });
     canvasRef.current = c;
     designWidth.current = options.width;
@@ -827,7 +841,7 @@ export function useFabricCanvas(
     c.requestRenderAll();
   }, []);
 
-  /* ─── Fill Shape with Image ─── */
+  /* ─── Fill Shape with Image (CSS background-size: cover — proportional, centered) ─── */
   const fillShapeWithImage = useCallback(async (obj: FabricObject, file: File) => {
     const c = canvasRef.current; if (!c) return;
     const url = URL.createObjectURL(file);
@@ -837,12 +851,17 @@ export function useFabricCanvas(
       const h = obj.height ?? 100;
       const imgW = fabImg.width || 1;
       const imgH = fabImg.height || 1;
-      const scaleX = w / imgW;
-      const scaleY = h / imgH;
+      // Cover: scale uniformly so image fills every pixel of the shape
+      const scale = Math.max(w / imgW, h / imgH);
+      const scaledW = imgW * scale;
+      const scaledH = imgH * scale;
+      // Center the scaled image within the shape coordinate space
+      const offsetX = -w / 2 - (scaledW - w) / 2;
+      const offsetY = -h / 2 - (scaledH - h) / 2;
       const pat = new Pattern({
         source: fabImg.getElement() as HTMLImageElement,
         repeat: 'no-repeat',
-        patternTransform: [scaleX, 0, 0, scaleY, -w / 2, -h / 2],
+        patternTransform: [scale, 0, 0, scale, offsetX, offsetY],
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       obj.set('fill', pat as any);
@@ -852,6 +871,36 @@ export function useFabricCanvas(
       URL.revokeObjectURL(url);
     }
   }, [pushUndo]);
+
+  /* ─── Image transform helpers ─── */
+  const flipHorizontal = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = c.getActiveObject(); if (!obj) return;
+    obj.set({ flipX: !obj.flipX });
+    obj.setCoords(); c.requestRenderAll(); pushUndo();
+  }, [pushUndo]);
+
+  const flipVertical = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = c.getActiveObject(); if (!obj) return;
+    obj.set({ flipY: !obj.flipY });
+    obj.setCoords(); c.requestRenderAll(); pushUndo();
+  }, [pushUndo]);
+
+  const rotate90 = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = c.getActiveObject(); if (!obj) return;
+    obj.set({ angle: ((obj.angle ?? 0) + 90) % 360 });
+    obj.setCoords(); c.requestRenderAll(); pushUndo();
+  }, [pushUndo]);
+
+  /* ─── Move object to specific canvas stack index (for drag-and-drop layer reorder) ─── */
+  const moveObjectToIndex = useCallback((obj: FabricObject, targetIndex: number) => {
+    const c = canvasRef.current; if (!c) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (c as any).moveObjectTo(obj, Math.max(0, targetIndex));
+    c.renderAll(); syncObjects();
+  }, [syncObjects]);
 
   /* ─── Crop Image ─── */
   const cropImage = useCallback((obj: FabricObject, cropX: number, cropY: number, cropW: number, cropH: number) => {
@@ -1093,6 +1142,9 @@ export function useFabricCanvas(
     // Object ops
     deleteSelected, duplicateSelected, bringForward, sendBackward,
     toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById,
+    moveObjectToIndex,
+    // Image transforms
+    flipHorizontal, flipVertical, rotate90,
     // Alignment
     alignObjects,
     // Effects

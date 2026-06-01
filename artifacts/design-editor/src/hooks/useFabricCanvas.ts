@@ -228,8 +228,30 @@ export function useFabricCanvas(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const o = obj as any;
         const fill = typeof obj.fill === 'string' ? obj.fill : undefined;
-        const imgEl = o.getElement?.() as HTMLImageElement | undefined;
-        const imgSrc = obj.type === 'image' ? (imgEl?.src ?? undefined) : undefined;
+        // Generate a stable base64 thumbnail so it never shows a broken-image icon
+        let imgSrc: string | undefined;
+        if (obj.type === 'image') {
+          try {
+            const imgEl = o.getElement?.() as HTMLImageElement | undefined;
+            if (imgEl && imgEl.complete) {
+              const nw = imgEl.naturalWidth || imgEl.width || 0;
+              const nh = imgEl.naturalHeight || imgEl.height || 0;
+              if (nw > 0 && nh > 0) {
+                const maxSz = 50;
+                const scale = Math.min(1, maxSz / Math.max(nw, nh));
+                const tw = Math.max(1, Math.round(nw * scale));
+                const th = Math.max(1, Math.round(nh * scale));
+                const tmpCv = document.createElement('canvas');
+                tmpCv.width = tw; tmpCv.height = th;
+                const tCtx = tmpCv.getContext('2d');
+                if (tCtx) {
+                  tCtx.drawImage(imgEl, 0, 0, tw, th);
+                  imgSrc = tmpCv.toDataURL('image/jpeg', 0.55);
+                }
+              }
+            }
+          } catch { /* tainted canvas or other error — leave imgSrc undefined */ }
+        }
         return {
           id: objId(obj),
           name: o._name || obj.type || 'Object',
@@ -822,16 +844,22 @@ export function useFabricCanvas(
     canvasRef.current?.requestRenderAll();
   }, []);
 
-  /* ─── Gradient Fill ─── */
-  const applyGradientFill = useCallback((obj: FabricObject | null, type: 'linear' | 'radial', stops: { offset: number; color: string }[]) => {
+  /* ─── Gradient Fill (radialRadius is optional pixels; defaults to Math.max(w,h)/2) ─── */
+  const applyGradientFill = useCallback((
+    obj: FabricObject | null,
+    type: 'linear' | 'radial',
+    stops: { offset: number; color: string }[],
+    radialRadius?: number,
+  ) => {
     if (!obj) return;
     const c = canvasRef.current; if (!c) return;
     const w = obj.width ?? 100;
     const h = obj.height ?? 100;
+    const r2 = radialRadius ?? Math.max(w, h) / 2;
     const grad = new Gradient({
       type: type === 'radial' ? 'radial' : 'linear',
       coords: type === 'radial'
-        ? { x1: 0, y1: 0, r1: 0, x2: 0, y2: 0, r2: Math.max(w, h) / 2 }
+        ? { x1: 0, y1: 0, r1: 0, x2: 0, y2: 0, r2 }
         : { x1: -w / 2, y1: 0, x2: w / 2, y2: 0 },
       colorStops: stops,
       gradientUnits: 'pixels',

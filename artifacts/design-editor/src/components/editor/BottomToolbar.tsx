@@ -1,4 +1,4 @@
-import { MousePointer2, Plus, Layers, SlidersHorizontal, Download, PenTool, X, Paintbrush, Pipette } from 'lucide-react';
+import { MousePointer2, Plus, Layers, SlidersHorizontal, Download, PenTool, X, Paintbrush, Palette } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
 import type { BrushPreset } from '@/hooks/useFabricCanvas';
@@ -7,12 +7,10 @@ interface BottomToolbarProps {
   hasSelection: boolean;
   penActive: boolean;
   brushActive: boolean;
-  eyedropperActive: boolean;
   onPenCancel: () => void;
   onBrushDone: () => void;
   onBrushColorChange: (color: string) => void;
   onBrushSizeChange: (size: number) => void;
-  onEyedropper: () => void;
 }
 
 const PRESET_LABELS: Record<BrushPreset, string> = {
@@ -22,8 +20,8 @@ const PRESET_LABELS: Record<BrushPreset, string> = {
 };
 
 export default function BottomToolbar({
-  hasSelection, penActive, brushActive, eyedropperActive,
-  onPenCancel, onBrushDone, onBrushColorChange, onBrushSizeChange, onEyedropper,
+  hasSelection, penActive, brushActive,
+  onPenCancel, onBrushDone, onBrushColorChange, onBrushSizeChange,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
 
@@ -73,7 +71,6 @@ export default function BottomToolbar({
             </span>
           </div>
           <div className="flex items-center gap-3">
-            {/* Brush color */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Color</span>
               <input
@@ -83,7 +80,6 @@ export default function BottomToolbar({
                 className="w-7 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5"
               />
             </div>
-            {/* Preset switcher */}
             {(['standard', 'glow', 'airbrush'] as BrushPreset[]).map((p) => (
               <button
                 key={p}
@@ -98,7 +94,6 @@ export default function BottomToolbar({
                 {PRESET_LABELS[p]}
               </button>
             ))}
-            {/* Done */}
             <button
               onClick={onBrushDone}
               className="px-3 py-1 rounded-lg text-xs font-medium"
@@ -108,7 +103,6 @@ export default function BottomToolbar({
             </button>
           </div>
         </div>
-        {/* Size slider */}
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-muted-foreground shrink-0">Size: {state.brushSize}px</span>
           <Slider
@@ -149,6 +143,12 @@ export default function BottomToolbar({
       disabled: !hasSelection,
     },
     {
+      id: 'colorStudio',
+      icon: <Palette size={22} />,
+      label: 'Colors',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' }),
+    },
+    {
       id: 'export',
       icon: <Download size={22} />,
       label: 'Export',
@@ -178,7 +178,7 @@ export default function BottomToolbar({
             onClick={tool.disabled ? undefined : tool.action}
             disabled={tool.disabled}
             data-testid={`toolbar-${tool.id}`}
-            className="relative flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-all duration-200 disabled:opacity-30"
+            className="relative flex flex-col items-center gap-1 px-1.5 py-2 rounded-xl transition-all duration-200 disabled:opacity-30"
             style={{
               color: isActive ? '#00F5FF' : '#6b7280',
               filter: isActive ? 'drop-shadow(0 0 6px #00F5FF80)' : 'none',
@@ -193,24 +193,6 @@ export default function BottomToolbar({
           </button>
         );
       })}
-
-      {/* Eyedropper */}
-      <button
-        onClick={onEyedropper}
-        data-testid="toolbar-eyedropper"
-        className="relative flex flex-col items-center gap-1 px-2 py-2 rounded-xl transition-all duration-200"
-        style={{
-          color: eyedropperActive ? '#FFD700' : '#6b7280',
-          filter: eyedropperActive ? 'drop-shadow(0 0 6px #FFD70080)' : 'none',
-        }}
-      >
-        <Pipette size={22} />
-        <span className="text-[10px] font-medium leading-none">Pick</span>
-        {eyedropperActive && (
-          <span className="absolute bottom-1 w-1 h-1 rounded-full"
-            style={{ background: '#FFD700', boxShadow: '0 0 4px #FFD700' }} />
-        )}
-      </button>
     </div>
   );
 }

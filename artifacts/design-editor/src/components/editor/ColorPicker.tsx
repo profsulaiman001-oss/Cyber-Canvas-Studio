@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-/* ─── Color math utilities ─── */
+/* ─── Color math ─── */
 function hsbToRgb(h: number, s: number, b: number): [number, number, number] {
   s = Math.max(0, Math.min(1, s));
   b = Math.max(0, Math.min(1, b));
@@ -16,9 +16,10 @@ function rgbToHex(r: number, g: number, b: number): string {
 }
 
 function hexToRgb(hex: string): [number, number, number] | null {
-  const clean = hex.replace('#', '');
-  if (clean.length !== 6 || !/^[0-9A-Fa-f]{6}$/.test(clean)) return null;
-  return [parseInt(clean.slice(0, 2), 16), parseInt(clean.slice(2, 4), 16), parseInt(clean.slice(4, 6), 16)];
+  let c = hex.replace(/\s/g, '').replace(/^#+/, '');
+  if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+  if (c.length !== 6 || !/^[0-9A-Fa-f]{6}$/.test(c)) return null;
+  return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16)];
 }
 
 function rgbToHsb(r: number, g: number, b: number): [number, number, number] {
@@ -41,11 +42,10 @@ export function hexToHsb(hex: string): [number, number, number] {
 }
 
 export function hsbToHex(h: number, s: number, b: number): string {
-  const [r, g, bv] = hsbToRgb(h, s, b);
-  return rgbToHex(r, g, bv);
+  return rgbToHex(...hsbToRgb(h, s, b));
 }
 
-/* ─── Core picker component ─── */
+/* ─── Core picker ─── */
 interface ColorPickerProps {
   value: string;
   onChange: (hex: string) => void;
@@ -63,7 +63,10 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
 
   const [h, s, b] = hsb;
 
+  /* Sync external value → internal state (but not when we're the source of change) */
+  const lastEmittedRef = useRef('');
   useEffect(() => {
+    if (value === lastEmittedRef.current) return;
     const newHsb = hexToHsb(value);
     setHsb(newHsb);
     setHexInput(value.replace('#', '').toUpperCase());
@@ -73,6 +76,7 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
     const hex = hsbToHex(nh, ns, nb);
     setHsb([nh, ns, nb]);
     setHexInput(hex.replace('#', '').toUpperCase());
+    lastEmittedRef.current = hex;
     onChangeRef.current(hex);
   }, []);
 
@@ -113,25 +117,27 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
     ctx.strokeRect(0, Math.max(0, y - 2), W, 4);
   }, [h]);
 
-  const pickerPick = useCallback((e: MouseEvent | React.MouseEvent) => {
+  /* ─── Unified pointer-based pick functions (mouse + touch) ─── */
+  const pickerPick = useCallback((clientX: number, clientY: number) => {
     const cv = pickerRef.current; if (!cv) return;
     const rect = cv.getBoundingClientRect();
-    const ns = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const nb = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
+    const ns = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const nb = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
     commit(h, ns, nb);
   }, [h, commit]);
 
-  const huePick = useCallback((e: MouseEvent | React.MouseEvent) => {
+  const huePick = useCallback((clientY: number) => {
     const cv = hueRef.current; if (!cv) return;
     const rect = cv.getBoundingClientRect();
-    const nh = Math.max(0, Math.min(360, ((e.clientY - rect.top) / rect.height) * 360));
+    const nh = Math.max(0, Math.min(360, ((clientY - rect.top) / rect.height) * 360));
     commit(Math.round(nh), s, b);
   }, [s, b, commit]);
 
+  /* Global pointer tracking for drag (handles mouse going outside canvas) */
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (pickDrag.current) pickerPick(e);
-      if (hueDrag.current) huePick(e);
+      if (pickDrag.current) pickerPick(e.clientX, e.clientY);
+      if (hueDrag.current) huePick(e.clientY);
     };
     const onUp = () => { pickDrag.current = false; hueDrag.current = false; };
     window.addEventListener('mousemove', onMove);
@@ -139,14 +145,28 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, [pickerPick, huePick]);
 
+  /* ─── Hex input handler: robust parsing, 3+6 digit support, strips garbage ─── */
   const handleHexChange = (raw: string) => {
-    const v = raw.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6).toUpperCase();
+    const stripped = raw.replace(/\s/g, '').replace(/^#+/, '');
+    const v = stripped.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6).toUpperCase();
     setHexInput(v);
-    if (v.length === 6) {
+    if (v.length === 3) {
+      const expanded = v[0]+v[0]+v[1]+v[1]+v[2]+v[2];
+      const newHsb = hexToHsb('#' + expanded);
+      setHsb(newHsb);
+      lastEmittedRef.current = '#' + expanded.toLowerCase();
+      onChangeRef.current('#' + expanded.toLowerCase());
+    } else if (v.length === 6) {
       const newHsb = hexToHsb('#' + v);
       setHsb(newHsb);
+      lastEmittedRef.current = '#' + v.toLowerCase();
       onChangeRef.current('#' + v.toLowerCase());
     }
+  };
+
+  const handleHexPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    handleHexChange(e.clipboardData.getData('text'));
   };
 
   const previewHex = hsbToHex(h, s, b);
@@ -154,23 +174,46 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
   return (
     <div className="space-y-2 pt-1 pb-1">
       <div className="flex gap-2 items-stretch">
+        {/* Saturation / Brightness square */}
         <canvas
           ref={pickerRef}
           width={182}
           height={148}
           className="rounded-lg flex-1 min-w-0"
           style={{ cursor: 'crosshair', touchAction: 'none', display: 'block' }}
-          onMouseDown={(e) => { pickDrag.current = true; pickerPick(e); }}
+          onMouseDown={(e) => { pickDrag.current = true; pickerPick(e.clientX, e.clientY); }}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            pickDrag.current = true;
+            pickerPick(e.touches[0].clientX, e.touches[0].clientY);
+          }}
+          onTouchMove={(e) => {
+            e.preventDefault();
+            if (pickDrag.current) pickerPick(e.touches[0].clientX, e.touches[0].clientY);
+          }}
+          onTouchEnd={() => { pickDrag.current = false; }}
         />
+        {/* Hue strip */}
         <canvas
           ref={hueRef}
           width={18}
           height={148}
           className="rounded-lg flex-shrink-0"
           style={{ width: 18, height: 148, cursor: 'ns-resize', touchAction: 'none', display: 'block' }}
-          onMouseDown={(e) => { hueDrag.current = true; huePick(e); }}
+          onMouseDown={(e) => { hueDrag.current = true; huePick(e.clientY); }}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            hueDrag.current = true;
+            huePick(e.touches[0].clientY);
+          }}
+          onTouchMove={(e) => {
+            e.preventDefault();
+            if (hueDrag.current) huePick(e.touches[0].clientY);
+          }}
+          onTouchEnd={() => { hueDrag.current = false; }}
         />
       </div>
+      {/* Color preview swatch + hex input */}
       <div className="flex items-center gap-2">
         <div
           className="w-8 h-8 rounded-md border border-border flex-shrink-0"
@@ -181,10 +224,12 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
           <input
             value={hexInput}
             onChange={(e) => handleHexChange(e.target.value)}
+            onPaste={handleHexPaste}
             maxLength={6}
             spellCheck={false}
-            className="flex-1 bg-transparent text-xs font-mono text-foreground focus:outline-none uppercase"
-            style={{ letterSpacing: '0.04em' }}
+            placeholder="000000"
+            className="flex-1 bg-transparent text-xs font-mono text-foreground focus:outline-none uppercase placeholder:text-muted-foreground/40"
+            style={{ letterSpacing: '0.06em' }}
           />
         </div>
       </div>

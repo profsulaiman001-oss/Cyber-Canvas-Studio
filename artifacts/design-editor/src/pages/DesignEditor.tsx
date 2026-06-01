@@ -13,6 +13,7 @@ import CanvasSizeDialog from '@/components/editor/CanvasSizeDialog';
 import ProjectManager from '@/components/editor/ProjectManager';
 import AlignmentPanel from '@/components/editor/AlignmentPanel';
 import CanvasBgDialog from '@/components/editor/CanvasBgDialog';
+import ColorStudioPanel from '@/components/editor/ColorStudioPanel';
 import { useToast } from '@/hooks/use-toast';
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -205,17 +206,20 @@ export default function DesignEditor() {
         hasSelection={hasSelection}
         penActive={penActive}
         brushActive={brushActive}
-        eyedropperActive={controller.eyedropperActive}
         onPenCancel={handlePenCancel}
         onBrushDone={handleBrushDone}
         onBrushColorChange={handleBrushColorChange}
         onBrushSizeChange={handleBrushSizeChange}
-        onEyedropper={handleEyedropper}
       />
 
       {/* Panels & Dialogs */}
       <LayersPanel controller={controller} />
       <PropertiesPanel controller={controller} />
+      <ColorStudioPanel
+        controller={controller}
+        eyedropperActive={controller.eyedropperActive}
+        onEyedropper={handleEyedropper}
+      />
       <AddElementSheet controller={controller} />
       <ExportDialog controller={controller} />
       <CanvasSizeDialog controller={controller} />

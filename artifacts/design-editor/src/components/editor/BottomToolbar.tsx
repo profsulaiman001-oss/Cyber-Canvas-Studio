@@ -1,4 +1,4 @@
-import { MousePointer2, Plus, Layers, SlidersHorizontal, Download, PenTool, X, Paintbrush, Palette } from 'lucide-react';
+import { MousePointer2, Plus, Layers, SlidersHorizontal, Download, PenTool, X, Paintbrush, Palette, Spline } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
 import type { BrushPreset } from '@/hooks/useFabricCanvas';
@@ -7,10 +7,15 @@ interface BottomToolbarProps {
   hasSelection: boolean;
   penActive: boolean;
   brushActive: boolean;
+  selectedIsPath?: boolean;
+  vectorEditActive?: boolean;
   onPenCancel: () => void;
   onBrushDone: () => void;
   onBrushColorChange: (color: string) => void;
   onBrushSizeChange: (size: number) => void;
+  onNeonIntensityChange?: (v: number) => void;
+  onVectorEditStart?: () => void;
+  onVectorEditEnd?: () => void;
 }
 
 const PRESET_LABELS: Record<BrushPreset, string> = {
@@ -21,7 +26,11 @@ const PRESET_LABELS: Record<BrushPreset, string> = {
 
 export default function BottomToolbar({
   hasSelection, penActive, brushActive,
+  selectedIsPath = false,
+  vectorEditActive = false,
   onPenCancel, onBrushDone, onBrushColorChange, onBrushSizeChange,
+  onNeonIntensityChange,
+  onVectorEditStart, onVectorEditEnd,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
 
@@ -29,7 +38,36 @@ export default function BottomToolbar({
     ? { borderTop: '1px solid rgba(255,107,107,0.4)' }
     : brushActive
     ? { borderTop: '1px solid rgba(0,245,255,0.6)' }
+    : vectorEditActive
+    ? { borderTop: '1px solid rgba(123,47,255,0.6)' }
     : { borderTop: '1px solid rgba(0,245,255,0.15)' };
+
+  /* ── Vector Edit Mode ── */
+  if (vectorEditActive) {
+    return (
+      <div
+        className="flex-shrink-0 flex items-start justify-around px-2 pt-3"
+        style={{ minHeight: '64px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
+      >
+        <button
+          onClick={onVectorEditEnd}
+          className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl"
+          style={{ color: '#6b7280' }}
+        >
+          <MousePointer2 size={22} />
+          <span className="text-[10px] font-medium leading-none">Done</span>
+        </button>
+        <div className="flex flex-col items-center gap-1 px-4 py-2">
+          <Spline size={22} style={{ color: '#7B2FFF', filter: 'drop-shadow(0 0 6px #7B2FFF80)' }} />
+          <span className="text-[10px] font-medium leading-none" style={{ color: '#7B2FFF' }}>Edit Points</span>
+        </div>
+        <div className="flex flex-col items-center gap-1 px-4 py-2 opacity-40">
+          <X size={22} style={{ color: '#ff6b6b' }} />
+          <span className="text-[10px] font-medium leading-none" style={{ color: '#ff6b6b' }}>Cancel</span>
+        </div>
+      </div>
+    );
+  }
 
   /* ── Pen Active Mode ── */
   if (penActive) {
@@ -38,8 +76,7 @@ export default function BottomToolbar({
         className="flex-shrink-0 flex items-start justify-around px-2 pt-3"
         style={{ minHeight: '64px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       >
-        <button onClick={onPenCancel}
-          className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#ff6b6b' }}>
+        <button onClick={onPenCancel} className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#ff6b6b' }}>
           <X size={22} />
           <span className="text-[10px] font-medium leading-none">Cancel</span>
         </button>
@@ -47,8 +84,7 @@ export default function BottomToolbar({
           <PenTool size={22} style={{ color: '#00F5FF', filter: 'drop-shadow(0 0 6px #00F5FF80)' }} />
           <span className="text-[10px] font-medium leading-none" style={{ color: '#00F5FF' }}>Pen Tool</span>
         </div>
-        <button onClick={() => dispatch({ type: 'SET_TOOL', payload: 'select' })}
-          className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#6b7280' }}>
+        <button onClick={() => dispatch({ type: 'SET_TOOL', payload: 'select' })} className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#6b7280' }}>
           <MousePointer2 size={22} />
           <span className="text-[10px] font-medium leading-none">Done</span>
         </button>
@@ -58,10 +94,11 @@ export default function BottomToolbar({
 
   /* ── Brush Active Mode ── */
   if (brushActive) {
+    const isNeonPreset = state.brushPreset === 'glow';
     return (
       <div
         className="flex-shrink-0 px-4 pt-2"
-        style={{ minHeight: '80px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
+        style={{ minHeight: isNeonPreset ? '110px' : '80px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -105,12 +142,20 @@ export default function BottomToolbar({
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-muted-foreground shrink-0">Size: {state.brushSize}px</span>
-          <Slider
-            min={1} max={80} step={1} value={[state.brushSize]}
-            onValueChange={([v]) => onBrushSizeChange(v)}
-            className="flex-1"
-          />
+          <Slider min={1} max={80} step={1} value={[state.brushSize]} onValueChange={([v]) => onBrushSizeChange(v)} className="flex-1" />
         </div>
+        {/* Neon Intensity — only shown for glow preset */}
+        {isNeonPreset && (
+          <div className="flex items-center gap-3 mt-2">
+            <span className="text-[10px] shrink-0" style={{ color: '#00F5FF' }}>Glow: {state.neonIntensity}%</span>
+            <Slider
+              min={10} max={100} step={1}
+              value={[state.neonIntensity]}
+              onValueChange={([v]) => onNeonIntensityChange?.(v)}
+              className="flex-1"
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -159,12 +204,7 @@ export default function BottomToolbar({
   return (
     <div
       className="flex-shrink-0 flex items-start justify-around px-1 pt-3"
-      style={{
-        minHeight: '64px',
-        paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
-        background: '#11141A',
-        ...toolbarBg,
-      }}
+      style={{ minHeight: '64px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       data-testid="bottom-toolbar"
     >
       {tools.map((tool) => {
@@ -187,12 +227,24 @@ export default function BottomToolbar({
             {tool.icon}
             <span className="text-[10px] font-medium leading-none">{tool.label}</span>
             {isActive && (
-              <span className="absolute bottom-1 w-1 h-1 rounded-full"
-                style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }} />
+              <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }} />
             )}
           </button>
         );
       })}
+
+      {/* Vector point editor button — only shown when a path-type object is selected */}
+      {selectedIsPath && hasSelection && (
+        <button
+          onClick={onVectorEditStart}
+          className="relative flex flex-col items-center gap-1 px-1.5 py-2 rounded-xl transition-all duration-200"
+          style={{ color: '#7B2FFF' }}
+          title="Edit anchor points"
+        >
+          <Spline size={22} />
+          <span className="text-[10px] font-medium leading-none">Points</span>
+        </button>
+      )}
     </div>
   );
 }

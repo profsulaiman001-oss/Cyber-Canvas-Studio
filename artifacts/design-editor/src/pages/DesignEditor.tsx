@@ -144,6 +144,25 @@ export default function DesignEditor() {
     dispatch({ type: 'SET_BRUSH_SIZE', payload: size });
   }, [dispatch]);
 
+  const [vectorEditActive, setVectorEditActive] = useState(false);
+
+  const handleVectorEditStart = useCallback(() => {
+    const obj = controller.selectedObject;
+    if (!obj || obj.type !== 'path') return;
+    controller.activateVectorEdit(obj);
+    setVectorEditActive(true);
+  }, [controller]);
+
+  const handleVectorEditEnd = useCallback(() => {
+    controller.deactivateVectorEdit();
+    setVectorEditActive(false);
+  }, [controller]);
+
+  const handleGuideMove = useCallback((axis: 'h' | 'v', idx: number, newPos: number) => {
+    const g = state.guides;
+    dispatch({ type: 'SET_GUIDES', payload: { ...g, [axis]: g[axis].map((p: number, i: number) => i === idx ? newPos : p) } });
+  }, [state.guides, dispatch]);
+
   /* ── Eyedropper: prefer native EyeDropper API, fall back to canvas sampler ── */
   const handleEyedropper = useCallback(async () => {
     // Native EyeDropper API (Chrome 95+, Edge 95+)
@@ -218,16 +237,28 @@ export default function DesignEditor() {
         canvasHeight={state.canvasSize.height}
         selectedElementId={state.selectedObjectIds[0] || null}
         onNudgeElement={handleNudgeElement}
+        vectorAnchors={controller.vectorAnchors}
+        onVectorAnchorDragStart={controller.vectorAnchorDragStart}
+        onVectorAnchorDragMove={controller.vectorAnchorDragMove}
+        onVectorAnchorDragEnd={controller.vectorAnchorDragEnd}
+        guides={state.guides}
+        gridLocked={state.gridLocked}
+        onGuideMove={handleGuideMove}
       />
 
       <BottomToolbar
         hasSelection={hasSelection}
         penActive={penActive}
         brushActive={brushActive}
+        selectedIsPath={controller.selectedObject?.type === 'path'}
+        vectorEditActive={vectorEditActive}
         onPenCancel={handlePenCancel}
         onBrushDone={handleBrushDone}
         onBrushColorChange={handleBrushColorChange}
         onBrushSizeChange={handleBrushSizeChange}
+        onNeonIntensityChange={(v) => dispatch({ type: 'SET_NEON_INTENSITY', payload: v })}
+        onVectorEditStart={handleVectorEditStart}
+        onVectorEditEnd={handleVectorEditEnd}
       />
 
       {/* Panels & Dialogs */}

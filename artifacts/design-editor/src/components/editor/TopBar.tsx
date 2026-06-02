@@ -170,6 +170,61 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
                 />
               </div>
 
+              {/* Guide lock toggle */}
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">Lock Guides</Label>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'TOGGLE_GRID_LOCKED' })}
+                  className="text-xs px-2 py-0.5 rounded"
+                  style={{
+                    background: state.gridLocked ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.06)',
+                    color: state.gridLocked ? '#FFD700' : '#9ca3af',
+                    border: `1px solid ${state.gridLocked ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.15)'}`,
+                  }}
+                >
+                  {state.gridLocked ? '🔒 Locked' : '🔓 Free'}
+                </button>
+              </div>
+
+              {/* Horizontal guides */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">H Guides</Label>
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'ADD_GUIDE', payload: { axis: 'h', pos: Math.round(state.canvasSize.height / 2) } })}
+                    className="text-[10px] px-1.5 py-0.5 rounded"
+                    style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
+                  >+ H</button>
+                </div>
+                {state.guides.h.map((pos, i) => (
+                  <div key={i} className="flex items-center justify-between text-[10px] text-muted-foreground pl-1">
+                    <span>{pos}px</span>
+                    <button type="button" onClick={() => dispatch({ type: 'REMOVE_GUIDE', payload: { axis: 'h', idx: i } })} className="text-red-400 hover:text-red-300 px-1">✕</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Vertical guides */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">V Guides</Label>
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'ADD_GUIDE', payload: { axis: 'v', pos: Math.round(state.canvasSize.width / 2) } })}
+                    className="text-[10px] px-1.5 py-0.5 rounded"
+                    style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
+                  >+ V</button>
+                </div>
+                {state.guides.v.map((pos, i) => (
+                  <div key={i} className="flex items-center justify-between text-[10px] text-muted-foreground pl-1">
+                    <span>{pos}px</span>
+                    <button type="button" onClick={() => dispatch({ type: 'REMOVE_GUIDE', payload: { axis: 'v', idx: i } })} className="text-red-400 hover:text-red-300 px-1">✕</button>
+                  </div>
+                ))}
+              </div>
+
               <button
                 className="text-xs w-full text-center py-1 rounded"
                 style={{ color: '#00F5FF', background: 'rgba(0,245,255,0.06)', border: '1px solid rgba(0,245,255,0.15)' }}

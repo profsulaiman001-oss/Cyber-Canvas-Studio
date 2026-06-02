@@ -15,6 +15,7 @@ import {
   Gradient,
   Pattern,
   PencilBrush,
+  util,
 } from 'fabric';
 
 export interface ObjectMeta {
@@ -50,6 +51,16 @@ interface UseFabricCanvasOptions {
 }
 
 export interface PenPoint { x: number; y: number }
+
+export interface VectorAnchor {
+  cmdIdx: number;
+  xOff: number;
+  yOff: number;
+  localX: number;
+  localY: number;
+  screenX: number;
+  screenY: number;
+}
 
 const MAX_UNDO = 50;
 const EXTRA_PROPS = ['_uid', '_name', '_innerShadow', '_textureKey', '_depth3d', '_glow'];
@@ -211,6 +222,10 @@ export function useFabricCanvas(
   const brushActiveRef = useRef(false);
   const eyedropperActiveRef = useRef(false);
   const eyedropperCallbackRef = useRef<((color: string) => void) | null>(null);
+  const brushPresetRef = useRef<BrushPreset>('standard');
+  const vectorEditObjRef = useRef<FabricObject | null>(null);
+  const vectorDragStartRef = useRef<{ anchorIdx: number; localX: number; localY: number } | null>(null);
+  const [vectorAnchors, setVectorAnchors] = useState<VectorAnchor[]>([]);
 
   // Pen tool state
   const [penPoints, setPenPoints] = useState<PenPoint[]>([]);
@@ -558,6 +573,17 @@ export function useFabricCanvas(
       setZoom(z);
     });
 
+    /* ─── Neon / glow path: screen blending for real light-emission look ─── */
+    c.on('path:created', (e: Record<string, unknown>) => {
+      const path = e.path as FabricObject | undefined;
+      if (!path) return;
+      if (brushPresetRef.current === 'glow') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (path as any).globalCompositeOperation = 'screen';
+        c.requestRenderAll();
+      }
+    });
+
     const ro = new ResizeObserver(() => fitToContainer());
     if (containerEl.current) ro.observe(containerEl.current);
 
@@ -687,7 +713,7 @@ export function useFabricCanvas(
   const addText = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new IText('Tap to edit', { left: cx - 80, top: cy - 20, fontSize: 40, fill: '#ffffff', fontFamily: 'Inter' });
+    const obj = new IText('Tap to edit', { left: cx - 80, top: cy - 20, fontSize: 40, fill: '#1A1A1A', fontFamily: 'Inter' });
     tagObj(obj, 'i-text'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
@@ -949,6 +975,7 @@ export function useFabricCanvas(
     c.selection = false;
     c.discardActiveObject();
 
+    brushPresetRef.current = preset;
     const brush = new PencilBrush(c);
     brush.width = size;
 
@@ -956,9 +983,11 @@ export function useFabricCanvas(
       brush.color = color;
       brush.shadow = null;
     } else if (preset === 'glow') {
-      brush.color = color;
-      brush.width = Math.max(2, size * 0.4);
-      brush.shadow = new Shadow({ color, blur: size * 4, offsetX: 0, offsetY: 0 });
+      // Photoshop-style neon: barely-visible thin core + massive glow aura via shadow blur
+      const [r, g, b] = [parseInt(color.slice(1, 3), 16), parseInt(color.slice(3, 5), 16), parseInt(color.slice(5, 7), 16)];
+      brush.color = `rgba(${r},${g},${b},0.08)`;  // near-transparent core
+      brush.width = Math.max(1, size * 0.18);       // ultra-thin stroke
+      brush.shadow = new Shadow({ color, blur: size * 8, offsetX: 0, offsetY: 0 });
     } else if (preset === 'airbrush') {
       const [r, g, b] = [
         parseInt(color.slice(1, 3), 16),
@@ -1003,6 +1032,90 @@ export function useFabricCanvas(
     const c = canvasRef.current; if (!c) return;
     c.selection = true;
   }, []);
+
+  /* ─── Vector / path anchor editor ─── */
+  const refreshVectorAnchors = useCallback(() => {
+    const obj = vectorEditObjRef.current;
+    const c = canvasRef.current;
+    if (!obj || !c) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPath: [string, ...number[]][] = (obj as any).path ?? [];
+    const matrix = obj.calcTransformMatrix();
+    const vt = c.viewportTransform ?? [1, 0, 0, 1, 0, 0];
+    const anchors: VectorAnchor[] = [];
+    rawPath.forEach((cmd, cmdIdx) => {
+      let xOff = -1, yOff = -1, lx = 0, ly = 0;
+      if (cmd[0] === 'M' || cmd[0] === 'L') { xOff = 1; yOff = 2; lx = cmd[1] as number; ly = cmd[2] as number; }
+      else if (cmd[0] === 'C') { xOff = 5; yOff = 6; lx = cmd[5] as number; ly = cmd[6] as number; }
+      else if (cmd[0] === 'Q') { xOff = 3; yOff = 4; lx = cmd[3] as number; ly = cmd[4] as number; }
+      if (xOff < 0) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cp = util.transformPoint({ x: lx, y: ly }, matrix as any);
+      anchors.push({ cmdIdx, xOff, yOff, localX: lx, localY: ly, screenX: vt[4] + cp.x * vt[0], screenY: vt[5] + cp.y * vt[3] });
+    });
+    setVectorAnchors(anchors);
+  }, []);
+
+  const activateVectorEdit = useCallback((obj: FabricObject) => {
+    const c = canvasRef.current; if (!c) return;
+    vectorEditObjRef.current = obj;
+    c.discardActiveObject();
+    obj.set({ hasControls: false, hasBorders: false });
+    c.requestRenderAll();
+    refreshVectorAnchors();
+  }, [refreshVectorAnchors]);
+
+  const deactivateVectorEdit = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = vectorEditObjRef.current;
+    if (obj) {
+      obj.set({ hasControls: true, hasBorders: true });
+      c.setActiveObject(obj);
+      c.requestRenderAll();
+    }
+    vectorEditObjRef.current = null;
+    vectorDragStartRef.current = null;
+    setVectorAnchors([]);
+  }, []);
+
+  const vectorAnchorDragStart = useCallback((anchorIdx: number) => {
+    const anchor = vectorAnchors[anchorIdx];
+    if (!anchor) return;
+    vectorDragStartRef.current = { anchorIdx, localX: anchor.localX, localY: anchor.localY };
+  }, [vectorAnchors]);
+
+  const vectorAnchorDragMove = useCallback((totalClientDx: number, totalClientDy: number) => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = vectorEditObjRef.current; if (!obj) return;
+    const drag = vectorDragStartRef.current; if (!drag) return;
+    const anchor = vectorAnchors[drag.anchorIdx]; if (!anchor) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPath: [string, ...number[]][] = [...((obj as any).path ?? [])];
+    const vt = c.viewportTransform ?? [1, 0, 0, 1, 0, 0];
+    const canvasDx = totalClientDx / (vt[0] || 1);
+    const canvasDy = totalClientDy / (vt[3] || 1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inv = util.invertTransform(obj.calcTransformMatrix() as any);
+    const localDx = inv[0] * canvasDx + inv[2] * canvasDy;
+    const localDy = inv[1] * canvasDx + inv[3] * canvasDy;
+    const newPath = rawPath.map((cmd, i) => {
+      if (i !== anchor.cmdIdx) return cmd;
+      const nc = [...cmd] as [string, ...number[]];
+      nc[anchor.xOff] = drag.localX + localDx;
+      nc[anchor.yOff] = drag.localY + localDy;
+      return nc;
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).set({ path: newPath });
+    obj.setCoords();
+    c.requestRenderAll();
+    refreshVectorAnchors();
+  }, [vectorAnchors, refreshVectorAnchors]);
+
+  const vectorAnchorDragEnd = useCallback(() => {
+    vectorDragStartRef.current = null;
+    pushUndo();
+  }, [pushUndo]);
 
   /* ─── Undo / Redo ─── */
   const undo = useCallback(async () => {
@@ -1178,6 +1291,9 @@ export function useFabricCanvas(
     // Effects
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
     applyGradientFill, fillShapeWithImage, cropImage,
+    // Vector anchor editor
+    vectorAnchors, activateVectorEdit, deactivateVectorEdit,
+    vectorAnchorDragStart, vectorAnchorDragMove, vectorAnchorDragEnd,
     // Util
     syncObjects, fitToContainer,
   };

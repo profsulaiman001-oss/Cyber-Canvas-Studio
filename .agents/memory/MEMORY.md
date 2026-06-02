@@ -1,4 +1,5 @@
-- [useFabricCanvas architecture](fabric-hook.md) — hook exports: apply3DDepth, applyGlow, applyGradientFill, fillShapeWithImage, cropImage, activateBrush, deactivateBrush, activateEyedropper, deactivateEyedropper, dragInfo, isBrushActive, eyedropperActive
-- [Brush engine](brush-engine.md) — uses Fabric PencilBrush; glow preset uses Shadow with blur=size*4; airbrush uses rgba(r,g,b,0.08) and width*4; brushActive stored in editorStore
+- [useFabricCanvas architecture](fabric-hook.md) — hook exports: apply3DDepth, applyGlow, applyGradientFill, fillShapeWithImage, cropImage, activateBrush, deactivateBrush, activateEyedropper, deactivateEyedropper, vectorAnchors, activateVectorEdit, vectorAnchorDragStart/Move/End
+- [Brush engine](brush-engine.md) — neon glow: near-transparent rgba(r,g,b,0.08) core + size*8 shadow blur + globalCompositeOperation:'screen' on path:created; neonIntensity in editorStore
+- [Vector anchor editor](vector-anchor-editor.md) — drag uses total-delta pattern from start position; refreshVectorAnchors uses util.transformPoint; Canvas.tsx renders SVG overlay with global window listeners
 - [3D extrusion](3d-extrusion.md) — draw3DLayer renders offset copies via destination-over in after:render, not Fabric shadow; stores _depth3d on obj
-- [Fabric v6 quirks](fabric-v6-quirks.md) — toJSON needs explicit extra props array; bringObjectForward/sendObjectBackwards via (c as any); loadFromJSON via (c as any); PencilBrush.shadow works for glow
+- [Fabric v6 quirks](fabric-v6-quirks.md) — shadow mutations need setDirty(true)+requestRenderAll; path.path is [string,...number[]][]; util.invertTransform(matrix as any) works for delta math

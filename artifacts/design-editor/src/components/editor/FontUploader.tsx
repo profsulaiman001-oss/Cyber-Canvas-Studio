@@ -33,10 +33,13 @@ export default function FontUploader() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const fontName = file.name.replace(/\.(ttf|otf)$/i, '').replace(/[-_]/g, ' ');
+    const rawName = file.name.replace(/\.(ttf|otf|woff2?)$/i, '').replace(/[-_]/g, ' ').trim();
+    const fontName = rawName || 'Custom Font';
 
     try {
       const buffer = await file.arrayBuffer();
@@ -59,20 +62,27 @@ export default function FontUploader() {
     if (inputRef.current) inputRef.current.value = '';
   };
 
+  const handleButtonClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    inputRef.current?.click();
+  };
+
   return (
     <div className="space-y-2">
       <input
         ref={inputRef}
         type="file"
-        accept=".ttf,.otf"
+        accept=".ttf,.otf,.woff,.woff2"
         onChange={handleFileSelect}
         className="hidden"
         data-testid="input-font-upload"
       />
       <Button
+        type="button"
         variant="secondary"
         className="w-full gap-2"
-        onClick={() => inputRef.current?.click()}
+        onClick={handleButtonClick}
         data-testid="button-upload-font"
       >
         <Upload size={14} />

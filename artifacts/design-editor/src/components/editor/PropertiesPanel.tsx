@@ -138,6 +138,9 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
 
   const [fontSize, setFontSize] = useState(40);
   const [fontFamily, setFontFamily] = useState('Inter');
+  const [recentFonts, setRecentFonts] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('cs_recent_fonts') || '[]'); } catch { return []; }
+  });
   const [fontWeight, setFontWeight] = useState('normal');
   const [fontStyle, setFontStyle] = useState('normal');
   const [textAlign, setTextAlign] = useState('left');
@@ -269,13 +272,20 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
 
   const applyDropShadow = useCallback((en: boolean, color: string, blur: number, ox: number, oy: number, opa: number) => {
     if (!obj) return;
+    const canvas = controller.getCanvas();
     if (en) {
       const hex = color.replace('#', '');
       const r = parseInt(hex.slice(0, 2), 16); const g = parseInt(hex.slice(2, 4), 16); const b = parseInt(hex.slice(4, 6), 16);
-      obj.set('shadow', new Shadow({ color: `rgba(${r},${g},${b},${opa / 100})`, blur, offsetX: ox, offsetY: oy }));
-    } else { obj.set('shadow', null); }
-    controller.getCanvas()?.renderAll();
-  }, [obj, controller]);
+      // For images, scale shadow depth for visibility on high-resolution layers
+      const m = isImage ? 2 : 1;
+      obj.set('shadow', new Shadow({ color: `rgba(${r},${g},${b},${opa / 100})`, blur: blur * m, offsetX: ox * m, offsetY: oy * m }));
+    } else {
+      obj.set('shadow', null);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).setDirty?.(true);
+    canvas?.requestRenderAll();
+  }, [obj, controller, isImage]);
 
   const applyInnerShadowEffect = useCallback((en: boolean, color: string, blur: number, ox: number, oy: number, opa: number) => {
     controller.applyInnerShadow(obj, en ? { enabled: true, color, blur, offsetX: ox, offsetY: oy, opacity: opa } : null);
@@ -299,7 +309,15 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   };
 
   const applyFontSize = (v: number) => { setFontSize(v); apply({ fontSize: v }); };
-  const applyFontFamily = (v: string) => { setFontFamily(v); apply({ fontFamily: v }); };
+  const applyFontFamily = (v: string) => {
+    setFontFamily(v);
+    apply({ fontFamily: v });
+    setRecentFonts((prev) => {
+      const deduped = [v, ...prev.filter((f) => f !== v)].slice(0, 5);
+      try { localStorage.setItem('cs_recent_fonts', JSON.stringify(deduped)); } catch { /* ignore */ }
+      return deduped;
+    });
+  };
   const applyBold = () => { const n = fontWeight === 'bold' ? 'normal' : 'bold'; setFontWeight(n); apply({ fontWeight: n }); };
   const applyItalic = () => { const n = fontStyle === 'italic' ? 'normal' : 'italic'; setFontStyle(n); apply({ fontStyle: n }); };
   const applyTextAlign = (v: string) => { if (!v) return; setTextAlign(v); apply({ textAlign: v }); };
@@ -548,6 +566,29 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
                   ))}
                 </SelectContent>
               </Select>
+              {recentFonts.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Recent</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {recentFonts.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => applyFontFamily(f)}
+                        className="text-[10px] px-2 py-0.5 rounded border transition-all"
+                        style={{
+                          background: fontFamily === f ? 'rgba(0,245,255,0.15)' : 'rgba(255,255,255,0.04)',
+                          borderColor: fontFamily === f ? '#00F5FF' : 'rgba(255,255,255,0.1)',
+                          color: fontFamily === f ? '#00F5FF' : '#9ca3af',
+                          fontFamily: f,
+                        }}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <SliderRow label="Font Size" value={fontSize} min={8} max={300} onChange={applyFontSize} />
               <SliderRow label="Letter Spacing" value={charSpacing} min={-50} max={200} onChange={applyCharSpacing} />
               <SliderRow label="Line Height" value={lineHeight} min={0.5} max={4} step={0.05} onChange={applyLineHeight} />

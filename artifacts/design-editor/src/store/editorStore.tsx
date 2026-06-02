@@ -27,10 +27,13 @@ export interface EditorState {
   gridEnabled: boolean;
   snapToGrid: boolean;
   gridSize: number;
+  gridLocked: boolean;
+  guides: { h: number[]; v: number[] };
   canvasBg: CanvasBgConfig;
   brushPreset: BrushPreset;
   brushColor: string;
   brushSize: number;
+  neonIntensity: number;
 }
 
 type EditorAction =
@@ -46,10 +49,15 @@ type EditorAction =
   | { type: 'TOGGLE_GRID' }
   | { type: 'TOGGLE_SNAP' }
   | { type: 'SET_GRID_SIZE'; payload: number }
+  | { type: 'TOGGLE_GRID_LOCKED' }
+  | { type: 'SET_GUIDES'; payload: { h: number[]; v: number[] } }
+  | { type: 'ADD_GUIDE'; payload: { axis: 'h' | 'v'; pos: number } }
+  | { type: 'REMOVE_GUIDE'; payload: { axis: 'h' | 'v'; idx: number } }
   | { type: 'SET_CANVAS_BG'; payload: CanvasBgConfig }
   | { type: 'SET_BRUSH_PRESET'; payload: BrushPreset }
   | { type: 'SET_BRUSH_COLOR'; payload: string }
-  | { type: 'SET_BRUSH_SIZE'; payload: number };
+  | { type: 'SET_BRUSH_SIZE'; payload: number }
+  | { type: 'SET_NEON_INTENSITY'; payload: number };
 
 const defaultBg: CanvasBgConfig = {
   type: 'solid',
@@ -74,10 +82,13 @@ const initialState: EditorState = {
   gridEnabled: false,
   snapToGrid: false,
   gridSize: 20,
+  gridLocked: false,
+  guides: { h: [], v: [] },
   canvasBg: defaultBg,
   brushPreset: 'standard',
   brushColor: '#00F5FF',
   brushSize: 8,
+  neonIntensity: 60,
 };
 
 function reducer(state: EditorState, action: EditorAction): EditorState {
@@ -108,6 +119,19 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, snapToGrid: !state.snapToGrid };
     case 'SET_GRID_SIZE':
       return { ...state, gridSize: action.payload };
+    case 'TOGGLE_GRID_LOCKED':
+      return { ...state, gridLocked: !state.gridLocked };
+    case 'SET_GUIDES':
+      return { ...state, guides: action.payload };
+    case 'ADD_GUIDE': {
+      const axis = action.payload.axis;
+      return { ...state, guides: { ...state.guides, [axis]: [...state.guides[axis], action.payload.pos] } };
+    }
+    case 'REMOVE_GUIDE': {
+      const axis = action.payload.axis;
+      const idx = action.payload.idx;
+      return { ...state, guides: { ...state.guides, [axis]: state.guides[axis].filter((_v, i) => i !== idx) } };
+    }
     case 'SET_CANVAS_BG':
       return { ...state, canvasBg: action.payload };
     case 'SET_BRUSH_PRESET':
@@ -116,6 +140,8 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, brushColor: action.payload };
     case 'SET_BRUSH_SIZE':
       return { ...state, brushSize: action.payload };
+    case 'SET_NEON_INTENSITY':
+      return { ...state, neonIntensity: action.payload };
     default:
       return state;
   }

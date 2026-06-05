@@ -301,7 +301,7 @@ export function useFabricCanvas(
     const h = container.clientHeight;
     const newZoom = Math.min(w / designWidth.current, h / designHeight.current) * 0.9;
     c.setZoom(newZoom);
-    c.setDimensions({ width: designWidth.current, height: designHeight.current });
+    c.setDimensions({ width: w, height: h });
     const vpX = (w - designWidth.current * newZoom) / 2;
     const vpY = (h - designHeight.current * newZoom) / 2;
     c.setViewportTransform([newZoom, 0, 0, newZoom, vpX, vpY]);
@@ -788,7 +788,7 @@ export function useFabricCanvas(
           case 'left': obj.set({ left: bounds.left + deltaLeft }); break;
           case 'right': obj.set({ left: bounds.right - rect.width + deltaLeft }); break;
           case 'top': obj.set({ top: bounds.top + deltaTop }); break;
-          case 'bottom': obj.set({ top: bounds.bottom - rect.height + deltaTop }); break;
+          case 'bottom': obj.set({ top: bounds.bottom - rect.height + deltaLeft }); break;
           case 'centerH': obj.set({ left: bounds.left + (groupW - rect.width) / 2 + deltaLeft }); break;
           case 'centerV': obj.set({ top: bounds.top + (groupH - rect.height) / 2 + deltaTop }); break;
         }
@@ -1196,17 +1196,9 @@ export function useFabricCanvas(
     undoStack.current = []; redoStack.current = [];
   }, [options, syncObjects]);
 
-  /* ─── Canvas / layer ops (Fixed: Fully synchronizes drawing canvas resolution width and height parameters) ─── */
+  /* ─── Canvas / layer ops ─── */
   const setCanvasSize = useCallback((width: number, height: number) => {
-    designWidth.current = width; 
-    designHeight.current = height; 
-
-    const c = canvasRef.current;
-    if (c) {
-      c.setDimensions({ width, height });
-    }
-
-    fitToContainer();
+    designWidth.current = width; designHeight.current = height; fitToContainer();
   }, [fitToContainer]);
 
   const deleteSelected = useCallback(() => {

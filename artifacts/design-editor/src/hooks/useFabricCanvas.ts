@@ -301,7 +301,7 @@ export function useFabricCanvas(
     const h = container.clientHeight;
     const newZoom = Math.min(w / designWidth.current, h / designHeight.current) * 0.9;
     c.setZoom(newZoom);
-    c.setDimensions({ width: w, height: h });
+    c.setDimensions({ width: designWidth.current, height: designHeight.current });
     const vpX = (w - designWidth.current * newZoom) / 2;
     const vpY = (h - designHeight.current * newZoom) / 2;
     c.setViewportTransform([newZoom, 0, 0, newZoom, vpX, vpY]);
@@ -1151,17 +1151,17 @@ export function useFabricCanvas(
   /* ─── Export (Fixed: Enforces Explicit Snapshot Clipping Parameters) ─── */
   const exportCanvas = useCallback((format: 'png' | 'jpeg', quality: number, multiplier: number): string => {
     const c = canvasRef.current; if (!c) return '';
-    
+
     const activeObj = c.getActiveObject();
     const savedVpTransform = c.viewportTransform;
-    
+
     // Clear selection UI artifacts from export raster render
     c.discardActiveObject();
-    
+
     // Lock workspace viewport rendering origin directly to physical vector artboard boundaries
     c.setViewportTransform([1, 0, 0, 1, 0, 0]);
     c.setDimensions({ width: designWidth.current, height: designHeight.current });
-    
+
     const dataUrl = c.toDataURL({ 
       format, 
       quality, 
@@ -1171,11 +1171,11 @@ export function useFabricCanvas(
       width: designWidth.current,
       height: designHeight.current
     });
-    
+
     // Seamlessly restore view matrix to UI working states
     if (savedVpTransform) c.setViewportTransform(savedVpTransform);
     if (activeObj) c.setActiveObject(activeObj);
-    
+
     fitToContainer();
     return dataUrl;
   }, [fitToContainer]);
@@ -1196,9 +1196,17 @@ export function useFabricCanvas(
     undoStack.current = []; redoStack.current = [];
   }, [options, syncObjects]);
 
-  /* ─── Canvas / layer ops ─── */
+  /* ─── Canvas / layer ops (Fixed: Fully synchronizes drawing canvas resolution width and height parameters) ─── */
   const setCanvasSize = useCallback((width: number, height: number) => {
-    designWidth.current = width; designHeight.current = height; fitToContainer();
+    designWidth.current = width; 
+    designHeight.current = height; 
+
+    const c = canvasRef.current;
+    if (c) {
+      c.setDimensions({ width, height });
+    }
+
+    fitToContainer();
   }, [fitToContainer]);
 
   const deleteSelected = useCallback(() => {

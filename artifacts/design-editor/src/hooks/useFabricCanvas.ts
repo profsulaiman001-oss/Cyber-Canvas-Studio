@@ -300,11 +300,13 @@ export function useFabricCanvas(
     const w = container.clientWidth;
     const h = container.clientHeight;
     const newZoom = Math.min(w / designWidth.current, h / designHeight.current) * 0.9;
-    c.setZoom(newZoom);
-    c.setDimensions({ width: w, height: h });
-    const vpX = (w - designWidth.current * newZoom) / 2;
-    const vpY = (h - designHeight.current * newZoom) / 2;
-    c.setViewportTransform([newZoom, 0, 0, newZoom, vpX, vpY]);
+    // Size the Fabric canvas exactly to the visible design area.
+    // Design (0,0) aligns with canvas (0,0) — no viewport translation offset needed.
+    // This ensures click coords, drag coords, and export coords all share one origin.
+    const cw = Math.round(designWidth.current * newZoom);
+    const ch = Math.round(designHeight.current * newZoom);
+    c.setDimensions({ width: cw, height: ch });
+    c.setViewportTransform([newZoom, 0, 0, newZoom, 0, 0]);
     setZoom(newZoom);
   }, [containerEl]);
 
@@ -553,12 +555,13 @@ export function useFabricCanvas(
         const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
         const midX = (t0.clientX + t1.clientX) / 2;
         const midY = (t0.clientY + t1.clientY) / 2;
-        const rect = el.getBoundingClientRect();
-        const point = new Point(midX - rect.left, midY - rect.top);
-        c.zoomToPoint(point, Math.min(Math.max(c.getZoom() * (dist / lastDist), 0.1), 10));
+        const z = Math.min(Math.max(c.getZoom() * (dist / lastDist), 0.1), 10);
+        // Resize canvas to exact design area at new zoom; keep coordinate origin at (0,0)
+        c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
+        c.setViewportTransform([z, 0, 0, z, 0, 0]);
         c.relativePan(new Point(midX - lastMidX, midY - lastMidY));
         lastDist = dist; lastMidX = midX; lastMidY = midY;
-        setZoom(c.getZoom());
+        setZoom(z);
       }
     };
     el.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -566,10 +569,13 @@ export function useFabricCanvas(
 
     /* ─── Mouse wheel zoom ─── */
     c.on('mouse:wheel', (opt) => {
-      const z = Math.min(Math.max(c.getZoom() * 0.999 ** (opt.e as WheelEvent).deltaY, 0.1), 10);
-      c.zoomToPoint(new Point((opt.e as WheelEvent).offsetX, (opt.e as WheelEvent).offsetY), z);
-      opt.e.preventDefault();
-      opt.e.stopPropagation();
+      const ev = opt.e as WheelEvent;
+      const z = Math.min(Math.max(c.getZoom() * (0.999 ** ev.deltaY), 0.1), 10);
+      // Resize canvas to the exact design area at the new zoom; viewport origin stays at (0,0)
+      c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
+      c.setViewportTransform([z, 0, 0, z, 0, 0]);
+      ev.preventDefault();
+      ev.stopPropagation();
       setZoom(z);
     });
 

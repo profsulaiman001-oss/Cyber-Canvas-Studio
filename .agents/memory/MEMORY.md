@@ -3,3 +3,4 @@
 - [Vector anchor editor](vector-anchor-editor.md) — drag uses total-delta pattern from start position; refreshVectorAnchors uses util.transformPoint; Canvas.tsx renders SVG overlay with global window listeners
 - [3D extrusion](3d-extrusion.md) — draw3DLayer renders offset copies via destination-over in after:render, not Fabric shadow; stores _depth3d on obj
 - [Fabric v6 quirks](fabric-v6-quirks.md) — shadow mutations need setDirty(true)+requestRenderAll; path.path is [string,...number[]][]; util.invertTransform(matrix as any) works for delta math
+- [Canvas coordinate alignment](canvas-coordinate-alignment.md) — fitToContainer must size canvas to dw*zoom × dh*zoom (design area), NOT container dimensions; no vp translation

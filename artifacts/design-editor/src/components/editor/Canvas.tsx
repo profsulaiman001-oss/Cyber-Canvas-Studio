@@ -145,9 +145,7 @@ export default function CanvasWorkspace({
         style={{
           width: `${canvasWidth * zoom}px`,
           height: `${canvasHeight * zoom}px`,
-          maxWidth: '100%',
-          maxHeight: '100%',
-          aspectRatio: `${canvasWidth} / ${canvasHeight}`,
+          maxWidth: '100%', maxHeight: '100%',
           background: transparentBg ? `repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 20px 20px` : `#ffffff`,
         }}
       >
@@ -298,7 +296,7 @@ export default function CanvasWorkspace({
         )}
       </div>
 
-      /* ── Floating navigation overlays ── */
+      {/* ── Floating navigation overlays ── */}
       {selectedElementId && (
         <button
           onClick={() => setShowNudgePad(!showNudgePad)}
@@ -341,7 +339,7 @@ export default function CanvasWorkspace({
         </div>
       </div>
 
-      /* Drag telemetry */
+      {/* Drag telemetry */}
       <div
         aria-hidden={!dragInfo}
         className="absolute pointer-events-none z-30 px-2 py-1 rounded-lg text-xs font-mono whitespace-nowrap"

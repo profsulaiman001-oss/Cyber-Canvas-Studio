@@ -15,7 +15,8 @@ import AlignmentPanel from '@/components/editor/AlignmentPanel';
 import CanvasBgDialog from '@/components/editor/CanvasBgDialog';
 import ColorStudioPanel from '@/components/editor/ColorStudioPanel';
 import TextPanel from '@/components/editor/TextPanel';
-import VectorOpsPanel from '@/components/editor/VectorOpsPanel';
+import ShapeModifiersPanel from '@/components/editor/ShapeModifiersPanel';
+import NudgePanel from '@/components/editor/NudgePanel';
 import AdjustPanel from '@/components/editor/AdjustPanel';
 import { useToast } from '@/hooks/use-toast';
 
@@ -238,8 +239,6 @@ export default function DesignEditor() {
         // Dynamic live sizes hooked straight to layout engine states
         canvasWidth={state.canvasSize.width}
         canvasHeight={state.canvasSize.height}
-        selectedElementId={state.selectedObjectIds[0] || null}
-        onNudgeElement={handleNudgeElement}
         vectorAnchors={controller.vectorAnchors}
         onVectorAnchorDragStart={controller.vectorAnchorDragStart}
         onVectorAnchorDragMove={controller.vectorAnchorDragMove}
@@ -285,7 +284,8 @@ export default function DesignEditor() {
         onProjectSaved={setCurrentProjectId}
       />
       <TextPanel controller={controller} />
-      <VectorOpsPanel controller={controller} />
+      <ShapeModifiersPanel controller={controller} />
+      <NudgePanel onNudge={handleNudgeElement} />
       <AdjustPanel controller={controller} />
     </div>
   );

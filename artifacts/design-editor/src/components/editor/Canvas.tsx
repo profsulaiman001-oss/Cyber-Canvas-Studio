@@ -1,4 +1,4 @@
-import { RefObject, useRef, useEffect, useState } from 'react';
+import { RefObject, useRef, useEffect } from 'react';
 import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
 
 export interface DragInfo {
@@ -27,8 +27,6 @@ interface CanvasProps {
   eyedropperActive?: boolean;
   canvasWidth?: number;
   canvasHeight?: number;
-  selectedElementId?: string | null;
-  onNudgeElement?: (direction: 'up' | 'down' | 'left' | 'right', amount: number) => void;
   vectorAnchors?: VectorAnchor[];
   onVectorAnchorDragStart?: (idx: number) => void;
   onVectorAnchorDragMove?: (totalDx: number, totalDy: number) => void;
@@ -46,8 +44,6 @@ export default function CanvasWorkspace({
   dragInfo, brushActive, eyedropperActive,
   canvasWidth = 1080,
   canvasHeight = 1080,
-  selectedElementId = null,
-  onNudgeElement,
   vectorAnchors = [],
   onVectorAnchorDragStart,
   onVectorAnchorDragMove,
@@ -59,8 +55,6 @@ export default function CanvasWorkspace({
   const tileSize = gridSize * zoom;
   const showEmptyHint = !hasObjects && !penActive && !brushActive;
   const showPenSvg = penActive && penPoints.length > 0;
-  const [nudgeStep, setNudgeStep] = useState<number>(2);
-  const [showNudgePad, setShowNudgePad] = useState<boolean>(false);
 
   const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : 'default';
 
@@ -71,22 +65,6 @@ export default function CanvasWorkspace({
     tooltipLeft = Math.min(dragInfo.clientX - rect.left + 14, rect.width - 130);
     tooltipTop = Math.max(dragInfo.clientY - rect.top - 38, 4);
   }
-
-  const increaseStep = () => {
-    if (nudgeStep === 1) setNudgeStep(2);
-    else if (nudgeStep === 2) setNudgeStep(5);
-    else if (nudgeStep === 5) setNudgeStep(10);
-    else if (nudgeStep === 10) setNudgeStep(20);
-  };
-  const decreaseStep = () => {
-    if (nudgeStep === 2) setNudgeStep(1);
-    else if (nudgeStep === 5) setNudgeStep(2);
-    else if (nudgeStep === 10) setNudgeStep(5);
-    else if (nudgeStep === 20) setNudgeStep(10);
-  };
-  const handleNudgeAction = (direction: 'up' | 'down' | 'left' | 'right') => {
-    onNudgeElement?.(direction, nudgeStep);
-  };
 
   /* ── Vector anchor drag ── */
   const anchorDragRef = useRef<{ idx: number; startClientX: number; startClientY: number } | null>(null);
@@ -295,42 +273,6 @@ export default function CanvasWorkspace({
           </svg>
         )}
       </div>
-
-      {/* ── Floating navigation overlays ── */}
-      {selectedElementId && (
-        <button
-          onClick={() => setShowNudgePad(!showNudgePad)}
-          className="absolute bottom-4 left-4 z-40 p-3 rounded-full bg-slate-900 border border-neutral-700/60 shadow-lg active:scale-95 transition-transform text-cyan-400 hover:text-cyan-300"
-          style={{ boxShadow: '0 4px 14px rgba(0,0,0,0.4)' }}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
-        </button>
-      )}
-
-      {selectedElementId && showNudgePad && (
-        <div
-          className="absolute bottom-20 left-4 bg-slate-950/95 border border-cyan-500/30 p-4 rounded-xl flex flex-col items-center gap-3 shadow-2xl z-40 backdrop-blur-md"
-          style={{ width: '160px', boxShadow: '0 10px 25px -5px rgba(0, 245, 255, 0.15)' }}
-        >
-          <div className="text-[10px] uppercase font-bold tracking-widest text-cyan-400/70">Nudge Tool</div>
-          <div className="grid grid-cols-3 gap-1.5 w-full aspect-square max-w-[120px]">
-            <div />
-            <button onClick={() => handleNudgeAction('up')} className="bg-slate-900 border border-neutral-800 hover:border-cyan-500/40 rounded-lg flex items-center justify-center text-cyan-400 active:bg-cyan-950 transition-colors py-2">▲</button>
-            <div />
-            <button onClick={() => handleNudgeAction('left')} className="bg-slate-900 border border-neutral-800 hover:border-cyan-500/40 rounded-lg flex items-center justify-center text-cyan-400 active:bg-cyan-950 transition-colors py-2">◀</button>
-            <div className="bg-slate-950 border border-neutral-900 rounded-lg flex items-center justify-center text-[11px] font-mono font-bold text-neutral-300 select-none">{nudgeStep}px</div>
-            <button onClick={() => handleNudgeAction('right')} className="bg-slate-900 border border-neutral-800 hover:border-cyan-500/40 rounded-lg flex items-center justify-center text-cyan-400 active:bg-cyan-950 transition-colors py-2">▶</button>
-            <div />
-            <button onClick={() => handleNudgeAction('down')} className="bg-slate-900 border border-neutral-800 hover:border-cyan-500/40 rounded-lg flex items-center justify-center text-cyan-400 active:bg-cyan-950 transition-colors py-2">▼</button>
-            <div />
-          </div>
-          <div className="flex items-center gap-2 w-full mt-1 border-t border-neutral-900 pt-2.5 justify-between">
-            <button onClick={decreaseStep} disabled={nudgeStep <= 1} className="w-7 h-7 bg-slate-900 rounded-md flex items-center justify-center text-xs font-bold text-neutral-400 disabled:opacity-30 border border-neutral-800">-</button>
-            <span className="text-[10px] text-neutral-400 font-medium">Step Speed</span>
-            <button onClick={increaseStep} disabled={nudgeStep >= 20} className="w-7 h-7 bg-slate-900 rounded-md flex items-center justify-center text-xs font-bold text-neutral-400 disabled:opacity-30 border border-neutral-800">+</button>
-          </div>
-        </div>
-      )}
 
       {/* Pen instruction */}
       <div aria-hidden={!penActive} className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none z-20" style={{ display: penActive ? 'flex' : 'none' }}>

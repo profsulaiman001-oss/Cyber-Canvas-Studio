@@ -135,6 +135,23 @@ function drawInnerShadow(
   if (obj.type === 'circle') {
     const r = (obj as Circle).radius ?? w / 2;
     ctx.ellipse(0, 0, r, r, 0, 0, Math.PI * 2);
+    ctx.clip();
+  } else if (obj.type === 'path' || obj.type === 'triangle') {
+    // Clip to the actual path geometry so the shadow never bleeds outside
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cmds = (obj as Path & { path?: [string, ...number[]][] }).path;
+    let clipped = false;
+    if (cmds && cmds.length > 0) {
+      try {
+        const dStr = cmds.map((cmd) => cmd.join(' ')).join(' ');
+        ctx.clip(new Path2D(dStr));
+        clipped = true;
+      } catch { /* fall through to rect clip */ }
+    }
+    if (!clipped) {
+      ctx.rect(-w / 2, -h / 2, w, h);
+      ctx.clip();
+    }
   } else {
     const rx = (obj as Rect).rx ?? 0;
     if (rx > 0) {
@@ -147,8 +164,8 @@ function drawInnerShadow(
     } else {
       ctx.rect(-w / 2, -h / 2, w, h);
     }
+    ctx.clip();
   }
-  ctx.clip();
 
   ctx.shadowColor = cfg.color;
   ctx.shadowBlur = cfg.blur;
@@ -1216,8 +1233,13 @@ export function useFabricCanvas(
 
   const loadFromJSON = useCallback(async (json: object) => {
     const c = canvasRef.current; if (!c) return;
+    // Guard against object:added/modified handlers pushing spurious undo entries
+    // while we restore state, and clear existing objects first to prevent smear.
+    isUndoRedoRef.current = true;
+    c.clear();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (c as any).loadFromJSON(json);
+    isUndoRedoRef.current = false;
     c.renderAll(); syncObjects();
     options.onUndoRedoChange(false, false);
     undoStack.current = []; redoStack.current = [];

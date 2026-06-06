@@ -1,6 +1,6 @@
 import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
-  PenTool, X, Paintbrush, Palette, Spline, Type, GitMerge, SlidersVertical,
+  PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
@@ -178,7 +178,6 @@ export default function BottomToolbar({
     label: string;
     action: () => void;
     disabled?: boolean;
-    alwaysShow?: boolean;
   }[] = [
     {
       id: 'select',
@@ -188,28 +187,24 @@ export default function BottomToolbar({
         dispatch({ type: 'SET_TOOL', payload: 'select' });
         dispatch({ type: 'CLOSE_PANEL' });
       },
-      alwaysShow: true,
     },
     {
       id: 'add',
       icon: <Plus size={24} />,
       label: 'Add',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }),
-      alwaysShow: true,
     },
     {
       id: 'text',
       icon: <Type size={22} />,
       label: 'Text',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }),
-      alwaysShow: true,
     },
     {
-      id: 'vectorOps',
-      icon: <GitMerge size={22} />,
-      label: 'Vector Ops',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'vectorOps' }),
-      alwaysShow: true,
+      id: 'shapeModifiers',
+      icon: <Layers2 size={22} />,
+      label: 'Modifiers',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'shapeModifiers' }),
     },
     {
       id: 'adjust',
@@ -219,11 +214,17 @@ export default function BottomToolbar({
       disabled: !selectedIsImage,
     },
     {
+      id: 'nudge',
+      icon: <Crosshair size={22} />,
+      label: 'Nudge',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'nudge' }),
+      disabled: !hasSelection,
+    },
+    {
       id: 'layers',
       icon: <Layers size={22} />,
       label: 'Layers',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'layers' }),
-      alwaysShow: true,
     },
     {
       id: 'properties',
@@ -237,14 +238,12 @@ export default function BottomToolbar({
       icon: <Palette size={22} />,
       label: 'Colors',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' }),
-      alwaysShow: true,
     },
     {
       id: 'export',
       icon: <Download size={22} />,
       label: 'Export',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'export' }),
-      alwaysShow: true,
     },
   ];
 
@@ -278,13 +277,16 @@ export default function BottomToolbar({
               {tool.icon}
               <span className="text-[10px] font-medium leading-none whitespace-nowrap">{tool.label}</span>
               {isActive && (
-                <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }} />
+                <span
+                  className="absolute bottom-1 w-1 h-1 rounded-full"
+                  style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }}
+                />
               )}
             </button>
           );
         })}
 
-        {/* Vector point editor — only shown when a path-type object is selected */}
+        {/* Vector anchor editor — only shown when a path object is selected */}
         {selectedIsPath && hasSelection && (
           <button
             onClick={onVectorEditStart}

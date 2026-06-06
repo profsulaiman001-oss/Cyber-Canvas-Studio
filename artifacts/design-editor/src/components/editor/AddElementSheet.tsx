@@ -5,8 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController, BrushPreset } from '@/hooks/useFabricCanvas';
-import FontUploader from './FontUploader';
-import { ImageIcon, Type, Minus, PenTool, Paintbrush } from 'lucide-react';
+import { ImageIcon, Minus, PenTool, Paintbrush } from 'lucide-react';
 
 interface AddElementSheetProps {
   controller: CanvasController;
@@ -135,7 +134,6 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
               ))}
             </div>
 
-            {/* Brush color + size */}
             <div className="space-y-3 px-1">
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">Brush Color</Label>
@@ -162,7 +160,7 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
             </div>
           </div>
 
-          {/* Basic Shapes */}
+          {/* ── Basic Shapes ── */}
           <div>
             <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Basic Shapes</p>
             <div className="grid grid-cols-4 gap-2">
@@ -181,7 +179,7 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
             </div>
           </div>
 
-          {/* More Shapes */}
+          {/* ── More Shapes ── */}
           <div>
             <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">More Shapes</p>
             <div className="grid grid-cols-4 gap-2">
@@ -213,7 +211,7 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
             </div>
           </div>
 
-          {/* Lines & Paths */}
+          {/* ── Lines & Paths ── */}
           <div>
             <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Lines & Paths</p>
             <div className="grid grid-cols-2 gap-2">
@@ -226,15 +224,7 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
             </div>
           </div>
 
-          {/* Text */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Text</p>
-            <Button className="w-full gap-2" onClick={() => add(controller.addText)} data-testid="add-text">
-              <Type size={15} />Add Text
-            </Button>
-          </div>
-
-          {/* Image */}
+          {/* ── Image ── */}
           <div>
             <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Image</p>
             <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageSelect} className="hidden" data-testid="input-image-upload" />
@@ -243,11 +233,6 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
             </Button>
           </div>
 
-          {/* Custom Fonts */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Custom Fonts</p>
-            <FontUploader />
-          </div>
         </div>
       </SheetContent>
     </Sheet>

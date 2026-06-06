@@ -220,7 +220,7 @@ interface VectorOpsPanelProps { controller: CanvasController }
 export default function VectorOpsPanel({ controller }: VectorOpsPanelProps) {
   const { state, dispatch } = useEditor();
   const { toast } = useToast();
-  const isOpen = state.activePanel === 'vectorOps';
+  const isOpen = state.activePanel === 'shapeModifiers';
   const [processing, setProcessing] = useState<BoolOp | null>(null);
 
   const canvas = controller.getCanvas();

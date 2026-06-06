@@ -4,7 +4,7 @@ import type { BrushPreset } from '@/hooks/useFabricCanvas';
 export type ActivePanel =
   | 'layers' | 'properties' | 'add' | 'export' | 'project'
   | 'canvasSize' | 'alignment' | 'canvasBg' | 'colorStudio'
-  | 'text' | 'vectorOps' | 'adjust' | null;
+  | 'text' | 'shapeModifiers' | 'adjust' | 'nudge' | null;
 
 export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush';
 

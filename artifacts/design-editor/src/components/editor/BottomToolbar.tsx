@@ -1,4 +1,7 @@
-import { MousePointer2, Plus, Layers, SlidersHorizontal, Download, PenTool, X, Paintbrush, Palette, Spline } from 'lucide-react';
+import {
+  MousePointer2, Plus, Layers, SlidersHorizontal, Download,
+  PenTool, X, Paintbrush, Palette, Spline, Type, GitMerge, SlidersVertical,
+} from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
 import type { BrushPreset } from '@/hooks/useFabricCanvas';
@@ -8,6 +11,8 @@ interface BottomToolbarProps {
   penActive: boolean;
   brushActive: boolean;
   selectedIsPath?: boolean;
+  selectedIsText?: boolean;
+  selectedIsImage?: boolean;
   vectorEditActive?: boolean;
   onPenCancel: () => void;
   onBrushDone: () => void;
@@ -27,6 +32,7 @@ const PRESET_LABELS: Record<BrushPreset, string> = {
 export default function BottomToolbar({
   hasSelection, penActive, brushActive,
   selectedIsPath = false,
+  selectedIsImage = false,
   vectorEditActive = false,
   onPenCancel, onBrushDone, onBrushColorChange, onBrushSizeChange,
   onNeonIntensityChange,
@@ -84,7 +90,11 @@ export default function BottomToolbar({
           <PenTool size={22} style={{ color: '#00F5FF', filter: 'drop-shadow(0 0 6px #00F5FF80)' }} />
           <span className="text-[10px] font-medium leading-none" style={{ color: '#00F5FF' }}>Pen Tool</span>
         </div>
-        <button onClick={() => dispatch({ type: 'SET_TOOL', payload: 'select' })} className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#6b7280' }}>
+        <button
+          onClick={() => dispatch({ type: 'SET_TOOL', payload: 'select' })}
+          className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl"
+          style={{ color: '#6b7280' }}
+        >
           <MousePointer2 size={22} />
           <span className="text-[10px] font-medium leading-none">Done</span>
         </button>
@@ -144,7 +154,6 @@ export default function BottomToolbar({
           <span className="text-[10px] text-muted-foreground shrink-0">Size: {state.brushSize}px</span>
           <Slider min={1} max={80} step={1} value={[state.brushSize]} onValueChange={([v]) => onBrushSizeChange(v)} className="flex-1" />
         </div>
-        {/* Neon Intensity — only shown for glow preset */}
         {isNeonPreset && (
           <div className="flex items-center gap-3 mt-2">
             <span className="text-[10px] shrink-0" style={{ color: '#00F5FF' }}>Glow: {state.neonIntensity}%</span>
@@ -160,25 +169,61 @@ export default function BottomToolbar({
     );
   }
 
-  /* ── Normal Toolbar ── */
-  const tools: { id: ActivePanel | 'select'; icon: React.ReactNode; label: string; action: () => void; disabled?: boolean }[] = [
+  /* ── Normal Toolbar (horizontal scroll) ── */
+  type ToolId = ActivePanel | 'select';
+
+  const tools: {
+    id: ToolId;
+    icon: React.ReactNode;
+    label: string;
+    action: () => void;
+    disabled?: boolean;
+    alwaysShow?: boolean;
+  }[] = [
     {
       id: 'select',
       icon: <MousePointer2 size={22} />,
       label: 'Select',
-      action: () => { dispatch({ type: 'SET_TOOL', payload: 'select' }); dispatch({ type: 'CLOSE_PANEL' }); },
+      action: () => {
+        dispatch({ type: 'SET_TOOL', payload: 'select' });
+        dispatch({ type: 'CLOSE_PANEL' });
+      },
+      alwaysShow: true,
     },
     {
       id: 'add',
       icon: <Plus size={24} />,
       label: 'Add',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }),
+      alwaysShow: true,
+    },
+    {
+      id: 'text',
+      icon: <Type size={22} />,
+      label: 'Text',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }),
+      alwaysShow: true,
+    },
+    {
+      id: 'vectorOps',
+      icon: <GitMerge size={22} />,
+      label: 'Vector Ops',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'vectorOps' }),
+      alwaysShow: true,
+    },
+    {
+      id: 'adjust',
+      icon: <SlidersVertical size={22} />,
+      label: 'Adjust',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'adjust' }),
+      disabled: !selectedIsImage,
     },
     {
       id: 'layers',
       icon: <Layers size={22} />,
       label: 'Layers',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'layers' }),
+      alwaysShow: true,
     },
     {
       id: 'properties',
@@ -192,59 +237,66 @@ export default function BottomToolbar({
       icon: <Palette size={22} />,
       label: 'Colors',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' }),
+      alwaysShow: true,
     },
     {
       id: 'export',
       icon: <Download size={22} />,
       label: 'Export',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'export' }),
+      alwaysShow: true,
     },
   ];
 
   return (
     <div
-      className="flex-shrink-0 flex items-start justify-around px-1 pt-3"
-      style={{ minHeight: '64px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
+      className="flex-shrink-0 overflow-x-auto scrollbar-hide"
+      style={{ background: '#11141A', ...toolbarBg }}
       data-testid="bottom-toolbar"
     >
-      {tools.map((tool) => {
-        const isActive =
-          tool.id === 'select'
-            ? state.activeTool === 'select' && state.activePanel === null
-            : state.activePanel === tool.id;
-        return (
-          <button
-            key={tool.id}
-            onClick={tool.disabled ? undefined : tool.action}
-            disabled={tool.disabled}
-            data-testid={`toolbar-${tool.id}`}
-            className="relative flex flex-col items-center gap-1 px-1.5 py-2 rounded-xl transition-all duration-200 disabled:opacity-30"
-            style={{
-              color: isActive ? '#00F5FF' : '#6b7280',
-              filter: isActive ? 'drop-shadow(0 0 6px #00F5FF80)' : 'none',
-            }}
-          >
-            {tool.icon}
-            <span className="text-[10px] font-medium leading-none">{tool.label}</span>
-            {isActive && (
-              <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }} />
-            )}
-          </button>
-        );
-      })}
+      <div
+        className="flex items-start px-1 pt-3 gap-0"
+        style={{ minWidth: 'max-content', paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+      >
+        {tools.map((tool) => {
+          const isActive =
+            tool.id === 'select'
+              ? state.activeTool === 'select' && state.activePanel === null
+              : state.activePanel === tool.id;
+          return (
+            <button
+              key={tool.id}
+              onClick={tool.disabled ? undefined : tool.action}
+              disabled={tool.disabled}
+              data-testid={`toolbar-${tool.id}`}
+              className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 disabled:opacity-30 flex-shrink-0 min-w-[60px]"
+              style={{
+                color: isActive ? '#00F5FF' : '#6b7280',
+                filter: isActive ? 'drop-shadow(0 0 6px #00F5FF80)' : 'none',
+              }}
+            >
+              {tool.icon}
+              <span className="text-[10px] font-medium leading-none whitespace-nowrap">{tool.label}</span>
+              {isActive && (
+                <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }} />
+              )}
+            </button>
+          );
+        })}
 
-      {/* Vector point editor button — only shown when a path-type object is selected */}
-      {selectedIsPath && hasSelection && (
-        <button
-          onClick={onVectorEditStart}
-          className="relative flex flex-col items-center gap-1 px-1.5 py-2 rounded-xl transition-all duration-200"
-          style={{ color: '#7B2FFF' }}
-          title="Edit anchor points"
-        >
-          <Spline size={22} />
-          <span className="text-[10px] font-medium leading-none">Points</span>
-        </button>
-      )}
+        {/* Vector point editor — only shown when a path-type object is selected */}
+        {selectedIsPath && hasSelection && (
+          <button
+            onClick={onVectorEditStart}
+            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+            style={{ color: '#7B2FFF' }}
+            title="Edit anchor points"
+          >
+            <Spline size={22} />
+            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Points</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }

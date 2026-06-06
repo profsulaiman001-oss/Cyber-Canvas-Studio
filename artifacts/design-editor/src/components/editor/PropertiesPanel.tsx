@@ -3,20 +3,17 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Trash2, Copy } from 'lucide-react';
+import { Trash2, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
-import { FabricObject, Shadow, IText, Rect } from 'fabric';
+import { FabricObject, Shadow, Rect } from 'fabric';
 import CropDialog from './CropDialog';
 import ColorPicker from './ColorPicker';
 
 interface PropertiesPanelProps { controller: CanvasController }
 
-const SYSTEM_FONTS = ['Inter', 'Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Impact'];
 const TEXTURES = ['none', 'noise', 'lines', 'dots', 'crosshatch', 'grid'];
 
 /* ─── Expandable color field: shows swatch + hex; tapping expands the HSB picker ─── */
@@ -136,22 +133,10 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
 
   const fillImageRef = useRef<HTMLInputElement>(null);
 
-  const [fontSize, setFontSize] = useState(40);
-  const [fontFamily, setFontFamily] = useState('Inter');
-  const [recentFonts, setRecentFonts] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('cs_recent_fonts') || '[]'); } catch { return []; }
-  });
-  const [fontWeight, setFontWeight] = useState('normal');
-  const [fontStyle, setFontStyle] = useState('normal');
-  const [textAlign, setTextAlign] = useState('left');
-  const [charSpacing, setCharSpacing] = useState(0);
-  const [lineHeight, setLineHeight] = useState(1.16);
-
   const isText = obj?.type === 'i-text' || obj?.type === 'text';
   const isRect = obj?.type === 'rect';
   const isImage = obj?.type === 'image';
   const isShape = !isText && !isImage;
-  const allFonts = [...SYSTEM_FONTS, ...state.customFonts];
 
   const syncFromObject = useCallback(() => {
     if (!obj) return;
@@ -197,17 +182,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
     }
 
     if (isRect) setRx(typeof o.rx === 'number' ? o.rx : 0);
-
-    if (isText) {
-      const t = obj as IText;
-      setFontSize(t.fontSize || 40);
-      setFontFamily((t.fontFamily as string) || 'Inter');
-      setFontWeight((t.fontWeight as string) || 'normal');
-      setFontStyle((t.fontStyle as string) || 'normal');
-      setTextAlign((t.textAlign as string) || 'left');
-      setCharSpacing(typeof t.charSpacing === 'number' ? t.charSpacing / 10 : 0);
-      setLineHeight(typeof t.lineHeight === 'number' ? t.lineHeight : 1.16);
-    }
 
     const inner = (o as Record<string, unknown>)._innerShadow as { enabled?: boolean; color?: string; blur?: number; offsetX?: number; offsetY?: number; opacity?: number } | undefined;
     if (inner) {
@@ -307,22 +281,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
     setTexture(v);
     controller.applyTexture(obj, v === 'none' ? null : v);
   };
-
-  const applyFontSize = (v: number) => { setFontSize(v); apply({ fontSize: v }); };
-  const applyFontFamily = (v: string) => {
-    setFontFamily(v);
-    apply({ fontFamily: v });
-    setRecentFonts((prev) => {
-      const deduped = [v, ...prev.filter((f) => f !== v)].slice(0, 5);
-      try { localStorage.setItem('cs_recent_fonts', JSON.stringify(deduped)); } catch { /* ignore */ }
-      return deduped;
-    });
-  };
-  const applyBold = () => { const n = fontWeight === 'bold' ? 'normal' : 'bold'; setFontWeight(n); apply({ fontWeight: n }); };
-  const applyItalic = () => { const n = fontStyle === 'italic' ? 'normal' : 'italic'; setFontStyle(n); apply({ fontStyle: n }); };
-  const applyTextAlign = (v: string) => { if (!v) return; setTextAlign(v); apply({ textAlign: v }); };
-  const applyCharSpacing = (v: number) => { setCharSpacing(v); apply({ charSpacing: v * 10 }); };
-  const applyLineHeight = (v: number) => { setLineHeight(v); apply({ lineHeight: v }); };
 
   if (!obj) return null;
 
@@ -550,63 +508,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
             <SliderRow label="Skew X" value={skewX} min={-45} max={45} onChange={applySkewX} unit="°" />
             <SliderRow label="Skew Y" value={skewY} min={-45} max={45} onChange={applySkewY} unit="°" />
           </div>
-
-          {/* ── Typography ── */}
-          {isText && (
-            <>
-              <Separator />
-              <SectionLabel>Typography</SectionLabel>
-              <Select value={fontFamily} onValueChange={applyFontFamily}>
-                <SelectTrigger className="w-full text-xs h-8" data-testid="select-font-family">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {allFonts.map((f) => (
-                    <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {recentFonts.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Recent</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {recentFonts.map((f) => (
-                      <button
-                        key={f}
-                        type="button"
-                        onClick={() => applyFontFamily(f)}
-                        className="text-[10px] px-2 py-0.5 rounded border transition-all"
-                        style={{
-                          background: fontFamily === f ? 'rgba(0,245,255,0.15)' : 'rgba(255,255,255,0.04)',
-                          borderColor: fontFamily === f ? '#00F5FF' : 'rgba(255,255,255,0.1)',
-                          color: fontFamily === f ? '#00F5FF' : '#9ca3af',
-                          fontFamily: f,
-                        }}
-                      >
-                        {f}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <SliderRow label="Font Size" value={fontSize} min={8} max={300} onChange={applyFontSize} />
-              <SliderRow label="Letter Spacing" value={charSpacing} min={-50} max={200} onChange={applyCharSpacing} />
-              <SliderRow label="Line Height" value={lineHeight} min={0.5} max={4} step={0.05} onChange={applyLineHeight} />
-              <div className="flex gap-2">
-                <Button variant={fontWeight === 'bold' ? 'default' : 'secondary'} size="sm" className="flex-1 h-8" onClick={applyBold} data-testid="button-bold">
-                  <Bold size={13} />
-                </Button>
-                <Button variant={fontStyle === 'italic' ? 'default' : 'secondary'} size="sm" className="flex-1 h-8 italic" onClick={applyItalic} data-testid="button-italic">
-                  <Italic size={13} />
-                </Button>
-              </div>
-              <ToggleGroup type="single" value={textAlign} onValueChange={applyTextAlign} className="justify-start gap-1" data-testid="toggle-text-align">
-                <ToggleGroupItem value="left" className="h-8 w-8 p-0" data-testid="align-left"><AlignLeft size={13} /></ToggleGroupItem>
-                <ToggleGroupItem value="center" className="h-8 w-8 p-0" data-testid="align-center"><AlignCenter size={13} /></ToggleGroupItem>
-                <ToggleGroupItem value="right" className="h-8 w-8 p-0" data-testid="align-right"><AlignRight size={13} /></ToggleGroupItem>
-              </ToggleGroup>
-            </>
-          )}
 
           <div className="h-2" />
         </div>

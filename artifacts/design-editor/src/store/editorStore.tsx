@@ -3,7 +3,8 @@ import type { BrushPreset } from '@/hooks/useFabricCanvas';
 
 export type ActivePanel =
   | 'layers' | 'properties' | 'add' | 'export' | 'project'
-  | 'canvasSize' | 'alignment' | 'canvasBg' | 'colorStudio' | null;
+  | 'canvasSize' | 'alignment' | 'canvasBg' | 'colorStudio'
+  | 'text' | 'vectorOps' | 'adjust' | null;
 
 export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush';
 
@@ -21,6 +22,7 @@ export interface EditorState {
   canvasSize: { width: number; height: number };
   projectName: string;
   customFonts: string[];
+  recentFonts: string[];
   isDirty: boolean;
   canUndo: boolean;
   canRedo: boolean;
@@ -44,6 +46,8 @@ type EditorAction =
   | { type: 'SET_CANVAS_SIZE'; payload: { width: number; height: number } }
   | { type: 'SET_PROJECT_NAME'; payload: string }
   | { type: 'ADD_CUSTOM_FONT'; payload: string }
+  | { type: 'REMOVE_CUSTOM_FONT'; payload: string }
+  | { type: 'SET_RECENT_FONTS'; payload: string[] }
   | { type: 'SET_DIRTY'; payload: boolean }
   | { type: 'SET_UNDO_REDO'; payload: { canUndo: boolean; canRedo: boolean } }
   | { type: 'TOGGLE_GRID' }
@@ -69,6 +73,10 @@ const defaultBg: CanvasBgConfig = {
   ],
 };
 
+function loadRecentFonts(): string[] {
+  try { return JSON.parse(localStorage.getItem('cs_recent_fonts') || '[]'); } catch { return []; }
+}
+
 const initialState: EditorState = {
   activeTool: 'select',
   activePanel: null,
@@ -76,6 +84,7 @@ const initialState: EditorState = {
   canvasSize: { width: 1080, height: 1080 },
   projectName: 'Untitled Design',
   customFonts: [],
+  recentFonts: loadRecentFonts(),
   isDirty: false,
   canUndo: false,
   canRedo: false,
@@ -109,6 +118,12 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return state.customFonts.includes(action.payload)
         ? state
         : { ...state, customFonts: [...state.customFonts, action.payload] };
+    case 'REMOVE_CUSTOM_FONT':
+      return { ...state, customFonts: state.customFonts.filter((f) => f !== action.payload) };
+    case 'SET_RECENT_FONTS': {
+      try { localStorage.setItem('cs_recent_fonts', JSON.stringify(action.payload)); } catch { /* ignore */ }
+      return { ...state, recentFonts: action.payload };
+    }
     case 'SET_DIRTY':
       return { ...state, isDirty: action.payload };
     case 'SET_UNDO_REDO':

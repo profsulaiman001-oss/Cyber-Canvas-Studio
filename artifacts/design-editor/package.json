@@ -45,6 +45,7 @@
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@types/node": "catalog:",
+    "@types/paper": "^0.12.3",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
@@ -78,6 +79,7 @@
   },
   "dependencies": {
     "fabric": "^7.3.1",
-    "localforage": "^1.10.0"
+    "localforage": "^1.10.0",
+    "paper": "^0.12.18"
   }
 }

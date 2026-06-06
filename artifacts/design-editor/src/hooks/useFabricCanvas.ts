@@ -16,6 +16,7 @@ import {
   Pattern,
   PencilBrush,
   util,
+  filters,
 } from 'fabric';
 
 export interface ObjectMeta {
@@ -972,6 +973,26 @@ export function useFabricCanvas(
     pushUndo();
   }, [pushUndo]);
 
+  /* ─── Image Adjustment Filters ─── */
+  const applyImageFilters = useCallback((
+    obj: FabricObject,
+    adjustments: { brightness: number; contrast: number; saturation: number; hue: number }
+  ) => {
+    const c = canvasRef.current;
+    if (!c || obj.type !== 'image') return;
+    const img = obj as FabricImage;
+    const { brightness, contrast, saturation, hue } = adjustments;
+    const filterList: object[] = [];
+    if (brightness !== 0) filterList.push(new filters.Brightness({ brightness }));
+    if (contrast !== 0) filterList.push(new filters.Contrast({ contrast }));
+    if (saturation !== 0) filterList.push(new filters.Saturation({ saturation }));
+    if (hue !== 0) filterList.push(new filters.HueRotation({ rotation: (hue / 180) * Math.PI }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    img.filters = filterList as any;
+    img.applyFilters();
+    c.requestRenderAll();
+  }, []);
+
   /* ─── Brush Engine ─── */
   const activateBrush = useCallback((preset: BrushPreset, color: string, size: number) => {
     const c = canvasRef.current; if (!c) return;
@@ -1296,7 +1317,7 @@ export function useFabricCanvas(
     alignObjects,
     // Effects
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
-    applyGradientFill, fillShapeWithImage, cropImage,
+    applyGradientFill, fillShapeWithImage, cropImage, applyImageFilters,
     // Vector anchor editor
     vectorAnchors, activateVectorEdit, deactivateVectorEdit,
     vectorAnchorDragStart, vectorAnchorDragMove, vectorAnchorDragEnd,

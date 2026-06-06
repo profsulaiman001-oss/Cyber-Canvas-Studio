@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Upload, Type } from 'lucide-react';
+import { Upload, Type, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { useToast } from '@/hooks/use-toast';
@@ -25,6 +25,16 @@ export async function loadStoredFonts(dispatch: (action: { type: 'ADD_CUSTOM_FON
       // ignore
     }
   }
+}
+
+export async function removeStoredFont(
+  fontName: string,
+  dispatch: (action: { type: 'REMOVE_CUSTOM_FONT'; payload: string }) => void
+) {
+  const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
+  const updated = stored.filter((f) => f.name !== fontName);
+  await localforage.setItem(FONTS_STORE_KEY, updated);
+  dispatch({ type: 'REMOVE_CUSTOM_FONT', payload: fontName });
 }
 
 export default function FontUploader() {
@@ -68,6 +78,11 @@ export default function FontUploader() {
     inputRef.current?.click();
   };
 
+  const handleDelete = async (fontName: string) => {
+    await removeStoredFont(fontName, dispatch);
+    toast({ title: 'Font removed', description: `"${fontName}" deleted` });
+  };
+
   return (
     <div className="space-y-2">
       <input
@@ -91,11 +106,20 @@ export default function FontUploader() {
 
       {state.customFonts.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Loaded fonts:</p>
-          {state.customFonts.map((font) => (
-            <div key={font} className="flex items-center gap-2 text-sm px-2 py-1 rounded bg-secondary/50">
-              <Type size={12} className="text-primary" />
-              <span style={{ fontFamily: font }}>{font}</span>
+          <p className="text-xs text-muted-foreground">Custom fonts:</p>
+          {[...state.customFonts].sort((a, b) => a.localeCompare(b)).map((font) => (
+            <div key={font} className="flex items-center justify-between gap-2 px-2 py-1 rounded" style={{ background: 'rgba(255,255,255,0.04)' }}>
+              <div className="flex items-center gap-2 min-w-0">
+                <Type size={12} className="text-primary flex-shrink-0" />
+                <span className="text-xs truncate" style={{ fontFamily: font }}>{font}</span>
+              </div>
+              <button
+                onClick={() => handleDelete(font)}
+                className="text-destructive hover:text-red-400 flex-shrink-0 p-1 rounded"
+                title={`Delete ${font}`}
+              >
+                <Trash2 size={12} />
+              </button>
             </div>
           ))}
         </div>

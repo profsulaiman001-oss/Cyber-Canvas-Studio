@@ -14,6 +14,9 @@ import ProjectManager from '@/components/editor/ProjectManager';
 import AlignmentPanel from '@/components/editor/AlignmentPanel';
 import CanvasBgDialog from '@/components/editor/CanvasBgDialog';
 import ColorStudioPanel from '@/components/editor/ColorStudioPanel';
+import TextPanel from '@/components/editor/TextPanel';
+import VectorOpsPanel from '@/components/editor/VectorOpsPanel';
+import AdjustPanel from '@/components/editor/AdjustPanel';
 import { useToast } from '@/hooks/use-toast';
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -251,6 +254,8 @@ export default function DesignEditor() {
         penActive={penActive}
         brushActive={brushActive}
         selectedIsPath={controller.selectedObject?.type === 'path'}
+        selectedIsText={controller.selectedObject?.type === 'i-text' || controller.selectedObject?.type === 'text'}
+        selectedIsImage={controller.selectedObject?.type === 'image'}
         vectorEditActive={vectorEditActive}
         onPenCancel={handlePenCancel}
         onBrushDone={handleBrushDone}
@@ -279,6 +284,9 @@ export default function DesignEditor() {
         currentProjectId={currentProjectId}
         onProjectSaved={setCurrentProjectId}
       />
+      <TextPanel controller={controller} />
+      <VectorOpsPanel controller={controller} />
+      <AdjustPanel controller={controller} />
     </div>
   );
 }

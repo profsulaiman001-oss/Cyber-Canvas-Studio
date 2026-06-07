@@ -89,6 +89,7 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const [gradStop2, setGradStop2] = useState('#7B2FFF');
 
   const [opacity, setOpacity] = useState(100);
+  /* rx stores the *visual* corner radius (in canvas pixels after scale) */
   const [rx, setRx] = useState(0);
   const [skewX, setSkewX] = useState(0);
   const [skewY, setSkewY] = useState(0);
@@ -138,7 +139,12 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
       setGlowEnabled(false);
     }
 
-    if (isRect) setRx(typeof o.rx === 'number' ? o.rx : 0);
+    if (isRect) {
+      // Convert stored rx (in unscaled object space) → visual radius (after scaleX applied)
+      const rawRx = typeof o.rx === 'number' ? o.rx : 0;
+      const scaleX = typeof o.scaleX === 'number' ? o.scaleX : 1;
+      setRx(Math.round(rawRx * scaleX));
+    }
 
     setSkewX(typeof o.skewX === 'number' ? o.skewX : 0);
     setSkewY(typeof o.skewY === 'number' ? o.skewY : 0);
@@ -177,7 +183,23 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   }, [obj, controller]);
 
   const applyOpacity = (v: number) => { setOpacity(v); apply({ opacity: v / 100 }); };
-  const applyRx = (v: number) => { setRx(v); apply({ rx: v, ry: v }); };
+
+  /**
+   * Corner radius normalization:
+   * The slider value `v` represents the desired *visual* radius in canvas pixels.
+   * Fabric.js applies rx/ry to the unscaled object dimensions, so we must
+   * compensate: rx_stored = v / scaleX, ry_stored = v / scaleY.
+   * This guarantees perfectly concentric, uniform corners on any aspect ratio.
+   */
+  const applyRx = useCallback((v: number) => {
+    if (!obj) return;
+    setRx(v);
+    const scaleX = (obj.scaleX ?? 1) || 1;
+    const scaleY = (obj.scaleY ?? 1) || 1;
+    const rxVal = v / scaleX;
+    const ryVal = v / scaleY;
+    apply({ rx: rxVal, ry: ryVal });
+  }, [obj, apply]);
 
   const applyGlowEffect = useCallback((en: boolean, color: string, intensity: number) => {
     controller.applyGlow(obj, en ? { enabled: true, color, intensity } : null);
@@ -194,6 +216,9 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
 
   if (!obj) return null;
 
+  /* Dynamic corner radius max = half of the smaller visual dimension */
+  const rxMax = Math.max(4, Math.min(Math.round(objWidth / 2), Math.round(objHeight / 2)));
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
       <SheetContent
@@ -202,15 +227,17 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
         style={{ maxHeight: '80vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="properties-panel"
       >
-        <SheetHeader className="px-4 pt-4 pb-2 flex flex-row items-center justify-between">
-          <SheetTitle className="text-sm font-semibold">Style & Fill</SheetTitle>
-          <div className="flex gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => controller.duplicateSelected()} data-testid="button-duplicate">
-              <Copy size={13} />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => controller.deleteSelected()} data-testid="button-delete-selected">
-              <Trash2 size={13} />
-            </Button>
+        <SheetHeader className="px-4 pt-4 pb-2">
+          <div className="flex items-center justify-between" style={{ paddingRight: '2.75rem' }}>
+            <SheetTitle className="text-sm font-semibold">Style &amp; Fill</SheetTitle>
+            <div className="flex gap-1.5 flex-shrink-0">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => controller.duplicateSelected()} data-testid="button-duplicate">
+                <Copy size={13} />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => controller.deleteSelected()} data-testid="button-delete-selected">
+                <Trash2 size={13} />
+              </Button>
+            </div>
           </div>
         </SheetHeader>
 
@@ -228,7 +255,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
           {/* ── Fill ── */}
           <Separator />
           <SectionLabel>Fill</SectionLabel>
-
           <div className="flex gap-1">
             {(['solid', 'linear', 'radial'] as const).map((mode) => (
               <button key={mode} onClick={() => {
@@ -262,7 +288,18 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
             )}
 
           <SliderRow label="Opacity" value={opacity} min={0} max={100} onChange={applyOpacity} unit="%" />
-          {isRect && <SliderRow label="Corner Radius" value={rx} min={0} max={100} onChange={applyRx} />}
+
+          {/* Corner radius — normalized for any aspect ratio */}
+          {isRect && (
+            <SliderRow
+              label="Corner Radius"
+              value={rx}
+              min={0}
+              max={rxMax}
+              onChange={applyRx}
+              unit="px"
+            />
+          )}
 
           {/* ── Image actions ── */}
           {isImage && (

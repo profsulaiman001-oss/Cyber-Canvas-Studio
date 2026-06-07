@@ -12,7 +12,48 @@ import ColorPicker from './ColorPicker';
 
 interface ShadowsPanelProps { controller: CanvasController }
 
-function hexToRgba(hex: string, alpha: number): string {
+/* ── Color parsing utilities ── */
+
+/**
+ * Convert any CSS color (hex or rgba) to a clean hex string.
+ * This prevents the opacity channel from polluting the color state.
+ */
+function parseColorToHex(color: string): string {
+  if (!color) return '#000000';
+  // Already a hex string
+  if (color.startsWith('#')) {
+    const c = color.replace('#', '');
+    const clean = c.length === 3 ? c[0]+c[0]+c[1]+c[1]+c[2]+c[2] : c.slice(0, 6);
+    return '#' + clean.toLowerCase().padEnd(6, '0');
+  }
+  // Parse rgba(r,g,b,a) or rgb(r,g,b) — extract only R, G, B channels
+  const m = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (m) {
+    const r = Math.max(0, Math.min(255, parseInt(m[1])));
+    const g = Math.max(0, Math.min(255, parseInt(m[2])));
+    const b = Math.max(0, Math.min(255, parseInt(m[3])));
+    return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+  return '#000000';
+}
+
+/**
+ * Extract the alpha (0–100) from an rgba color string.
+ * Returns 80 as a sensible default if parsing fails.
+ */
+function parseAlphaPercent(color: string): number {
+  if (!color || !color.startsWith('rgba')) return 80;
+  const m = color.match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)/i);
+  if (!m) return 80;
+  const alpha = parseFloat(m[1]);
+  return Math.round(Math.max(0, Math.min(1, alpha)) * 100);
+}
+
+/**
+ * Compose a strict rgba() string from a hex color and a 0-100 opacity value.
+ * The hex color is parsed channel-by-channel — opacity NEVER bleeds into R/G/B.
+ */
+function hexToRgba(hex: string, opacityPercent: number): string {
   const clean = hex.replace('#', '');
   const expanded = clean.length === 3
     ? clean.split('').map((c) => c + c).join('')
@@ -20,7 +61,8 @@ function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(expanded.slice(0, 2), 16) || 0;
   const g = parseInt(expanded.slice(2, 4), 16) || 0;
   const b = parseInt(expanded.slice(4, 6), 16) || 0;
-  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha / 100)).toFixed(3)})`;
+  const a = Math.max(0, Math.min(1, opacityPercent / 100));
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
 }
 
 function SliderRow({ label, value, min, max, step = 1, onChange, unit = '' }: {
@@ -64,6 +106,7 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
   const obj = controller.selectedObject;
   const isImage = obj?.type === 'image';
 
+  /* Drop shadow state — color stored as pure hex, opacity as 0-100 integer */
   const [dropEnabled, setDropEnabled] = useState(false);
   const [dropColor, setDropColor] = useState('#000000');
   const [dropBlur, setDropBlur] = useState(10);
@@ -71,6 +114,7 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
   const [dropOffY, setDropOffY] = useState(5);
   const [dropOpacity, setDropOpacity] = useState(80);
 
+  /* Inner shadow state */
   const [innerEnabled, setInnerEnabled] = useState(false);
   const [innerColor, setInnerColor] = useState('#000000');
   const [innerBlur, setInnerBlur] = useState(15);
@@ -86,7 +130,10 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
 
     if (shadow && !glow?.enabled && (shadow.offsetX !== 0 || shadow.offsetY !== 0 || shadow.blur !== 0)) {
       setDropEnabled(true);
-      setDropColor(shadow.color || '#000000');
+      // Parse the stored rgba color back into a clean hex + separate alpha
+      // so the opacity slider never contaminates the R/G/B channels.
+      setDropColor(parseColorToHex(shadow.color || '#000000'));
+      setDropOpacity(parseAlphaPercent(shadow.color || 'rgba(0,0,0,0.8)'));
       setDropBlur(shadow.blur || 10);
       setDropOffX(shadow.offsetX || 5);
       setDropOffY(shadow.offsetY || 5);
@@ -98,7 +145,7 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
       { enabled?: boolean; color?: string; blur?: number; offsetX?: number; offsetY?: number; opacity?: number } | undefined;
     if (inner) {
       setInnerEnabled(!!inner.enabled);
-      setInnerColor(inner.color || '#000000');
+      setInnerColor(parseColorToHex(inner.color || '#000000'));
       setInnerBlur(inner.blur ?? 15);
       setInnerOffX(inner.offsetX ?? 0);
       setInnerOffY(inner.offsetY ?? 0);
@@ -117,6 +164,7 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
     const canvas = controller.getCanvas();
     if (en) {
       const m = isImage ? 2 : 1;
+      // hexToRgba guarantees only alpha varies — R/G/B come strictly from hex parsing
       obj.set('shadow', new Shadow({
         color: hexToRgba(color, opa),
         blur: blur * m,
@@ -176,7 +224,11 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
               <ColorField
                 label="Color"
                 value={dropColor}
-                onChange={(v) => { setDropColor(v); applyDropShadow(true, v, dropBlur, dropOffX, dropOffY, dropOpacity); }}
+                onChange={(v) => {
+                  const hex = parseColorToHex(v);
+                  setDropColor(hex);
+                  applyDropShadow(true, hex, dropBlur, dropOffX, dropOffY, dropOpacity);
+                }}
               />
               <SliderRow label="Blur" value={dropBlur} min={0} max={80}
                 onChange={(v) => { setDropBlur(v); applyDropShadow(true, dropColor, v, dropOffX, dropOffY, dropOpacity); }} />
@@ -184,6 +236,7 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
                 onChange={(v) => { setDropOffX(v); applyDropShadow(true, dropColor, dropBlur, v, dropOffY, dropOpacity); }} />
               <SliderRow label="Offset Y" value={dropOffY} min={-80} max={80}
                 onChange={(v) => { setDropOffY(v); applyDropShadow(true, dropColor, dropBlur, dropOffX, v, dropOpacity); }} />
+              {/* Opacity slider — adjusts ONLY the alpha channel, never the R/G/B color values */}
               <SliderRow label="Opacity" value={dropOpacity} min={0} max={100} unit="%"
                 onChange={(v) => { setDropOpacity(v); applyDropShadow(true, dropColor, dropBlur, dropOffX, dropOffY, v); }} />
             </div>
@@ -206,7 +259,11 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
               <ColorField
                 label="Color"
                 value={innerColor}
-                onChange={(v) => { setInnerColor(v); applyInnerShadow(true, v, innerBlur, innerOffX, innerOffY, innerOpacity); }}
+                onChange={(v) => {
+                  const hex = parseColorToHex(v);
+                  setInnerColor(hex);
+                  applyInnerShadow(true, hex, innerBlur, innerOffX, innerOffY, innerOpacity);
+                }}
               />
               <SliderRow label="Blur" value={innerBlur} min={0} max={60}
                 onChange={(v) => { setInnerBlur(v); applyInnerShadow(true, innerColor, v, innerOffX, innerOffY, innerOpacity); }} />

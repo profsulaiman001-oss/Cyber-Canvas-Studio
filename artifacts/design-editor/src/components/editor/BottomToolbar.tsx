@@ -3,8 +3,10 @@ import {
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
   PenLine, Layers3, Box,
 } from 'lucide-react';
+import { useState } from 'react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
+import ColorPicker from './ColorPicker';
 import type { BrushPreset } from '@/hooks/useFabricCanvas';
 
 interface BottomToolbarProps {
@@ -40,6 +42,7 @@ export default function BottomToolbar({
   onVectorEditStart, onVectorEditEnd,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
+  const [brushColorOpen, setBrushColorOpen] = useState(false);
 
   const toolbarBg = penActive
     ? { borderTop: '1px solid rgba(255,107,107,0.4)' }
@@ -56,11 +59,7 @@ export default function BottomToolbar({
         className="flex-shrink-0 flex items-start justify-around px-2 pt-3"
         style={{ minHeight: '64px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       >
-        <button
-          onClick={onVectorEditEnd}
-          className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl"
-          style={{ color: '#6b7280' }}
-        >
+        <button onClick={onVectorEditEnd} className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#6b7280' }}>
           <MousePointer2 size={22} />
           <span className="text-[10px] font-medium leading-none">Done</span>
         </button>
@@ -109,30 +108,42 @@ export default function BottomToolbar({
     return (
       <div
         className="flex-shrink-0 px-4 pt-2"
-        style={{ minHeight: isNeonPreset ? '110px' : '80px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
+        style={{
+          background: '#11141A', ...toolbarBg,
+          paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+        }}
       >
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Paintbrush size={16} style={{ color: '#00F5FF', filter: 'drop-shadow(0 0 6px #00F5FF80)' }} />
-            <span className="text-xs font-semibold" style={{ color: '#00F5FF' }}>
+        {/* Row 1 — label, color swatch, preset chips, done */}
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <Paintbrush size={15} style={{ color: '#00F5FF', filter: 'drop-shadow(0 0 6px #00F5FF80)' }} />
+            <span className="text-xs font-semibold flex-shrink-0" style={{ color: '#00F5FF' }}>
               {PRESET_LABELS[state.brushPreset]} Brush
             </span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Color</span>
-              <input
-                type="color"
-                value={state.brushColor}
-                onChange={(e) => onBrushColorChange(e.target.value)}
-                className="w-7 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5"
-              />
-            </div>
+
+          {/* Color swatch — toggles the full Color Studio picker inline */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="text-[10px] text-muted-foreground">Color</span>
+            <button
+              onClick={() => setBrushColorOpen((o) => !o)}
+              className="w-7 h-7 rounded border-2 transition-all flex-shrink-0"
+              style={{
+                background: state.brushColor,
+                borderColor: brushColorOpen ? '#00F5FF' : 'rgba(255,255,255,0.25)',
+                boxShadow: brushColorOpen ? `0 0 8px ${state.brushColor}60` : 'none',
+              }}
+              aria-label="Open brush color picker"
+            />
+          </div>
+
+          {/* Preset chips */}
+          <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
             {(['standard', 'glow', 'airbrush'] as BrushPreset[]).map((p) => (
               <button
                 key={p}
                 onClick={() => dispatch({ type: 'SET_BRUSH_PRESET', payload: p })}
-                className="text-[10px] px-2 py-0.5 rounded-full"
+                className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0"
                 style={{
                   background: state.brushPreset === p ? 'rgba(0,245,255,0.2)' : 'rgba(255,255,255,0.06)',
                   color: state.brushPreset === p ? '#00F5FF' : '#6b7280',
@@ -144,17 +155,33 @@ export default function BottomToolbar({
             ))}
             <button
               onClick={onBrushDone}
-              className="px-3 py-1 rounded-lg text-xs font-medium"
+              className="px-3 py-1 rounded-lg text-xs font-medium flex-shrink-0 ml-1"
               style={{ background: 'rgba(0,245,255,0.12)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.4)' }}
             >
               Done
             </button>
           </div>
         </div>
+
+        {/* Inline Color Studio picker — same ColorPicker component used everywhere */}
+        {brushColorOpen && (
+          <div className="mb-3 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(0,245,255,0.15)' }}>
+            <ColorPicker
+              value={state.brushColor}
+              onChange={(v) => {
+                onBrushColorChange(v);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Row 2 — size slider */}
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-muted-foreground shrink-0">Size: {state.brushSize}px</span>
           <Slider min={1} max={80} step={1} value={[state.brushSize]} onValueChange={([v]) => onBrushSizeChange(v)} className="flex-1" />
         </div>
+
+        {/* Row 3 — glow intensity (neon preset only) */}
         {isNeonPreset && (
           <div className="flex items-center gap-3 mt-2">
             <span className="text-[10px] shrink-0" style={{ color: '#00F5FF' }}>Glow: {state.neonIntensity}%</span>

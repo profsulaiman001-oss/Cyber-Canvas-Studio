@@ -78,7 +78,6 @@ function GradientBar({
     return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   }, []);
 
-  /* Global move/up — works even when pointer leaves the bar */
   useEffect(() => {
     const onMove = (e: MouseEvent | TouchEvent) => {
       if (dragIdxRef.current === null) return;
@@ -98,7 +97,6 @@ function GradientBar({
     };
   }, [getBarOffset]);
 
-  /* Clicking the track — add new stop, or select+drag existing one near cursor */
   const handleBarMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const offset = getBarOffset(e.clientX);
     let nearestIdx = -1; let nearestDist = Infinity;
@@ -114,7 +112,6 @@ function GradientBar({
     }
   };
 
-  /* Individual stop marker mouse/touch — explicit select + drag start */
   const handleStopMouseDown = (e: React.MouseEvent, idx: number) => {
     e.stopPropagation();
     onSelectStop(idx);
@@ -128,7 +125,6 @@ function GradientBar({
 
   return (
     <div className="relative select-none" style={{ paddingBottom: 36 }}>
-      {/* Gradient track */}
       <div
         ref={barRef}
         className="h-10 rounded-xl w-full"
@@ -140,7 +136,6 @@ function GradientBar({
         }}
         onMouseDown={handleBarMouseDown}
       />
-      {/* Stop markers — individually draggable via global listeners */}
       {stops.map((stop, i) => (
         <div
           key={i}
@@ -220,7 +215,6 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
     });
   }, []);
 
-  /* Sync from selected object when panel opens */
   useEffect(() => {
     if (!isOpen || !obj) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -257,7 +251,6 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
     }
   }, [obj, controller]);
 
-  /* ── Handlers ── */
   const handleSolidChange = useCallback((color: string) => {
     setSolidColor(color);
     pushFill('solid', color, stops, radialRadius);
@@ -328,21 +321,23 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
         style={{ maxHeight: '90vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="color-studio-panel"
       >
-        {/* Header */}
-        <SheetHeader className="px-4 pt-4 pb-3 flex flex-row items-center justify-between">
-          <SheetTitle className="text-sm font-semibold">Color Studio</SheetTitle>
-          <button
-            onClick={onEyedropper}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{
-              background: eyedropperActive ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.06)',
-              color: eyedropperActive ? '#FFD700' : '#9ca3af',
-              border: `1px solid ${eyedropperActive ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.1)'}`,
-            }}
-          >
-            <Pipette size={13} />
-            <span>Eyedropper</span>
-          </button>
+        {/* ── Header: title left, eyedropper right with explicit gap from Sheet's close button ── */}
+        <SheetHeader className="px-4 pt-4 pb-3">
+          <div className="flex items-center justify-between" style={{ paddingRight: '2.75rem' }}>
+            <SheetTitle className="text-sm font-semibold">Color Studio</SheetTitle>
+            <button
+              onClick={onEyedropper}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0"
+              style={{
+                background: eyedropperActive ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.06)',
+                color: eyedropperActive ? '#FFD700' : '#9ca3af',
+                border: `1px solid ${eyedropperActive ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.1)'}`,
+              }}
+            >
+              <Pipette size={13} />
+              <span>Eyedropper</span>
+            </button>
+          </div>
         </SheetHeader>
 
         <div className="px-4 space-y-4 pb-10">
@@ -376,7 +371,6 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
           {/* ── Gradient mode ── */}
           {isGradient && (
             <>
-              {/* Gradient bar */}
               <GradientBar
                 stops={stops}
                 selectedIdx={selectedStop}
@@ -393,11 +387,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
                 <button
                   onClick={handleFlip}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
-                  style={{
-                    background: 'rgba(255,255,255,0.05)',
-                    color: '#9ca3af',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                  }}
+                  style={{ background: 'rgba(255,255,255,0.05)', color: '#9ca3af', border: '1px solid rgba(255,255,255,0.1)' }}
                 >
                   <FlipHorizontal2 size={13} />
                   Flip
@@ -405,11 +395,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
                 <button
                   onClick={() => handleAddStop(0.5)}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
-                  style={{
-                    background: 'rgba(0,245,255,0.08)',
-                    color: '#00F5FF',
-                    border: '1px solid rgba(0,245,255,0.25)',
-                  }}
+                  style={{ background: 'rgba(0,245,255,0.08)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.25)' }}
                 >
                   <Plus size={13} />
                   Add Stop
@@ -418,11 +404,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
                   onClick={handleDeleteStop}
                   disabled={stops.length <= 2}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-30"
-                  style={{
-                    background: 'rgba(239,68,68,0.08)',
-                    color: '#f87171',
-                    border: '1px solid rgba(239,68,68,0.2)',
-                  }}
+                  style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -430,14 +412,12 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
 
               <Separator />
 
-              {/* Selected stop color picker */}
               <p className="text-xs font-semibold text-primary uppercase tracking-wider">
                 Stop {selectedStop + 1} — Color
               </p>
               <ColorPicker value={currentStopColor} onChange={handleStopColorChange} />
               <ColorHistory history={colorHistory} onPick={handleStopColorChange} />
 
-              {/* Radial radius */}
               {fillMode === 'radial' && (
                 <>
                   <Separator />
@@ -458,7 +438,6 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
             </>
           )}
 
-          {/* No selection hint */}
           {!obj && (
             <p className="text-xs text-muted-foreground text-center py-4">
               Select a shape or text on the canvas to apply colors.

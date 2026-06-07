@@ -124,6 +124,12 @@ async function performCompound(objs: FabricObject[], canvas: Canvas): Promise<bo
   const pp = await getPaper();
   pp.project.clear();
 
+  // Capture bounding box BEFORE removing objects
+  const activeObj = canvas.getActiveObject();
+  const selBB = activeObj?.getBoundingRect();
+  const origLeft = selBB?.left ?? (objs[0]?.left ?? 0);
+  const origTop  = selBB?.top  ?? (objs[0]?.top  ?? 0);
+
   const dParts: string[] = [];
   for (const obj of objs) {
     const p = await fabricObjToWorldPath(obj, pp);
@@ -146,6 +152,17 @@ async function performCompound(objs: FabricObject[], canvas: Canvas): Promise<bo
   tagNewPath(newPath, 'Compound Path');
   objs.forEach((o) => canvas.remove(o));
   canvas.add(newPath);
+
+  // Fix coordinate drift: align the new path to the original selection position
+  newPath.setCoords();
+  const newBB = newPath.getBoundingRect();
+  const dl = origLeft - newBB.left;
+  const dt = origTop  - newBB.top;
+  if (Math.abs(dl) > 0.5 || Math.abs(dt) > 0.5) {
+    newPath.set({ left: (newPath.left ?? 0) + dl, top: (newPath.top ?? 0) + dt });
+    newPath.setCoords();
+  }
+
   canvas.setActiveObject(newPath);
   canvas.renderAll();
   return true;
@@ -154,6 +171,12 @@ async function performCompound(objs: FabricObject[], canvas: Canvas): Promise<bo
 async function performBooleanOp(objs: FabricObject[], op: BoolOp, canvas: Canvas): Promise<boolean> {
   if (op === 'compound') return performCompound(objs, canvas);
   if (objs.length < 2) return false;
+
+  // Capture bounding box BEFORE removing objects
+  const activeObj = canvas.getActiveObject();
+  const selBB = activeObj?.getBoundingRect();
+  const origLeft = selBB?.left ?? (objs[0]?.left ?? 0);
+  const origTop  = selBB?.top  ?? (objs[0]?.top  ?? 0);
 
   const pp = await getPaper();
   pp.project.clear();
@@ -215,6 +238,17 @@ async function performBooleanOp(objs: FabricObject[], op: BoolOp, canvas: Canvas
 
     objs.forEach((o) => canvas.remove(o));
     canvas.add(newPath);
+
+    // Fix coordinate drift: align the result path to the original selection position
+    newPath.setCoords();
+    const newBB = newPath.getBoundingRect();
+    const dl = origLeft - newBB.left;
+    const dt = origTop  - newBB.top;
+    if (Math.abs(dl) > 0.5 || Math.abs(dt) > 0.5) {
+      newPath.set({ left: (newPath.left ?? 0) + dl, top: (newPath.top ?? 0) + dt });
+      newPath.setCoords();
+    }
+
     canvas.setActiveObject(newPath);
     canvas.renderAll();
     return true;

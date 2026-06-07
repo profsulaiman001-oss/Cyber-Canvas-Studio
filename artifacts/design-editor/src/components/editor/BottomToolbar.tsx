@@ -1,6 +1,7 @@
 import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
+  PenLine, Layers3, Box,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
@@ -231,6 +232,27 @@ export default function BottomToolbar({
       icon: <SlidersHorizontal size={22} />,
       label: 'Style',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'properties' }),
+      disabled: !hasSelection,
+    },
+    {
+      id: 'stroke',
+      icon: <PenLine size={22} />,
+      label: 'Stroke',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'stroke' }),
+      disabled: !hasSelection,
+    },
+    {
+      id: 'shadows',
+      icon: <Layers3 size={22} />,
+      label: 'Shadows',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'shadows' }),
+      disabled: !hasSelection,
+    },
+    {
+      id: 'threeD',
+      icon: <Box size={22} />,
+      label: '3D',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'threeD' }),
       disabled: !hasSelection,
     },
     {

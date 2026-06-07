@@ -6,6 +6,7 @@ import {
   Triangle,
   Line,
   IText,
+  Textbox,
   FabricImage,
   Path,
   Shadow,
@@ -223,6 +224,7 @@ export function useFabricCanvas(
   const undoStack = useRef<string[]>([]);
   const redoStack = useRef<string[]>([]);
   const isUndoRedoRef = useRef<boolean>(false);
+  const undoDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const designWidth = useRef(options.width);
   const designHeight = useRef(options.height);
   const [objects, setObjects] = useState<ObjectMeta[]>([]);
@@ -737,8 +739,8 @@ export function useFabricCanvas(
   const addText = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new IText('Tap to edit', { left: cx - 80, top: cy - 20, fontSize: 40, fill: '#1A1A1A', fontFamily: 'Inter' });
-    tagObj(obj, 'i-text'); c.add(obj); c.setActiveObject(obj); c.renderAll();
+    const obj = new Textbox('Tap to edit', { left: cx - 125, top: cy - 20, width: 250, fontSize: 40, fill: '#1A1A1A', fontFamily: 'Inter' });
+    tagObj(obj, 'textbox'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addImageFromFile = useCallback(async (file: File) => {
@@ -1161,6 +1163,18 @@ export function useFabricCanvas(
     pushUndo();
   }, [pushUndo]);
 
+  /* ─── Expose push helpers for external callers (panels, nudge, etc.) ─── */
+  const pushUndoNow = useCallback(() => {
+    if (undoDebounceRef.current) { clearTimeout(undoDebounceRef.current); undoDebounceRef.current = null; }
+    pushUndo();
+  }, [pushUndo]);
+
+  const commitChange = useCallback(() => {
+    syncObjects();
+    if (undoDebounceRef.current) clearTimeout(undoDebounceRef.current);
+    undoDebounceRef.current = setTimeout(() => { pushUndo(); undoDebounceRef.current = null; }, 400);
+  }, [syncObjects, pushUndo]);
+
   /* ─── Undo / Redo ─── */
   const undo = useCallback(async () => {
     const c = canvasRef.current;
@@ -1326,6 +1340,7 @@ export function useFabricCanvas(
     // Eyedropper
     activateEyedropper, deactivateEyedropper,
     // Undo/redo/export
+    pushUndoNow, commitChange,
     undo, redo, exportCanvas, getJSON, loadFromJSON,
     // Canvas ops
     setCanvasSize, setCanvasBackground, setGridOptions,

@@ -18,6 +18,9 @@ import TextPanel from '@/components/editor/TextPanel';
 import ShapeModifiersPanel from '@/components/editor/ShapeModifiersPanel';
 import NudgePanel from '@/components/editor/NudgePanel';
 import AdjustPanel from '@/components/editor/AdjustPanel';
+import StrokePanel from '@/components/editor/StrokePanel';
+import ShadowsPanel from '@/components/editor/ShadowsPanel';
+import ThreeDPanel from '@/components/editor/ThreeDPanel';
 import { useToast } from '@/hooks/use-toast';
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -60,34 +63,22 @@ export default function DesignEditor() {
     onUndoRedoChange: handleUndoRedoChange,
   });
 
-  /* ── Directional Nudge Vector Engine Movement Pipeline ── */
+  /* ── Directional Nudge — each step is its own undo entry ── */
   const handleNudgeElement = useCallback((direction: 'up' | 'down' | 'left' | 'right', amount: number) => {
     const activeObject = controller.selectedObject;
     const fabricCanvas = controller.getCanvas();
-
     if (!activeObject || !fabricCanvas) return;
 
-    // Adjust positional metadata maps along correct canvas layout axes
     switch (direction) {
-      case 'up':
-        activeObject.set('top', (activeObject.top || 0) - amount);
-        break;
-      case 'down':
-        activeObject.set('top', (activeObject.top || 0) + amount);
-        break;
-      case 'left':
-        activeObject.set('left', (activeObject.left || 0) - amount);
-        break;
-      case 'right':
-        activeObject.set('left', (activeObject.left || 0) + amount);
-        break;
+      case 'up':    activeObject.set('top',  (activeObject.top  || 0) - amount); break;
+      case 'down':  activeObject.set('top',  (activeObject.top  || 0) + amount); break;
+      case 'left':  activeObject.set('left', (activeObject.left || 0) - amount); break;
+      case 'right': activeObject.set('left', (activeObject.left || 0) + amount); break;
     }
-
-    // Force vector matrix calculation and update canvas frames instantly
     activeObject.setCoords();
     fabricCanvas.renderAll();
-    handleCanvasChanged();
-  }, [controller, handleCanvasChanged]);
+    controller.pushUndoNow();
+  }, [controller]);
 
   // Load custom fonts on mount
   useEffect(() => { loadStoredFonts((action) => dispatch(action)); }, [dispatch]);
@@ -116,7 +107,7 @@ export default function DesignEditor() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Brush activation: whenever tool or brush params change ── */
+  /* ── Brush activation ── */
   useEffect(() => {
     if (state.activeTool === 'brush') {
       controller.activateBrush(state.brushPreset, state.brushColor, state.brushSize);
@@ -129,6 +120,8 @@ export default function DesignEditor() {
   const penActive = state.activeTool === 'pen';
   const brushActive = state.activeTool === 'brush';
   const hasSelection = state.selectedObjectIds.length > 0;
+  const selectedType = controller.selectedObject?.type || '';
+  const selectedIsText = ['i-text', 'text', 'textbox'].includes(selectedType);
 
   const handlePenCancel = useCallback(() => {
     controller.cancelPenTool();
@@ -167,9 +160,8 @@ export default function DesignEditor() {
     dispatch({ type: 'SET_GUIDES', payload: { ...g, [axis]: g[axis].map((p: number, i: number) => i === idx ? newPos : p) } });
   }, [state.guides, dispatch]);
 
-  /* ── Eyedropper: prefer native EyeDropper API, fall back to canvas sampler ── */
+  /* ── Eyedropper ── */
   const handleEyedropper = useCallback(async () => {
-    // Native EyeDropper API (Chrome 95+, Edge 95+)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ('EyeDropper' in window && typeof (window as any).EyeDropper === 'function') {
       try {
@@ -186,13 +178,10 @@ export default function DesignEditor() {
         } else {
           toast({ title: `Color picked: ${color.toUpperCase()}`, description: 'Select an object to apply it' });
         }
-      } catch {
-        // User pressed Escape or browser denied — silently ignore
-      }
+      } catch { /* user cancelled */ }
       return;
     }
 
-    // Fallback: canvas-based sampler (samples from the Fabric canvas on click)
     if (controller.eyedropperActive) {
       controller.deactivateEyedropper();
       return;
@@ -235,8 +224,6 @@ export default function DesignEditor() {
         dragInfo={controller.dragInfo}
         brushActive={brushActive}
         eyedropperActive={controller.eyedropperActive}
-
-        // Dynamic live sizes hooked straight to layout engine states
         canvasWidth={state.canvasSize.width}
         canvasHeight={state.canvasSize.height}
         vectorAnchors={controller.vectorAnchors}
@@ -252,9 +239,9 @@ export default function DesignEditor() {
         hasSelection={hasSelection}
         penActive={penActive}
         brushActive={brushActive}
-        selectedIsPath={controller.selectedObject?.type === 'path'}
-        selectedIsText={controller.selectedObject?.type === 'i-text' || controller.selectedObject?.type === 'text'}
-        selectedIsImage={controller.selectedObject?.type === 'image'}
+        selectedIsPath={selectedType === 'path'}
+        selectedIsText={selectedIsText}
+        selectedIsImage={selectedType === 'image'}
         vectorEditActive={vectorEditActive}
         onPenCancel={handlePenCancel}
         onBrushDone={handleBrushDone}
@@ -287,6 +274,9 @@ export default function DesignEditor() {
       <ShapeModifiersPanel controller={controller} />
       <NudgePanel onNudge={handleNudgeElement} />
       <AdjustPanel controller={controller} />
+      <StrokePanel controller={controller} />
+      <ShadowsPanel controller={controller} />
+      <ThreeDPanel controller={controller} />
     </div>
   );
 }

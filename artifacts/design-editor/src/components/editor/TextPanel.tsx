@@ -10,7 +10,7 @@ import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Upload, Pl
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
-import { IText, Shadow } from 'fabric';
+import { IText, Textbox } from 'fabric';
 import { FONTS_STORE_KEY, StoredFont, injectFontFace, removeStoredFont } from './FontUploader';
 import { useToast } from '@/hooks/use-toast';
 import { Trash2, Type } from 'lucide-react';
@@ -43,7 +43,7 @@ export default function TextPanel({ controller }: TextPanelProps) {
   const { toast } = useToast();
   const isOpen = state.activePanel === 'text';
   const obj = controller.selectedObject;
-  const isText = obj?.type === 'i-text' || obj?.type === 'text';
+  const isText = obj?.type === 'i-text' || obj?.type === 'text' || obj?.type === 'textbox';
   const textObj = isText ? (obj as IText) : null;
 
   /* ── Edit-mode state ── */
@@ -59,10 +59,6 @@ export default function TextPanel({ controller }: TextPanelProps) {
   const [glowEnabled, setGlowEnabled] = useState(false);
   const [glowColor, setGlowColor] = useState('#00F5FF');
   const [glowIntensity, setGlowIntensity] = useState(20);
-  const [depthEnabled, setDepthEnabled] = useState(false);
-  const [depthAmount, setDepthAmount] = useState(8);
-  const [depthColor, setDepthColor] = useState('#333333');
-  const [depthAngle, setDepthAngle] = useState(225);
 
   /* ── Add-mode state ── */
   const [addContent, setAddContent] = useState('New Text');
@@ -76,6 +72,7 @@ export default function TextPanel({ controller }: TextPanelProps) {
   const fontInputRef = useRef<HTMLInputElement>(null);
 
   const allFonts = [...SYSTEM_FONTS, ...state.customFonts].sort((a, b) => a.localeCompare(b));
+  void allFonts;
 
   /* ── Sync edit state from selected object ── */
   const syncFromObj = useCallback(() => {
@@ -98,16 +95,6 @@ export default function TextPanel({ controller }: TextPanelProps) {
     } else {
       setGlowEnabled(false);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const depth = (obj as any)?._depth3d as { enabled?: boolean; steps?: number; color?: string; angle?: number } | undefined;
-    if (depth?.enabled) {
-      setDepthEnabled(true);
-      setDepthAmount(depth.steps ?? 8);
-      setDepthColor(depth.color ?? '#333333');
-      setDepthAngle(depth.angle ?? 225);
-    } else {
-      setDepthEnabled(false);
-    }
   }, [textObj, obj]);
 
   useEffect(() => { syncFromObj(); }, [syncFromObj]);
@@ -117,7 +104,7 @@ export default function TextPanel({ controller }: TextPanelProps) {
     if (!textObj) return;
     textObj.set(props);
     controller.getCanvas()?.renderAll();
-    controller.syncObjects();
+    controller.commitChange();
   }, [textObj, controller]);
 
   const applyFontFamily = (v: string) => {
@@ -136,14 +123,10 @@ export default function TextPanel({ controller }: TextPanelProps) {
 
   const applyGlowEffect = useCallback((en: boolean, color: string, intensity: number) => {
     controller.applyGlow(obj, en ? { enabled: true, color, intensity } : null);
+    controller.commitChange();
   }, [obj, controller]);
 
-  const applyDepth = useCallback((en: boolean, amount: number, color: string, angle: number) => {
-    if (!obj) return;
-    controller.apply3DDepth(obj, en ? { enabled: true, steps: amount, color, angle } : null);
-  }, [obj, controller]);
-
-  /* ── Add text to canvas ── */
+  /* ── Add text to canvas (Textbox for wrapping support) ── */
   const handleAddToCanvas = useCallback(() => {
     const canvas = controller.getCanvas();
     if (!canvas) return;
@@ -151,9 +134,10 @@ export default function TextPanel({ controller }: TextPanelProps) {
     const cx = state.canvasSize.width / 2;
     const cy = state.canvasSize.height / 2;
 
-    const newText = new IText(addContent.trim() || 'New Text', {
-      left: cx - 80,
+    const newText = new Textbox(addContent.trim() || 'New Text', {
+      left: cx - 125,
       top: cy - addFontSize / 2,
+      width: 250,
       fontSize: addFontSize,
       fontFamily: addFontFamily,
       fontWeight: addFontWeight as 'normal' | 'bold',
@@ -163,17 +147,16 @@ export default function TextPanel({ controller }: TextPanelProps) {
       fill: '#1A1A1A',
     });
 
-    // Tag with uid + name (mirrors useFabricCanvas internal pattern)
     const seq = Date.now();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (newText as any)._uid = `itext-${seq}`;
+    (newText as any)._uid = `textbox-${seq}`;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (newText as any)._name = `Text ${seq % 10000}`;
 
     canvas.add(newText);
     canvas.setActiveObject(newText);
     canvas.renderAll();
-    controller.syncObjects();
+    controller.pushUndoNow();
 
     if (addFontFamily !== 'Inter') {
       const deduped = [addFontFamily, ...state.recentFonts.filter((f) => f !== addFontFamily)].slice(0, 6);
@@ -184,7 +167,7 @@ export default function TextPanel({ controller }: TextPanelProps) {
     addContent, addFontSize, addFontFamily, addFontWeight, addFontStyle, addUnderline, addTextAlign,
   ]);
 
-  /* ── Font import (shared between modes) ── */
+  /* ── Font import ── */
   const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -222,20 +205,8 @@ export default function TextPanel({ controller }: TextPanelProps) {
     <>
       <Separator />
       <SectionLabel>Font Library</SectionLabel>
-      <input
-        ref={fontInputRef}
-        type="file"
-        accept=".ttf,.otf,.woff,.woff2"
-        onChange={handleFontUpload}
-        className="hidden"
-      />
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        className="w-full gap-2 h-9"
-        onClick={() => fontInputRef.current?.click()}
-      >
+      <input ref={fontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2" onChange={handleFontUpload} className="hidden" />
+      <Button type="button" variant="secondary" size="sm" className="w-full gap-2 h-9" onClick={() => fontInputRef.current?.click()}>
         <Upload size={13} />
         Import Font (.ttf / .otf / .woff)
       </Button>
@@ -252,10 +223,7 @@ export default function TextPanel({ controller }: TextPanelProps) {
                 <Type size={11} className="text-primary flex-shrink-0" />
                 <span className="text-xs truncate" style={{ fontFamily: font }}>{font}</span>
               </div>
-              <button
-                onClick={() => handleDeleteFont(font)}
-                className="text-destructive hover:text-red-400 p-1 rounded flex-shrink-0"
-              >
+              <button onClick={() => handleDeleteFont(font)} className="text-destructive hover:text-red-400 p-1 rounded flex-shrink-0">
                 <Trash2 size={12} />
               </button>
             </div>
@@ -276,56 +244,31 @@ export default function TextPanel({ controller }: TextPanelProps) {
         <SheetHeader className="px-4 pt-4 pb-2">
           <SheetTitle className="text-sm font-semibold flex items-center gap-2">
             <Type size={15} className="text-primary" />
-            Add Text
+            {isText ? 'Edit Text' : 'Add Text'}
           </SheetTitle>
         </SheetHeader>
 
-        {/* ════════════════════════════════════════════════════
-            ADD MODE — no text selected
-        ════════════════════════════════════════════════════ */}
+        {/* ════ ADD MODE ════ */}
         {!isText ? (
           <div className="px-4 space-y-4" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-
-            {/* Content input */}
             <SectionLabel>Text Content</SectionLabel>
             <textarea
               value={addContent}
               onChange={(e) => setAddContent(e.target.value)}
               rows={3}
               className="w-full rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-              style={{
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: 'inherit',
-                fontFamily: addFontFamily,
-              }}
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', fontFamily: addFontFamily }}
               placeholder="Enter text…"
             />
 
-            {/* Style toggles */}
             <SectionLabel>Style</SectionLabel>
             <div className="flex gap-2">
-              <Button
-                variant={addFontWeight === 'bold' ? 'default' : 'secondary'}
-                size="sm" className="flex-1 h-9 font-bold"
-                onClick={() => setAddFontWeight(addFontWeight === 'bold' ? 'normal' : 'bold')}
-              >
-                <Bold size={14} />
-              </Button>
-              <Button
-                variant={addFontStyle === 'italic' ? 'default' : 'secondary'}
-                size="sm" className="flex-1 h-9 italic"
-                onClick={() => setAddFontStyle(addFontStyle === 'italic' ? 'normal' : 'italic')}
-              >
-                <Italic size={14} />
-              </Button>
-              <Button
-                variant={addUnderline ? 'default' : 'secondary'}
-                size="sm" className="flex-1 h-9 underline"
-                onClick={() => setAddUnderline(!addUnderline)}
-              >
-                <Underline size={14} />
-              </Button>
+              <Button variant={addFontWeight === 'bold' ? 'default' : 'secondary'} size="sm" className="flex-1 h-9 font-bold"
+                onClick={() => setAddFontWeight(addFontWeight === 'bold' ? 'normal' : 'bold')}><Bold size={14} /></Button>
+              <Button variant={addFontStyle === 'italic' ? 'default' : 'secondary'} size="sm" className="flex-1 h-9 italic"
+                onClick={() => setAddFontStyle(addFontStyle === 'italic' ? 'normal' : 'italic')}><Italic size={14} /></Button>
+              <Button variant={addUnderline ? 'default' : 'secondary'} size="sm" className="flex-1 h-9 underline"
+                onClick={() => setAddUnderline(!addUnderline)}><Underline size={14} /></Button>
             </div>
             <ToggleGroup type="single" value={addTextAlign} onValueChange={(v) => v && setAddTextAlign(v)} className="justify-start gap-1">
               <ToggleGroupItem value="left" className="h-9 w-9 p-0"><AlignLeft size={14} /></ToggleGroupItem>
@@ -333,25 +276,16 @@ export default function TextPanel({ controller }: TextPanelProps) {
               <ToggleGroupItem value="right" className="h-9 w-9 p-0"><AlignRight size={14} /></ToggleGroupItem>
             </ToggleGroup>
 
-            {/* Typography */}
             <Separator />
             <SectionLabel>Typography</SectionLabel>
-            <SliderRow
-              label="Font Size" value={addFontSize} min={8} max={300}
-              onChange={setAddFontSize} unit="px"
-            />
+            <SliderRow label="Font Size" value={addFontSize} min={8} max={300} onChange={setAddFontSize} unit="px" />
 
-            {/* Font selection */}
             <Separator />
             <SectionLabel>Font</SectionLabel>
             <Select value={addFontFamily} onValueChange={setAddFontFamily}>
-              <SelectTrigger className="w-full text-xs h-9">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="w-full text-xs h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {SYSTEM_FONTS.map((f) => (
-                  <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
-                ))}
+                {SYSTEM_FONTS.map((f) => <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>)}
                 {state.customFonts.length > 0 && (
                   <>
                     <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Custom</div>
@@ -363,96 +297,52 @@ export default function TextPanel({ controller }: TextPanelProps) {
               </SelectContent>
             </Select>
 
-            {/* Recent fonts */}
             {state.recentFonts.length > 0 && (
               <div className="space-y-1">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Recent</p>
                 <div className="flex flex-wrap gap-1.5">
                   {state.recentFonts.map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => setAddFontFamily(f)}
+                    <button key={f} type="button" onClick={() => setAddFontFamily(f)}
                       className="text-[10px] px-2 py-0.5 rounded border transition-all"
                       style={{
                         background: addFontFamily === f ? 'rgba(0,245,255,0.15)' : 'rgba(255,255,255,0.04)',
                         borderColor: addFontFamily === f ? '#00F5FF' : 'rgba(255,255,255,0.1)',
-                        color: addFontFamily === f ? '#00F5FF' : '#9ca3af',
-                        fontFamily: f,
-                      }}
-                    >
-                      {f}
-                    </button>
+                        color: addFontFamily === f ? '#00F5FF' : '#9ca3af', fontFamily: f,
+                      }}>{f}</button>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Add to canvas CTA */}
-            <Button
-              type="button"
-              className="w-full h-10 gap-2 font-semibold"
-              style={{
-                background: 'linear-gradient(135deg, rgba(0,245,255,0.2) 0%, rgba(123,47,255,0.2) 100%)',
-                border: '1px solid rgba(0,245,255,0.5)',
-                color: '#00F5FF',
-              }}
-              onClick={handleAddToCanvas}
-            >
-              <Plus size={15} />
-              Add to Canvas
+            <Button type="button" className="w-full h-10 gap-2 font-semibold"
+              style={{ background: 'linear-gradient(135deg, rgba(0,245,255,0.2) 0%, rgba(123,47,255,0.2) 100%)', border: '1px solid rgba(0,245,255,0.5)', color: '#00F5FF' }}
+              onClick={handleAddToCanvas}>
+              <Plus size={15} />Add to Canvas
             </Button>
 
-            {/* Font library (persistent) */}
             {FontLibrarySection}
-
             <div className="h-2" />
           </div>
+
         ) : (
 
-        /* ════════════════════════════════════════════════════
-            EDIT MODE — text object selected
-        ════════════════════════════════════════════════════ */
+        /* ════ EDIT MODE ════ */
           <div className="px-4 space-y-4" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-
-            {/* ── Content ── */}
             <SectionLabel>Content</SectionLabel>
             <textarea
               value={textContent}
-              onChange={(e) => {
-                setTextContent(e.target.value);
-                apply({ text: e.target.value });
-              }}
+              onChange={(e) => { setTextContent(e.target.value); apply({ text: e.target.value }); }}
               rows={3}
               className="w-full rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
               style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', fontFamily }}
               placeholder="Enter text…"
             />
 
-            {/* ── Style ── */}
             <SectionLabel>Style</SectionLabel>
             <div className="flex gap-2">
-              <Button
-                variant={fontWeight === 'bold' ? 'default' : 'secondary'}
-                size="sm" className="flex-1 h-9 font-bold"
-                onClick={applyBold}
-              >
-                <Bold size={14} />
-              </Button>
-              <Button
-                variant={fontStyle === 'italic' ? 'default' : 'secondary'}
-                size="sm" className="flex-1 h-9 italic"
-                onClick={applyItalic}
-              >
-                <Italic size={14} />
-              </Button>
-              <Button
-                variant={underline ? 'default' : 'secondary'}
-                size="sm" className="flex-1 h-9 underline"
-                onClick={applyUnderline}
-              >
-                <Underline size={14} />
-              </Button>
+              <Button variant={fontWeight === 'bold' ? 'default' : 'secondary'} size="sm" className="flex-1 h-9 font-bold" onClick={applyBold}><Bold size={14} /></Button>
+              <Button variant={fontStyle === 'italic' ? 'default' : 'secondary'} size="sm" className="flex-1 h-9 italic" onClick={applyItalic}><Italic size={14} /></Button>
+              <Button variant={underline ? 'default' : 'secondary'} size="sm" className="flex-1 h-9 underline" onClick={applyUnderline}><Underline size={14} /></Button>
             </div>
             <ToggleGroup type="single" value={textAlign} onValueChange={applyTextAlign} className="justify-start gap-1">
               <ToggleGroupItem value="left" className="h-9 w-9 p-0"><AlignLeft size={14} /></ToggleGroupItem>
@@ -460,27 +350,19 @@ export default function TextPanel({ controller }: TextPanelProps) {
               <ToggleGroupItem value="right" className="h-9 w-9 p-0"><AlignRight size={14} /></ToggleGroupItem>
             </ToggleGroup>
 
-            {/* ── Typography ── */}
             <Separator />
             <SectionLabel>Typography</SectionLabel>
             <SliderRow label="Font Size" value={fontSize} min={8} max={300}
               onChange={(v) => { setFontSize(v); apply({ fontSize: v }); }} unit="px" />
-            <SliderRow label="Letter Spacing" value={charSpacing} min={-50} max={200}
-              step={1} onChange={applyCharSpacing} />
-            <SliderRow label="Line Height" value={lineHeight} min={0.5} max={4}
-              step={0.05} onChange={applyLineHeight} />
+            <SliderRow label="Letter Spacing" value={charSpacing} min={-50} max={200} step={1} onChange={applyCharSpacing} />
+            <SliderRow label="Line Height" value={lineHeight} min={0.5} max={4} step={0.05} onChange={applyLineHeight} />
 
-            {/* ── Font Selection ── */}
             <Separator />
             <SectionLabel>Font</SectionLabel>
             <Select value={fontFamily} onValueChange={applyFontFamily}>
-              <SelectTrigger className="w-full text-xs h-9" data-testid="text-panel-font-select">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="w-full text-xs h-9" data-testid="text-panel-font-select"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {SYSTEM_FONTS.map((f) => (
-                  <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
-                ))}
+                {SYSTEM_FONTS.map((f) => <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>)}
                 {state.customFonts.length > 0 && (
                   <>
                     <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Custom</div>
@@ -492,93 +374,42 @@ export default function TextPanel({ controller }: TextPanelProps) {
               </SelectContent>
             </Select>
 
-            {/* Recent fonts chips */}
             {state.recentFonts.length > 0 && (
               <div className="space-y-1">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Recent</p>
                 <div className="flex flex-wrap gap-1.5">
                   {state.recentFonts.map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => applyFontFamily(f)}
+                    <button key={f} type="button" onClick={() => applyFontFamily(f)}
                       className="text-[10px] px-2 py-0.5 rounded border transition-all"
                       style={{
                         background: fontFamily === f ? 'rgba(0,245,255,0.15)' : 'rgba(255,255,255,0.04)',
                         borderColor: fontFamily === f ? '#00F5FF' : 'rgba(255,255,255,0.1)',
-                        color: fontFamily === f ? '#00F5FF' : '#9ca3af',
-                        fontFamily: f,
-                      }}
-                    >
-                      {f}
-                    </button>
+                        color: fontFamily === f ? '#00F5FF' : '#9ca3af', fontFamily: f,
+                      }}>{f}</button>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* ── Font Library ── */}
             {FontLibrarySection}
 
             {/* ── Glow Effect ── */}
             <Separator />
             <div className="flex items-center justify-between">
               <SectionLabel>Glow / Neon</SectionLabel>
-              <Switch
-                checked={glowEnabled}
-                onCheckedChange={(v) => {
-                  setGlowEnabled(v);
-                  applyGlowEffect(v, glowColor, glowIntensity);
-                }}
-              />
+              <Switch checked={glowEnabled} onCheckedChange={(v) => { setGlowEnabled(v); applyGlowEffect(v, glowColor, glowIntensity); }} />
             </div>
             {glowEnabled && (
               <div className="space-y-3 pl-2 border-l border-border">
                 <div className="flex items-center gap-3">
                   <Label className="text-xs text-muted-foreground w-12">Color</Label>
-                  <input
-                    type="color"
-                    value={glowColor}
+                  <input type="color" value={glowColor}
                     onChange={(e) => { setGlowColor(e.target.value); applyGlowEffect(true, e.target.value, glowIntensity); }}
-                    className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent p-0.5 flex-shrink-0"
-                  />
+                    className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent p-0.5 flex-shrink-0" />
                   <span className="text-xs font-mono text-muted-foreground">{glowColor.toUpperCase()}</span>
                 </div>
-                <SliderRow
-                  label="Intensity" value={glowIntensity} min={1} max={60}
-                  onChange={(v) => { setGlowIntensity(v); applyGlowEffect(true, glowColor, v); }}
-                />
-              </div>
-            )}
-
-            {/* ── 3D Extrusion ── */}
-            <Separator />
-            <div className="flex items-center justify-between">
-              <SectionLabel>3D Extrusion</SectionLabel>
-              <Switch
-                checked={depthEnabled}
-                onCheckedChange={(v) => {
-                  setDepthEnabled(v);
-                  applyDepth(v, depthAmount, depthColor, depthAngle);
-                }}
-              />
-            </div>
-            {depthEnabled && (
-              <div className="space-y-3 pl-2 border-l border-border">
-                <div className="flex items-center gap-3">
-                  <Label className="text-xs text-muted-foreground w-12">Color</Label>
-                  <input
-                    type="color"
-                    value={depthColor}
-                    onChange={(e) => { setDepthColor(e.target.value); applyDepth(true, depthAmount, e.target.value, depthAngle); }}
-                    className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent p-0.5 flex-shrink-0"
-                  />
-                  <span className="text-xs font-mono text-muted-foreground">{depthColor.toUpperCase()}</span>
-                </div>
-                <SliderRow label="Depth (steps)" value={depthAmount} min={1} max={30}
-                  onChange={(v) => { setDepthAmount(v); applyDepth(true, v, depthColor, depthAngle); }} />
-                <SliderRow label="Angle" value={depthAngle} min={0} max={360}
-                  onChange={(v) => { setDepthAngle(v); applyDepth(true, depthAmount, depthColor, v); }} unit="°" />
+                <SliderRow label="Intensity" value={glowIntensity} min={1} max={60}
+                  onChange={(v) => { setGlowIntensity(v); applyGlowEffect(true, glowColor, v); }} />
               </div>
             )}
 

@@ -5,24 +5,66 @@ import { useEditor } from '@/store/editorStore';
 import { useToast } from '@/hooks/use-toast';
 import localforage from 'localforage';
 
-const FONTS_STORE_KEY = 'cyber_studio_custom_fonts';
+export const FONTS_STORE_KEY = 'cyber_studio_custom_fonts';
 
-interface StoredFont {
+export interface StoredFont {
   name: string;
   data: ArrayBuffer;
+  ext?: string;
 }
 
-export async function loadStoredFonts(dispatch: (action: { type: 'ADD_CUSTOM_FONT'; payload: string }) => void) {
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+export function injectFontFace(fontName: string, buffer: ArrayBuffer, ext = 'ttf') {
+  const styleId = `font-face-${fontName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '')}`;
+  const existing = document.getElementById(styleId);
+  if (existing) existing.remove();
+
+  const formatMap: Record<string, string> = {
+    ttf: 'truetype',
+    otf: 'opentype',
+    woff: 'woff',
+    woff2: 'woff2',
+  };
+  const format = formatMap[ext.toLowerCase()] || 'truetype';
+  const mimeMap: Record<string, string> = {
+    ttf: 'font/ttf',
+    otf: 'font/otf',
+    woff: 'font/woff',
+    woff2: 'font/woff2',
+  };
+  const mime = mimeMap[ext.toLowerCase()] || 'font/ttf';
+  const base64 = arrayBufferToBase64(buffer);
+  const dataUrl = `data:${mime};base64,${base64}`;
+
+  const style = document.createElement('style');
+  style.id = styleId;
+  style.textContent = `@font-face { font-family: '${fontName}'; src: url('${dataUrl}') format('${format}'); font-display: block; }`;
+  document.head.appendChild(style);
+}
+
+export async function loadStoredFonts(
+  dispatch: (action: { type: 'ADD_CUSTOM_FONT'; payload: string }) => void
+) {
   const stored = await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY);
   if (!stored) return;
   for (const font of stored) {
-    const face = new FontFace(font.name, font.data);
     try {
+      const face = new FontFace(font.name, font.data);
       await face.load();
       document.fonts.add(face);
+      injectFontFace(font.name, font.data, font.ext || 'ttf');
       dispatch({ type: 'ADD_CUSTOM_FONT', payload: font.name });
     } catch {
-      // ignore
+      // ignore corrupted entries
     }
   }
 }
@@ -34,6 +76,10 @@ export async function removeStoredFont(
   const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
   const updated = stored.filter((f) => f.name !== fontName);
   await localforage.setItem(FONTS_STORE_KEY, updated);
+
+  const styleId = `font-face-${fontName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '')}`;
+  document.getElementById(styleId)?.remove();
+
   dispatch({ type: 'REMOVE_CUSTOM_FONT', payload: fontName });
 }
 
@@ -48,6 +94,8 @@ export default function FontUploader() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const extMatch = file.name.match(/\.(ttf|otf|woff2?)$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : 'ttf';
     const rawName = file.name.replace(/\.(ttf|otf|woff2?)$/i, '').replace(/[-_]/g, ' ').trim();
     const fontName = rawName || 'Custom Font';
 
@@ -56,10 +104,11 @@ export default function FontUploader() {
       const face = new FontFace(fontName, buffer);
       await face.load();
       document.fonts.add(face);
+      injectFontFace(fontName, buffer, ext);
 
       const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
       if (!stored.find((f) => f.name === fontName)) {
-        stored.push({ name: fontName, data: buffer });
+        stored.push({ name: fontName, data: buffer, ext });
         await localforage.setItem(FONTS_STORE_KEY, stored);
       }
 
@@ -101,14 +150,18 @@ export default function FontUploader() {
         data-testid="button-upload-font"
       >
         <Upload size={14} />
-        Upload Font (.ttf / .otf)
+        Upload Font (.ttf / .otf / .woff)
       </Button>
 
       {state.customFonts.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Custom fonts:</p>
           {[...state.customFonts].sort((a, b) => a.localeCompare(b)).map((font) => (
-            <div key={font} className="flex items-center justify-between gap-2 px-2 py-1 rounded" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div
+              key={font}
+              className="flex items-center justify-between gap-2 px-2 py-1 rounded"
+              style={{ background: 'rgba(255,255,255,0.04)' }}
+            >
               <div className="flex items-center gap-2 min-w-0">
                 <Type size={12} className="text-primary flex-shrink-0" />
                 <span className="text-xs truncate" style={{ fontFamily: font }}>{font}</span>

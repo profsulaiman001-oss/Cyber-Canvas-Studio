@@ -114,22 +114,32 @@ export default function CanvasWorkspace({
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-hidden relative flex items-center justify-center p-4 select-none"
-      style={{ background: `radial-gradient(circle at 50% 50%, #141722 0%, #08090C 100%)`, cursor: canvasCursor }}
+      className="flex-1 relative select-none"
+      style={{
+        background: `radial-gradient(circle at 50% 50%, #141722 0%, #08090C 100%)`,
+        cursor: canvasCursor,
+        overflow: 'auto',
+        scrollbarWidth: 'none',
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'flex-start',
+        padding: '20px',
+      }}
       data-testid="canvas-workspace"
     >
       <div
-        className="relative overflow-hidden shadow-2xl transition-all duration-300 border border-neutral-800/40"
+        className="relative overflow-hidden shadow-2xl border border-neutral-800/40"
         style={{
           width: `${canvasWidth * zoom}px`,
           height: `${canvasHeight * zoom}px`,
-          maxWidth: '100%', maxHeight: '100%',
+          flexShrink: 0,
+          margin: 'auto',
           background: transparentBg ? `repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 20px 20px` : `#ffffff`,
         }}
       >
         <canvas ref={canvasRef} id="fabric-canvas" className="absolute top-0 left-0 w-full h-full" data-testid="fabric-canvas" />
 
-        {/* High-contrast grid overlay — white lines with dark shadow for visibility on any background */}
+        {/* High-contrast grid overlay */}
         <div
           aria-hidden="true"
           className="absolute inset-0 pointer-events-none"
@@ -234,42 +244,60 @@ export default function CanvasWorkspace({
           })}
         </svg>
 
-        {/* Vector anchor editor overlay */}
+        {/* Vector anchor + handle editor overlay */}
         {vectorAnchors.length > 0 && (
           <svg
             className="absolute inset-0 w-full h-full z-30"
             style={{ overflow: 'visible', pointerEvents: 'none' }}
           >
-            {/* Connection lines between anchors */}
-            {vectorAnchors.length >= 2 && vectorAnchors.map((anchor, i) => {
-              const next = vectorAnchors[i + 1];
-              if (!next) return null;
-              return (
-                <line key={`al${i}`}
-                  x1={anchor.screenX} y1={anchor.screenY}
-                  x2={next.screenX} y2={next.screenY}
-                  stroke="rgba(0,245,255,0.3)" strokeWidth="1" strokeDasharray="4 3"
+            {/* Handle arm lines: connect each handle to its paired anchor */}
+            {vectorAnchors
+              .filter(a => a.kind === 'handle' && a.pairScreenX !== null)
+              .map((a, i) => (
+                <line key={`arm-${i}`}
+                  x1={a.screenX} y1={a.screenY}
+                  x2={a.pairScreenX!} y2={a.pairScreenY!}
+                  stroke="rgba(123,47,255,0.55)" strokeWidth="1" strokeDasharray="3 2"
+                  pointerEvents="none"
                 />
+              ))}
+
+            {/* Anchors (circles) and Handles (diamonds) */}
+            {vectorAnchors.map((anchor, i) => {
+              const isHandle = anchor.kind === 'handle';
+              return (
+                <g
+                  key={`va-${i}`}
+                  style={{ pointerEvents: 'auto', cursor: 'move' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    onVectorAnchorDragStart?.(i);
+                    anchorDragRef.current = { idx: i, startClientX: e.clientX, startClientY: e.clientY };
+                  }}
+                >
+                  {isHandle ? (
+                    <>
+                      {/* Handle hit-area */}
+                      <circle cx={anchor.screenX} cy={anchor.screenY} r={9} fill="transparent" />
+                      {/* Diamond shape */}
+                      <rect
+                        x={anchor.screenX - 4.5} y={anchor.screenY - 4.5}
+                        width={9} height={9}
+                        fill="#7B2FFF" stroke="white" strokeWidth={1.5}
+                        transform={`rotate(45 ${anchor.screenX} ${anchor.screenY})`}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      {/* Anchor glow ring */}
+                      <circle cx={anchor.screenX} cy={anchor.screenY} r={10} fill="rgba(0,245,255,0.12)" stroke="rgba(0,245,255,0.4)" strokeWidth={1} />
+                      {/* Anchor dot */}
+                      <circle cx={anchor.screenX} cy={anchor.screenY} r={5} fill="#00F5FF" stroke="white" strokeWidth={1.5} />
+                    </>
+                  )}
+                </g>
               );
             })}
-            {vectorAnchors.map((anchor, i) => (
-              <g
-                key={`anchor-${i}`}
-                style={{ pointerEvents: 'auto', cursor: 'move' }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  onVectorAnchorDragStart?.(i);
-                  anchorDragRef.current = { idx: i, startClientX: e.clientX, startClientY: e.clientY };
-                }}
-              >
-                {/* Outer glow ring */}
-                <circle cx={anchor.screenX} cy={anchor.screenY} r={10} fill="rgba(0,245,255,0.12)" stroke="rgba(0,245,255,0.4)" strokeWidth={1} />
-                {/* Inner dot */}
-                <circle cx={anchor.screenX} cy={anchor.screenY} r={5} fill="#00F5FF" stroke="white" strokeWidth={1.5} />
-                {/* Index label */}
-                <text x={anchor.screenX + 10} y={anchor.screenY - 8} fill="#00F5FF" fontSize="9" fontFamily="monospace">{i + 1}</text>
-              </g>
-            ))}
           </svg>
         )}
       </div>

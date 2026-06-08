@@ -162,18 +162,16 @@ export default function DesignEditor() {
     dispatch({ type: 'SET_BRUSH_SIZE', payload: size });
   }, [dispatch]);
 
-  const [vectorEditActive, setVectorEditActive] = useState(false);
+  const vectorEditActive = controller.isVectorEditActive;
 
   const handleVectorEditStart = useCallback(() => {
-    const obj = controller.selectedObject;
+    const obj = controller.selectedObject ?? controller.getCanvas()?.getActiveObject() ?? null;
     if (!obj || obj.type !== 'path') return;
-    controller.activateVectorEdit(obj);
-    setVectorEditActive(true);
+    controller.activateVectorEdit(obj as import('fabric').FabricObject);
   }, [controller]);
 
   const handleVectorEditEnd = useCallback(() => {
     controller.deactivateVectorEdit();
-    setVectorEditActive(false);
   }, [controller]);
 
   const handleGuideMove = useCallback((axis: 'h' | 'v', idx: number, newPos: number) => {

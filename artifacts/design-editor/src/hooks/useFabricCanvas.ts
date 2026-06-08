@@ -62,6 +62,9 @@ export interface VectorAnchor {
   localY: number;
   screenX: number;
   screenY: number;
+  kind: 'anchor' | 'handle';
+  pairScreenX: number | null;
+  pairScreenY: number | null;
 }
 
 const MAX_UNDO = 50;
@@ -247,6 +250,7 @@ export function useFabricCanvas(
   const vectorEditObjRef = useRef<FabricObject | null>(null);
   const vectorDragStartRef = useRef<{ anchorIdx: number; localX: number; localY: number } | null>(null);
   const [vectorAnchors, setVectorAnchors] = useState<VectorAnchor[]>([]);
+  const [isVectorEditActive, setIsVectorEditActive] = useState(false);
 
   // Pen tool state
   const [penPoints, setPenPoints] = useState<PenPoint[]>([]);
@@ -329,6 +333,8 @@ export function useFabricCanvas(
     c.setDimensions({ width: cw, height: ch });
     c.setViewportTransform([newZoom, 0, 0, newZoom, 0, 0]);
     setZoom(newZoom);
+    const ct = containerEl.current;
+    if (ct) { ct.scrollLeft = 0; ct.scrollTop = 0; }
   }, [containerEl]);
 
   /* ─── Pen tool helpers ─── */
@@ -546,9 +552,14 @@ export function useFabricCanvas(
       if (isPanning) {
         const dx = (opt.e as MouseEvent).clientX - lastPanX;
         const dy = (opt.e as MouseEvent).clientY - lastPanY;
-        c.relativePan(new Point(dx, dy));
         lastPanX = (opt.e as MouseEvent).clientX;
         lastPanY = (opt.e as MouseEvent).clientY;
+        if (panModeRef.current) {
+          const ct = containerEl.current;
+          if (ct) { ct.scrollLeft -= dx; ct.scrollTop -= dy; }
+        } else {
+          c.relativePan(new Point(dx, dy));
+        }
       }
     });
 
@@ -576,11 +587,18 @@ export function useFabricCanvas(
         const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
         const midX = (t0.clientX + t1.clientX) / 2;
         const midY = (t0.clientY + t1.clientY) / 2;
-        const z = Math.min(Math.max(c.getZoom() * (dist / lastDist), 0.1), 10);
-        // Resize canvas to exact design area at new zoom; keep coordinate origin at (0,0)
+        if (lastDist === 0) { lastDist = dist; lastMidX = midX; lastMidY = midY; return; }
+        const ratio = dist / lastDist;
+        if (!Number.isFinite(ratio) || ratio <= 0) return;
+        const rawZ = c.getZoom() * ratio;
+        if (!Number.isFinite(rawZ) || rawZ <= 0) return;
+        const z = Math.min(Math.max(rawZ, 0.1), 5.0);
         c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
         c.setViewportTransform([z, 0, 0, z, 0, 0]);
-        c.relativePan(new Point(midX - lastMidX, midY - lastMidY));
+        const panDx = midX - lastMidX;
+        const panDy = midY - lastMidY;
+        panOffsetRef.current = { x: panOffsetRef.current.x + panDx, y: panOffsetRef.current.y + panDy };
+        setPanOffset({ ...panOffsetRef.current });
         lastDist = dist; lastMidX = midX; lastMidY = midY;
         setZoom(z);
       }
@@ -591,12 +609,13 @@ export function useFabricCanvas(
     /* ─── Mouse wheel zoom ─── */
     c.on('mouse:wheel', (opt) => {
       const ev = opt.e as WheelEvent;
-      const z = Math.min(Math.max(c.getZoom() * (0.999 ** ev.deltaY), 0.1), 10);
-      // Resize canvas to the exact design area at the new zoom; viewport origin stays at (0,0)
-      c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
-      c.setViewportTransform([z, 0, 0, z, 0, 0]);
+      const rawZ = c.getZoom() * (0.999 ** ev.deltaY);
       ev.preventDefault();
       ev.stopPropagation();
+      if (!Number.isFinite(rawZ) || rawZ <= 0) return;
+      const z = Math.min(Math.max(rawZ, 0.1), 5.0);
+      c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
+      c.setViewportTransform([z, 0, 0, z, 0, 0]);
       setZoom(z);
     });
 
@@ -1031,12 +1050,12 @@ export function useFabricCanvas(
       brush.width = size;
       brush.shadow = new Shadow({ color: 'rgba(0,0,0,0.18)', blur: size * 0.4, offsetX: 0, offsetY: 1 });
     } else if (preset === 'glow') {
-      // Neon/glow: near-transparent ultra-thin core + massive shadow blur for ambient light emission
+      // Neon/glow: strong opaque core so the stroke is visible while drawing;
+      // screen composite + massive shadow bloom applied on path:created for light-emission effect.
       const [r, g, b] = [parseInt(color.slice(1, 3), 16), parseInt(color.slice(3, 5), 16), parseInt(color.slice(5, 7), 16)];
-      brush.color = `rgba(${r},${g},${b},0.06)`;
-      brush.width = Math.max(1, size * 0.15);
-      // Double-layer glow: tight inner halo + wide outer bloom
-      brush.shadow = new Shadow({ color, blur: size * 10, offsetX: 0, offsetY: 0 });
+      brush.color = `rgba(${r},${g},${b},0.90)`;
+      brush.width = Math.max(2, size * 0.5);
+      brush.shadow = new Shadow({ color, blur: Math.max(25, size * 8), offsetX: 0, offsetY: 0 });
     } else if (preset === 'airbrush') {
       // Airbrush: soft feathered spray — very wide, low-alpha core with blurry halo
       const [r, g, b] = [
@@ -1093,16 +1112,43 @@ export function useFabricCanvas(
     const matrix = obj.calcTransformMatrix();
     const vt = c.viewportTransform ?? [1, 0, 0, 1, 0, 0];
     const anchors: VectorAnchor[] = [];
-    rawPath.forEach((cmd, cmdIdx) => {
-      let xOff = -1, yOff = -1, lx = 0, ly = 0;
-      if (cmd[0] === 'M' || cmd[0] === 'L') { xOff = 1; yOff = 2; lx = cmd[1] as number; ly = cmd[2] as number; }
-      else if (cmd[0] === 'C') { xOff = 5; yOff = 6; lx = cmd[5] as number; ly = cmd[6] as number; }
-      else if (cmd[0] === 'Q') { xOff = 3; yOff = 4; lx = cmd[3] as number; ly = cmd[4] as number; }
-      if (xOff < 0) return;
+
+    const toScreen = (lx: number, ly: number): { screenX: number; screenY: number } => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cp = util.transformPoint({ x: lx, y: ly }, matrix as any);
-      anchors.push({ cmdIdx, xOff, yOff, localX: lx, localY: ly, screenX: vt[4] + cp.x * vt[0], screenY: vt[5] + cp.y * vt[3] });
+      return { screenX: vt[4] + cp.x * vt[0], screenY: vt[5] + cp.y * vt[3] };
+    };
+
+    let prevAnchorScreen: { screenX: number; screenY: number } | null = null;
+
+    rawPath.forEach((cmd, cmdIdx) => {
+      if (cmd[0] === 'M' || cmd[0] === 'L') {
+        const lx = cmd[1] as number, ly = cmd[2] as number;
+        const screen = toScreen(lx, ly);
+        anchors.push({ cmdIdx, xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        prevAnchorScreen = screen;
+      } else if (cmd[0] === 'C') {
+        const cx1 = cmd[1] as number, cy1 = cmd[2] as number;
+        const cx2 = cmd[3] as number, cy2 = cmd[4] as number;
+        const ex  = cmd[5] as number, ey  = cmd[6] as number;
+        const ep  = toScreen(ex, ey);
+        const h1  = toScreen(cx1, cy1);
+        const h2  = toScreen(cx2, cy2);
+        anchors.push({ cmdIdx, xOff: 1, yOff: 2, localX: cx1, localY: cy1, ...h1, kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null });
+        anchors.push({ cmdIdx, xOff: 3, yOff: 4, localX: cx2, localY: cy2, ...h2, kind: 'handle', pairScreenX: ep.screenX, pairScreenY: ep.screenY });
+        anchors.push({ cmdIdx, xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        prevAnchorScreen = ep;
+      } else if (cmd[0] === 'Q') {
+        const cx = cmd[1] as number, cy = cmd[2] as number;
+        const ex = cmd[3] as number, ey = cmd[4] as number;
+        const ep = toScreen(ex, ey);
+        const h  = toScreen(cx, cy);
+        anchors.push({ cmdIdx, xOff: 1, yOff: 2, localX: cx, localY: cy, ...h, kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null });
+        anchors.push({ cmdIdx, xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        prevAnchorScreen = ep;
+      }
     });
+
     setVectorAnchors(anchors);
   }, []);
 
@@ -1113,6 +1159,7 @@ export function useFabricCanvas(
     obj.set({ hasControls: false, hasBorders: false });
     c.requestRenderAll();
     refreshVectorAnchors();
+    setIsVectorEditActive(true);
   }, [refreshVectorAnchors]);
 
   const deactivateVectorEdit = useCallback(() => {
@@ -1126,6 +1173,7 @@ export function useFabricCanvas(
     vectorEditObjRef.current = null;
     vectorDragStartRef.current = null;
     setVectorAnchors([]);
+    setIsVectorEditActive(false);
   }, []);
 
   const vectorAnchorDragStart = useCallback((anchorIdx: number) => {
@@ -1187,29 +1235,28 @@ export function useFabricCanvas(
   }, []);
 
   /* ─── Zoom Level ─── */
-  const setZoomLevel = useCallback((percent: number) => {
+  const applyZoom = useCallback((rawZ: number) => {
     const c = canvasRef.current; if (!c) return;
-    const z = Math.min(Math.max(percent / 100, 0.1), 5);
+    if (!Number.isFinite(rawZ) || rawZ <= 0) return;
+    const z = Math.min(Math.max(rawZ, 0.1), 5.0);
     c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
     c.setViewportTransform([z, 0, 0, z, 0, 0]);
     setZoom(z);
   }, []);
+
+  const setZoomLevel = useCallback((percent: number) => {
+    applyZoom(percent / 100);
+  }, [applyZoom]);
 
   const zoomIn = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
-    const z = Math.min(c.getZoom() * 1.25, 5);
-    c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
-    c.setViewportTransform([z, 0, 0, z, 0, 0]);
-    setZoom(z);
-  }, []);
+    applyZoom(c.getZoom() * 1.25);
+  }, [applyZoom]);
 
   const zoomOut = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
-    const z = Math.max(c.getZoom() * 0.8, 0.1);
-    c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
-    c.setViewportTransform([z, 0, 0, z, 0, 0]);
-    setZoom(z);
-  }, []);
+    applyZoom(c.getZoom() * 0.8);
+  }, [applyZoom]);
 
   const resetZoom = useCallback(() => { fitToContainer(); }, [fitToContainer]);
 
@@ -1221,13 +1268,13 @@ export function useFabricCanvas(
     const obj = new Path(pathStr, { stroke: '#00F5FF', strokeWidth: 3, fill: 'transparent', strokeLineCap: 'round' });
     tagObj(obj, 'path');
     c.add(obj); c.setActiveObject(obj); c.renderAll();
-  }, [getCenter]);
+    activateVectorEdit(obj);
+  }, [getCenter, activateVectorEdit]);
 
   /* ─── Spline Path ─── */
   const addSplinePath = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    // Catmull-Rom-style smooth S-spline using quadratic bezier segments
     const pathStr = [
       `M ${cx - 100},${cy}`,
       `Q ${cx - 50},${cy - 80} ${cx},${cy}`,
@@ -1236,7 +1283,8 @@ export function useFabricCanvas(
     const obj = new Path(pathStr, { stroke: '#7B2FFF', strokeWidth: 3, fill: 'transparent', strokeLineCap: 'round' });
     tagObj(obj, 'path');
     c.add(obj); c.setActiveObject(obj); c.renderAll();
-  }, [getCenter]);
+    activateVectorEdit(obj);
+  }, [getCenter, activateVectorEdit]);
 
   /* ─── Universal Mask (clipPath) ─── */
   const applyMaskFromSelection = useCallback(() => {
@@ -1251,16 +1299,10 @@ export function useFabricCanvas(
     const maskShape = sorted[sorted.length - 1]; // topmost = clip shape
 
     maskShape.clone().then((clonedMask: FabricObject) => {
-      // Position the clipPath in target's local coordinate space
-      const tLeft = target.left ?? 0;
-      const tTop = target.top ?? 0;
-      const mLeft = maskShape.left ?? 0;
-      const mTop = maskShape.top ?? 0;
-      clonedMask.set({
-        left: mLeft - tLeft,
-        top: mTop - tTop,
-        absolutePositioned: false,
-      });
+      // absolutePositioned:true → Fabric uses canvas-absolute coordinates directly,
+      // so no manual coordinate offset math is needed. The clone sits exactly where
+      // the original mask shape was on the canvas, clipping the target object.
+      clonedMask.set({ absolutePositioned: true });
       clonedMask.setCoords();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (target as any).clipPath = clonedMask;
@@ -1482,7 +1524,8 @@ export function useFabricCanvas(
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
     applyGradientFill, fillShapeWithImage, cropImage, applyImageFilters,
     // Vector anchor editor
-    vectorAnchors, activateVectorEdit, deactivateVectorEdit,
+    vectorAnchors, isVectorEditActive,
+    activateVectorEdit, deactivateVectorEdit,
     vectorAnchorDragStart, vectorAnchorDragMove, vectorAnchorDragEnd,
     // Util
     syncObjects, fitToContainer,

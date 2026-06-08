@@ -5,7 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController, BrushPreset } from '@/hooks/useFabricCanvas';
-import { ImageIcon, Minus, PenTool, Paintbrush } from 'lucide-react';
+import { ImageIcon, Paintbrush } from 'lucide-react';
 
 interface AddElementSheetProps {
   controller: CanvasController;
@@ -31,7 +31,7 @@ const BRUSH_PRESETS: { id: BrushPreset; label: string; desc: string; color: stri
   {
     id: 'standard',
     label: 'Paint Brush',
-    desc: 'Smooth freehand stroke',
+    desc: 'Rich freehand stroke',
     color: '#00F5FF',
     icon: (
       <svg viewBox="0 0 24 24" className="w-6 h-6 fill-none stroke-current" strokeWidth="2">
@@ -43,7 +43,7 @@ const BRUSH_PRESETS: { id: BrushPreset; label: string; desc: string; color: stri
   {
     id: 'glow',
     label: 'Neon / Glow',
-    desc: 'Luminous electric stroke',
+    desc: 'Ambient light emission',
     color: '#00F5FF',
     icon: (
       <svg viewBox="0 0 24 24" className="w-6 h-6 fill-none stroke-current" strokeWidth="2">
@@ -54,7 +54,7 @@ const BRUSH_PRESETS: { id: BrushPreset; label: string; desc: string; color: stri
   {
     id: 'airbrush',
     label: 'Airbrush',
-    desc: 'Soft, wide, low-opacity',
+    desc: 'Soft feathered spray',
     color: '#a78bfa',
     icon: (
       <svg viewBox="0 0 24 24" className="w-6 h-6 fill-none stroke-current" strokeWidth="2">
@@ -82,12 +82,6 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
     if (imageInputRef.current) imageInputRef.current.value = '';
   };
 
-  const startPen = () => {
-    controller.activatePenTool();
-    dispatch({ type: 'SET_TOOL', payload: 'pen' });
-    close();
-  };
-
   const startBrush = (preset: BrushPreset) => {
     dispatch({ type: 'SET_BRUSH_PRESET', payload: preset });
     dispatch({ type: 'SET_TOOL', payload: 'brush' });
@@ -110,7 +104,15 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
 
           {/* ── Draw / Brush ── */}
           <div>
-            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Draw</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider flex items-center gap-1.5">
+                <Paintbrush size={12} />
+                Draw
+              </p>
+              <span className="text-[10px] text-muted-foreground">
+                Vector tools → <span className="text-primary">Vectors</span> tab
+              </span>
+            </div>
             <div className="grid grid-cols-3 gap-2 mb-3">
               {BRUSH_PRESETS.map((preset) => (
                 <button
@@ -136,27 +138,13 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
 
             <div className="space-y-3 px-1">
               <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Brush Color</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={state.brushColor}
-                    onChange={(e) => dispatch({ type: 'SET_BRUSH_COLOR', payload: e.target.value })}
-                    className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent p-0.5"
-                  />
-                  <span className="text-xs font-mono text-muted-foreground">{state.brushColor.toUpperCase()}</span>
-                </div>
+                <Label className="text-xs text-muted-foreground">Brush Size</Label>
+                <span className="text-xs text-muted-foreground">{state.brushSize}px</span>
               </div>
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <Label className="text-xs text-muted-foreground">Brush Size</Label>
-                  <span className="text-xs text-muted-foreground">{state.brushSize}px</span>
-                </div>
-                <Slider
-                  min={1} max={80} step={1} value={[state.brushSize]}
-                  onValueChange={([v]) => dispatch({ type: 'SET_BRUSH_SIZE', payload: v })}
-                />
-              </div>
+              <Slider
+                min={1} max={80} step={1} value={[state.brushSize]}
+                onValueChange={([v]) => dispatch({ type: 'SET_BRUSH_SIZE', payload: v })}
+              />
             </div>
           </div>
 
@@ -207,19 +195,6 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
                 <svg viewBox="-60 -50 120 100" className="w-7 h-7 fill-current">
                   <polygon points="-55,-18 10,-18 10,-45 55,0 10,45 10,18 -55,18" />
                 </svg>
-              </ShapeCard>
-            </div>
-          </div>
-
-          {/* ── Lines & Paths ── */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Lines & Paths</p>
-            <div className="grid grid-cols-2 gap-2">
-              <ShapeCard label="Straight Line" onClick={() => add(controller.addLine)} testId="add-line">
-                <Minus size={28} />
-              </ShapeCard>
-              <ShapeCard label="Pen Tool" onClick={startPen} testId="add-pen">
-                <PenTool size={24} />
               </ShapeCard>
             </div>
           </div>

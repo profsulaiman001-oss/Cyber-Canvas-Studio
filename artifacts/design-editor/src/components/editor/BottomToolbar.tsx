@@ -1,12 +1,10 @@
 import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
-  PenLine, Layers3, Box,
+  PenLine, Layers3, Box, GitBranch, Hand, ZoomIn,
 } from 'lucide-react';
-import { useState } from 'react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
-import ColorPicker from './ColorPicker';
 import type { BrushPreset } from '@/hooks/useFabricCanvas';
 
 interface BottomToolbarProps {
@@ -17,6 +15,7 @@ interface BottomToolbarProps {
   selectedIsText?: boolean;
   selectedIsImage?: boolean;
   vectorEditActive?: boolean;
+  panActive?: boolean;
   onPenCancel: () => void;
   onBrushDone: () => void;
   onBrushColorChange: (color: string) => void;
@@ -24,6 +23,8 @@ interface BottomToolbarProps {
   onNeonIntensityChange?: (v: number) => void;
   onVectorEditStart?: () => void;
   onVectorEditEnd?: () => void;
+  brushColorPickerOpen?: boolean;
+  onToggleBrushColorPicker?: () => void;
 }
 
 const PRESET_LABELS: Record<BrushPreset, string> = {
@@ -37,12 +38,14 @@ export default function BottomToolbar({
   selectedIsPath = false,
   selectedIsImage = false,
   vectorEditActive = false,
-  onPenCancel, onBrushDone, onBrushColorChange, onBrushSizeChange,
+  panActive = false,
+  onPenCancel, onBrushDone, onBrushColorChange: _onBrushColorChange, onBrushSizeChange,
   onNeonIntensityChange,
   onVectorEditStart, onVectorEditEnd,
+  brushColorPickerOpen = false,
+  onToggleBrushColorPicker,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
-  const [brushColorOpen, setBrushColorOpen] = useState(false);
 
   const toolbarBg = penActive
     ? { borderTop: '1px solid rgba(255,107,107,0.4)' }
@@ -50,6 +53,8 @@ export default function BottomToolbar({
     ? { borderTop: '1px solid rgba(0,245,255,0.6)' }
     : vectorEditActive
     ? { borderTop: '1px solid rgba(123,47,255,0.6)' }
+    : panActive
+    ? { borderTop: '1px solid rgba(251,191,36,0.5)' }
     : { borderTop: '1px solid rgba(0,245,255,0.15)' };
 
   /* ── Vector Edit Mode ── */
@@ -122,16 +127,16 @@ export default function BottomToolbar({
             </span>
           </div>
 
-          {/* Color swatch — toggles the full Color Studio picker inline */}
+          {/* Color swatch — opens the absolute overlay above the toolbar (no layout shift) */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <span className="text-[10px] text-muted-foreground">Color</span>
             <button
-              onClick={() => setBrushColorOpen((o) => !o)}
+              onClick={onToggleBrushColorPicker}
               className="w-7 h-7 rounded border-2 transition-all flex-shrink-0"
               style={{
                 background: state.brushColor,
-                borderColor: brushColorOpen ? '#00F5FF' : 'rgba(255,255,255,0.25)',
-                boxShadow: brushColorOpen ? `0 0 8px ${state.brushColor}60` : 'none',
+                borderColor: brushColorPickerOpen ? '#00F5FF' : 'rgba(255,255,255,0.25)',
+                boxShadow: brushColorPickerOpen ? `0 0 8px ${state.brushColor}60` : 'none',
               }}
               aria-label="Open brush color picker"
             />
@@ -163,18 +168,6 @@ export default function BottomToolbar({
           </div>
         </div>
 
-        {/* Inline Color Studio picker — same ColorPicker component used everywhere */}
-        {brushColorOpen && (
-          <div className="mb-3 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(0,245,255,0.15)' }}>
-            <ColorPicker
-              value={state.brushColor}
-              onChange={(v) => {
-                onBrushColorChange(v);
-              }}
-            />
-          </div>
-        )}
-
         {/* Row 2 — size slider */}
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-muted-foreground shrink-0">Size: {state.brushSize}px</span>
@@ -198,7 +191,7 @@ export default function BottomToolbar({
   }
 
   /* ── Normal Toolbar (horizontal scroll) ── */
-  type ToolId = ActivePanel | 'select';
+  type ToolId = ActivePanel | 'select' | 'pan-tool' | 'zoom-tool';
 
   const tools: {
     id: ToolId;
@@ -206,6 +199,7 @@ export default function BottomToolbar({
     label: string;
     action: () => void;
     disabled?: boolean;
+    accent?: string;
   }[] = [
     {
       id: 'select',
@@ -217,10 +211,35 @@ export default function BottomToolbar({
       },
     },
     {
+      id: 'pan-tool',
+      icon: <Hand size={22} />,
+      label: 'Pan',
+      action: () => {
+        const next = state.activeTool === 'pan' ? 'select' : 'pan';
+        dispatch({ type: 'SET_TOOL', payload: next });
+        if (next !== 'pan') dispatch({ type: 'CLOSE_PANEL' });
+      },
+      accent: '#fbbf24',
+    },
+    {
+      id: 'zoom-tool',
+      icon: <ZoomIn size={22} />,
+      label: 'Zoom',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'zoom' }),
+      accent: '#a78bfa',
+    },
+    {
       id: 'add',
       icon: <Plus size={24} />,
       label: 'Add',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }),
+    },
+    {
+      id: 'vectors',
+      icon: <GitBranch size={22} />,
+      label: 'Vectors',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'vectors' }),
+      accent: '#7B2FFF',
     },
     {
       id: 'text',
@@ -310,7 +329,14 @@ export default function BottomToolbar({
           const isActive =
             tool.id === 'select'
               ? state.activeTool === 'select' && state.activePanel === null
+              : tool.id === 'pan-tool'
+              ? state.activeTool === 'pan'
+              : tool.id === 'zoom-tool'
+              ? state.activePanel === 'zoom'
               : state.activePanel === tool.id;
+
+          const activeColor = tool.accent ?? '#00F5FF';
+
           return (
             <button
               key={tool.id}
@@ -319,8 +345,8 @@ export default function BottomToolbar({
               data-testid={`toolbar-${tool.id}`}
               className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 disabled:opacity-30 flex-shrink-0 min-w-[60px]"
               style={{
-                color: isActive ? '#00F5FF' : '#6b7280',
-                filter: isActive ? 'drop-shadow(0 0 6px #00F5FF80)' : 'none',
+                color: isActive ? activeColor : '#6b7280',
+                filter: isActive ? `drop-shadow(0 0 6px ${activeColor}80)` : 'none',
               }}
             >
               {tool.icon}
@@ -328,7 +354,7 @@ export default function BottomToolbar({
               {isActive && (
                 <span
                   className="absolute bottom-1 w-1 h-1 rounded-full"
-                  style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }}
+                  style={{ background: activeColor, boxShadow: `0 0 4px ${activeColor}` }}
                 />
               )}
             </button>

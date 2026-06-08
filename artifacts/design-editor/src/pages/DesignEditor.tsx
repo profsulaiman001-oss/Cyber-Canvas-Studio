@@ -21,6 +21,9 @@ import AdjustPanel from '@/components/editor/AdjustPanel';
 import StrokePanel from '@/components/editor/StrokePanel';
 import ShadowsPanel from '@/components/editor/ShadowsPanel';
 import ThreeDPanel from '@/components/editor/ThreeDPanel';
+import VectorsPanel from '@/components/editor/VectorsPanel';
+import ColorPicker from '@/components/editor/ColorPicker';
+import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -34,6 +37,9 @@ export default function DesignEditor() {
 
   const [vpX, setVpX] = useState(0);
   const [vpY, setVpY] = useState(0);
+
+  // Brush color picker as floating overlay (no layout shift on canvas)
+  const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
 
   const handleSelectionChange = useCallback(
     (ids: string[]) => { dispatch({ type: 'SET_SELECTED', payload: ids }); },
@@ -117,8 +123,22 @@ export default function DesignEditor() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activeTool, state.brushPreset, state.brushColor, state.brushSize]);
 
+  /* ── Pan mode ── */
+  useEffect(() => {
+    controller.setPanMode(state.activeTool === 'pan');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.activeTool]);
+
+  /* ── Close brush picker when brush deactivates ── */
+  useEffect(() => {
+    if (state.activeTool !== 'brush') {
+      setBrushColorPickerOpen(false);
+    }
+  }, [state.activeTool]);
+
   const penActive = state.activeTool === 'pen';
   const brushActive = state.activeTool === 'brush';
+  const panActive = state.activeTool === 'pan';
   const hasSelection = state.selectedObjectIds.length > 0;
   const selectedType = controller.selectedObject?.type || '';
   const selectedIsText = ['i-text', 'text', 'textbox'].includes(selectedType);
@@ -130,6 +150,7 @@ export default function DesignEditor() {
 
   const handleBrushDone = useCallback(() => {
     controller.deactivateBrush();
+    setBrushColorPickerOpen(false);
     dispatch({ type: 'SET_TOOL', payload: 'select' });
   }, [controller, dispatch]);
 
@@ -200,6 +221,14 @@ export default function DesignEditor() {
     });
   }, [controller, dispatch, toast]);
 
+  /* ── Vector pen start (from VectorsPanel) ── */
+  const handleVectorsPenStart = useCallback(() => {
+    controller.activatePenTool();
+    dispatch({ type: 'SET_TOOL', payload: 'pen' });
+  }, [controller, dispatch]);
+
+  const zoomPercent = Math.round(controller.zoom * 100);
+
   return (
     <div
       className="flex flex-col w-full overflow-hidden select-none"
@@ -235,22 +264,109 @@ export default function DesignEditor() {
         onGuideMove={handleGuideMove}
       />
 
-      <BottomToolbar
-        hasSelection={hasSelection}
-        penActive={penActive}
-        brushActive={brushActive}
-        selectedIsPath={selectedType === 'path'}
-        selectedIsText={selectedIsText}
-        selectedIsImage={selectedType === 'image'}
-        vectorEditActive={vectorEditActive}
-        onPenCancel={handlePenCancel}
-        onBrushDone={handleBrushDone}
-        onBrushColorChange={handleBrushColorChange}
-        onBrushSizeChange={handleBrushSizeChange}
-        onNeonIntensityChange={(v) => dispatch({ type: 'SET_NEON_INTENSITY', payload: v })}
-        onVectorEditStart={handleVectorEditStart}
-        onVectorEditEnd={handleVectorEditEnd}
-      />
+      {/* ── Toolbar wrapper — position:relative so overlays float above without layout impact ── */}
+      <div className="relative flex-shrink-0">
+
+        {/* ── Brush Color Picker overlay — absolute, sits above toolbar, no canvas resize ── */}
+        {brushActive && brushColorPickerOpen && (
+          <div
+            className="absolute bottom-full left-0 right-0 z-50 px-4 pt-4 pb-3"
+            style={{
+              background: '#11141A',
+              borderTop: '1px solid rgba(0,245,255,0.3)',
+              boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold tracking-wider" style={{ color: '#00F5FF' }}>BRUSH COLOR</p>
+              <button
+                onClick={() => setBrushColorPickerOpen(false)}
+                className="text-[10px] px-3 py-1 rounded-full"
+                style={{ background: 'rgba(0,245,255,0.12)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
+              >
+                Close
+              </button>
+            </div>
+            <ColorPicker value={state.brushColor} onChange={handleBrushColorChange} />
+          </div>
+        )}
+
+        {/* ── Zoom Tray overlay — absolute, sits above toolbar ── */}
+        {state.activePanel === 'zoom' && !brushActive && !penActive && (
+          <div
+            className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
+            style={{
+              background: '#11141A',
+              borderTop: '1px solid rgba(167,139,250,0.4)',
+              boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2 justify-between">
+              <p className="text-xs font-semibold tracking-wider" style={{ color: '#a78bfa' }}>ZOOM</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={controller.zoomOut}
+                  className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
+                  style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
+                >
+                  −
+                </button>
+                <span
+                  className="text-xs font-mono font-bold min-w-[52px] text-center"
+                  style={{ color: '#a78bfa' }}
+                >
+                  {zoomPercent}%
+                </span>
+                <button
+                  onClick={controller.zoomIn}
+                  className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
+                  style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
+                >
+                  +
+                </button>
+                <button
+                  onClick={controller.resetZoom}
+                  className="text-[10px] px-2 py-1 rounded-lg"
+                  style={{ background: 'rgba(167,139,250,0.08)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.2)' }}
+                >
+                  Fit
+                </button>
+              </div>
+            </div>
+            <Slider
+              min={10} max={500} step={5}
+              value={[zoomPercent]}
+              onValueChange={([v]) => controller.setZoomLevel(v)}
+              className="w-full"
+            />
+            <div className="flex justify-between mt-1">
+              <span className="text-[9px] text-muted-foreground">10%</span>
+              <span className="text-[9px] text-muted-foreground">100%</span>
+              <span className="text-[9px] text-muted-foreground">500%</span>
+            </div>
+          </div>
+        )}
+
+        <BottomToolbar
+          hasSelection={hasSelection}
+          penActive={penActive}
+          brushActive={brushActive}
+          panActive={panActive}
+          selectedIsPath={selectedType === 'path'}
+          selectedIsText={selectedIsText}
+          selectedIsImage={selectedType === 'image'}
+          vectorEditActive={vectorEditActive}
+          onPenCancel={handlePenCancel}
+          onBrushDone={handleBrushDone}
+          onBrushColorChange={handleBrushColorChange}
+          onBrushSizeChange={handleBrushSizeChange}
+          onNeonIntensityChange={(v) => dispatch({ type: 'SET_NEON_INTENSITY', payload: v })}
+          onVectorEditStart={handleVectorEditStart}
+          onVectorEditEnd={handleVectorEditEnd}
+          brushColorPickerOpen={brushColorPickerOpen}
+          onToggleBrushColorPicker={() => setBrushColorPickerOpen((o) => !o)}
+        />
+      </div>
 
       {/* Panels & Dialogs */}
       <LayersPanel controller={controller} />
@@ -277,6 +393,7 @@ export default function DesignEditor() {
       <StrokePanel controller={controller} />
       <ShadowsPanel controller={controller} />
       <ThreeDPanel controller={controller} />
+      <VectorsPanel controller={controller} onPenStart={handleVectorsPenStart} />
     </div>
   );
 }

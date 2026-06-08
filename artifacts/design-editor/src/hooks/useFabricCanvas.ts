@@ -243,6 +243,7 @@ export function useFabricCanvas(
   const eyedropperActiveRef = useRef(false);
   const eyedropperCallbackRef = useRef<((color: string) => void) | null>(null);
   const brushPresetRef = useRef<BrushPreset>('standard');
+  const panModeRef = useRef(false);
   const vectorEditObjRef = useRef<FabricObject | null>(null);
   const vectorDragStartRef = useRef<{ anchorIdx: number; localX: number; localY: number } | null>(null);
   const [vectorAnchors, setVectorAnchors] = useState<VectorAnchor[]>([]);
@@ -533,7 +534,7 @@ export function useFabricCanvas(
         updatePenPreview(newPts);
         return;
       }
-      if ((me as MouseEvent).altKey) {
+      if (panModeRef.current || (me as MouseEvent).altKey) {
         isPanning = true;
         c.selection = false;
         lastPanX = (me as MouseEvent).clientX;
@@ -1023,26 +1024,29 @@ export function useFabricCanvas(
 
     brushPresetRef.current = preset;
     const brush = new PencilBrush(c);
-    brush.width = size;
 
     if (preset === 'standard') {
+      // Photoshop-grade paintbrush: full-opacity, rich round stroke
       brush.color = color;
-      brush.shadow = null;
+      brush.width = size;
+      brush.shadow = new Shadow({ color: 'rgba(0,0,0,0.18)', blur: size * 0.4, offsetX: 0, offsetY: 1 });
     } else if (preset === 'glow') {
-      // Photoshop-style neon: barely-visible thin core + massive glow aura via shadow blur
+      // Neon/glow: near-transparent ultra-thin core + massive shadow blur for ambient light emission
       const [r, g, b] = [parseInt(color.slice(1, 3), 16), parseInt(color.slice(3, 5), 16), parseInt(color.slice(5, 7), 16)];
-      brush.color = `rgba(${r},${g},${b},0.08)`;  // near-transparent core
-      brush.width = Math.max(1, size * 0.18);       // ultra-thin stroke
-      brush.shadow = new Shadow({ color, blur: size * 8, offsetX: 0, offsetY: 0 });
+      brush.color = `rgba(${r},${g},${b},0.06)`;
+      brush.width = Math.max(1, size * 0.15);
+      // Double-layer glow: tight inner halo + wide outer bloom
+      brush.shadow = new Shadow({ color, blur: size * 10, offsetX: 0, offsetY: 0 });
     } else if (preset === 'airbrush') {
+      // Airbrush: soft feathered spray — very wide, low-alpha core with blurry halo
       const [r, g, b] = [
         parseInt(color.slice(1, 3), 16),
         parseInt(color.slice(3, 5), 16),
         parseInt(color.slice(5, 7), 16),
       ];
-      brush.color = `rgba(${r},${g},${b},0.08)`;
-      brush.width = size * 4;
-      brush.shadow = null;
+      brush.color = `rgba(${r},${g},${b},0.03)`;
+      brush.width = size * 5;
+      brush.shadow = new Shadow({ color: `rgba(${r},${g},${b},0.35)`, blur: size * 4, offsetX: 0, offsetY: 0 });
     }
 
     brush.strokeLineCap = 'round';
@@ -1160,6 +1164,122 @@ export function useFabricCanvas(
 
   const vectorAnchorDragEnd = useCallback(() => {
     vectorDragStartRef.current = null;
+    pushUndo();
+  }, [pushUndo]);
+
+  /* ─── Pan Mode ─── */
+  const setPanMode = useCallback((active: boolean) => {
+    panModeRef.current = active;
+    const c = canvasRef.current; if (!c) return;
+    if (active) {
+      c.selection = false;
+      c.discardActiveObject();
+      c.defaultCursor = 'grab';
+      c.hoverCursor = 'grab';
+      c.moveCursor = 'grabbing';
+    } else {
+      c.selection = true;
+      c.defaultCursor = 'default';
+      c.hoverCursor = 'move';
+      c.moveCursor = 'move';
+    }
+    c.requestRenderAll();
+  }, []);
+
+  /* ─── Zoom Level ─── */
+  const setZoomLevel = useCallback((percent: number) => {
+    const c = canvasRef.current; if (!c) return;
+    const z = Math.min(Math.max(percent / 100, 0.1), 5);
+    c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
+    c.setViewportTransform([z, 0, 0, z, 0, 0]);
+    setZoom(z);
+  }, []);
+
+  const zoomIn = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const z = Math.min(c.getZoom() * 1.25, 5);
+    c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
+    c.setViewportTransform([z, 0, 0, z, 0, 0]);
+    setZoom(z);
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const z = Math.max(c.getZoom() * 0.8, 0.1);
+    c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
+    c.setViewportTransform([z, 0, 0, z, 0, 0]);
+    setZoom(z);
+  }, []);
+
+  const resetZoom = useCallback(() => { fitToContainer(); }, [fitToContainer]);
+
+  /* ─── Bezier Curve ─── */
+  const addBezierCurve = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const { cx, cy } = getCenter();
+    const pathStr = `M ${cx - 90},${cy} C ${cx - 45},${cy - 90} ${cx + 45},${cy - 90} ${cx + 90},${cy}`;
+    const obj = new Path(pathStr, { stroke: '#00F5FF', strokeWidth: 3, fill: 'transparent', strokeLineCap: 'round' });
+    tagObj(obj, 'path');
+    c.add(obj); c.setActiveObject(obj); c.renderAll();
+  }, [getCenter]);
+
+  /* ─── Spline Path ─── */
+  const addSplinePath = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const { cx, cy } = getCenter();
+    // Catmull-Rom-style smooth S-spline using quadratic bezier segments
+    const pathStr = [
+      `M ${cx - 100},${cy}`,
+      `Q ${cx - 50},${cy - 80} ${cx},${cy}`,
+      `Q ${cx + 50},${cy + 80} ${cx + 100},${cy}`,
+    ].join(' ');
+    const obj = new Path(pathStr, { stroke: '#7B2FFF', strokeWidth: 3, fill: 'transparent', strokeLineCap: 'round' });
+    tagObj(obj, 'path');
+    c.add(obj); c.setActiveObject(obj); c.renderAll();
+  }, [getCenter]);
+
+  /* ─── Universal Mask (clipPath) ─── */
+  const applyMaskFromSelection = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const active = c.getActiveObjects();
+    if (active.length < 2) return;
+
+    const allObjs = c.getObjects();
+    // Sort by z-order: topmost (highest index) becomes the clip shape
+    const sorted = [...active].sort((a, b) => allObjs.indexOf(a) - allObjs.indexOf(b));
+    const target = sorted[0];       // bottom-most object = content
+    const maskShape = sorted[sorted.length - 1]; // topmost = clip shape
+
+    maskShape.clone().then((clonedMask: FabricObject) => {
+      // Position the clipPath in target's local coordinate space
+      const tLeft = target.left ?? 0;
+      const tTop = target.top ?? 0;
+      const mLeft = maskShape.left ?? 0;
+      const mTop = maskShape.top ?? 0;
+      clonedMask.set({
+        left: mLeft - tLeft,
+        top: mTop - tTop,
+        absolutePositioned: false,
+      });
+      clonedMask.setCoords();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (target as any).clipPath = clonedMask;
+      c.remove(maskShape);
+      c.discardActiveObject();
+      c.setActiveObject(target);
+      target.setCoords();
+      c.requestRenderAll();
+      pushUndo();
+    });
+  }, [pushUndo]);
+
+  const releaseMask = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = c.getActiveObject(); if (!obj) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).clipPath = undefined;
+    obj.setCoords();
+    c.requestRenderAll();
     pushUndo();
   }, [pushUndo]);
 
@@ -1333,6 +1453,8 @@ export function useFabricCanvas(
     // Shapes
     addRect, addCircle, addTriangle, addLine, addText, addImageFromFile,
     addStar, addHexagon, addPentagon, addHeart, addRightTriangle, addArrow,
+    // Vector paths
+    addBezierCurve, addSplinePath,
     // Pen tool
     activatePenTool, cancelPenTool, closePenPath,
     // Brush engine
@@ -1344,6 +1466,10 @@ export function useFabricCanvas(
     undo, redo, exportCanvas, getJSON, loadFromJSON,
     // Canvas ops
     setCanvasSize, setCanvasBackground, setGridOptions,
+    // Pan + Zoom
+    setPanMode, setZoomLevel, zoomIn, zoomOut, resetZoom,
+    // Mask (clipPath)
+    applyMaskFromSelection, releaseMask,
     // Object ops
     deleteSelected, duplicateSelected, bringForward, sendBackward,
     toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById,

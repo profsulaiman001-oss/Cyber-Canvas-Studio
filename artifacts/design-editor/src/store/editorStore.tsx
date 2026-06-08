@@ -5,9 +5,11 @@ export type ActivePanel =
   | 'layers' | 'properties' | 'add' | 'export' | 'project'
   | 'canvasSize' | 'alignment' | 'canvasBg' | 'colorStudio'
   | 'text' | 'shapeModifiers' | 'adjust' | 'nudge'
-  | 'stroke' | 'shadows' | 'threeD' | null;
+  | 'stroke' | 'shadows' | 'threeD'
+  | 'vectors' | 'zoom'
+  | null;
 
-export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush';
+export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush' | 'zoom';
 
 export interface CanvasBgConfig {
   type: 'solid' | 'transparent' | 'gradient';

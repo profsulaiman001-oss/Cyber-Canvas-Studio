@@ -337,8 +337,16 @@ export function useFabricCanvas(
     c.setDimensions({ width: cw, height: ch });
     c.setViewportTransform([newZoom, 0, 0, newZoom, 0, 0]);
     setZoom(newZoom);
+    // Scroll the container so the canvas is centered inside the PAN_MARGIN scroll area.
+    // PAN_MARGIN (600px) of extra space is added on each side in Canvas.tsx.
+    const PAN_MARGIN = 600;
     const ct = containerEl.current;
-    if (ct) { ct.scrollLeft = 0; ct.scrollTop = 0; }
+    if (ct) {
+      requestAnimationFrame(() => {
+        ct.scrollLeft = PAN_MARGIN - (ct.clientWidth - cw) / 2;
+        ct.scrollTop = PAN_MARGIN - (ct.clientHeight - ch) / 2;
+      });
+    }
   }, [containerEl]);
 
   /* ─── Pen tool helpers ─── */
@@ -559,14 +567,10 @@ export function useFabricCanvas(
         const dy = (opt.e as MouseEvent).clientY - lastPanY;
         lastPanX = (opt.e as MouseEvent).clientX;
         lastPanY = (opt.e as MouseEvent).clientY;
-        // AutoCAD-style panning: translate the Fabric viewport transform
-        const vpt = c.viewportTransform;
-        if (vpt) {
-          vpt[4] += dx;
-          vpt[5] += dy;
-          c.setViewportTransform(vpt);
-        }
-        c.requestRenderAll();
+        // Pan by scrolling the container — the canvas itself stays at a fixed zoom/vpt.
+        // This prevents objects from going out of the canvas element bounds.
+        const ct = containerEl.current;
+        if (ct) { ct.scrollLeft -= dx; ct.scrollTop -= dy; }
       }
     });
 

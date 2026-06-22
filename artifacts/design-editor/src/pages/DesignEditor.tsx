@@ -227,6 +227,34 @@ export default function DesignEditor() {
 
   const zoomPercent = Math.round(controller.zoom * 100);
 
+  /* ── Image toolbar actions ── */
+  const importImagesRef = useRef<HTMLInputElement>(null);
+  const fillWithImageRef = useRef<HTMLInputElement>(null);
+
+  const handleImportImages = useCallback(() => {
+    importImagesRef.current?.click();
+  }, []);
+
+  const handleImportImageFiles = useCallback(async (files: FileList) => {
+    for (const file of Array.from(files)) {
+      await controller.addImageFromFile(file);
+    }
+  }, [controller]);
+
+  const handleFillWithImage = useCallback(() => {
+    fillWithImageRef.current?.click();
+  }, []);
+
+  const handleFillImageFile = useCallback((file: File) => {
+    const obj = controller.selectedObject;
+    if (obj) controller.fillShapeWithImage(obj, file);
+  }, [controller]);
+
+  // Crop: open Properties panel which has the built-in crop UI
+  const handleCropImage = useCallback(() => {
+    dispatch({ type: 'TOGGLE_PANEL', payload: 'properties' });
+  }, [dispatch]);
+
   return (
     <div
       className="flex flex-col w-full overflow-hidden select-none"
@@ -260,6 +288,24 @@ export default function DesignEditor() {
         guides={state.guides}
         gridLocked={state.gridLocked}
         onGuideMove={handleGuideMove}
+        panActive={panActive}
+      />
+
+      {/* Hidden file inputs for image toolbar */}
+      <input
+        ref={importImagesRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => { if (e.target.files?.length) { handleImportImageFiles(e.target.files); e.target.value = ''; } }}
+      />
+      <input
+        ref={fillWithImageRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => { if (e.target.files?.[0]) { handleFillImageFile(e.target.files[0]); e.target.value = ''; } }}
       />
 
       {/* ── Toolbar wrapper — position:relative so overlays float above without layout impact ── */}
@@ -368,6 +414,9 @@ export default function DesignEditor() {
           onVectorEditEnd={handleVectorEditEnd}
           brushColorPickerOpen={brushColorPickerOpen}
           onToggleBrushColorPicker={() => setBrushColorPickerOpen((o) => !o)}
+          onImportImages={handleImportImages}
+          onFillWithImage={handleFillWithImage}
+          onCropImage={handleCropImage}
         />
       </div>
 

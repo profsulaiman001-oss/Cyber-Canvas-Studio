@@ -1,7 +1,7 @@
 import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
-  PenLine, Layers3, Box, GitBranch, Hand, ZoomIn,
+  PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
@@ -25,6 +25,9 @@ interface BottomToolbarProps {
   onVectorEditEnd?: () => void;
   brushColorPickerOpen?: boolean;
   onToggleBrushColorPicker?: () => void;
+  onImportImages?: () => void;
+  onFillWithImage?: () => void;
+  onCropImage?: () => void;
 }
 
 const PRESET_LABELS: Record<BrushPreset, string> = {
@@ -44,6 +47,9 @@ export default function BottomToolbar({
   onVectorEditStart, onVectorEditEnd,
   brushColorPickerOpen = false,
   onToggleBrushColorPicker,
+  onImportImages,
+  onFillWithImage,
+  onCropImage,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
 
@@ -371,6 +377,41 @@ export default function BottomToolbar({
           >
             <Spline size={22} />
             <span className="text-[10px] font-medium leading-none whitespace-nowrap">Points</span>
+          </button>
+        )}
+
+        {/* Image tools — always show Photos; show Fill when selection isn't already an image; show Crop when image is selected */}
+        <button
+          onClick={onImportImages}
+          className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+          style={{ color: '#6b7280' }}
+          title="Import images"
+        >
+          <ImagePlus size={22} />
+          <span className="text-[10px] font-medium leading-none whitespace-nowrap">Photos</span>
+        </button>
+
+        {hasSelection && !selectedIsImage && (
+          <button
+            onClick={onFillWithImage}
+            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+            style={{ color: '#6b7280' }}
+            title="Fill shape with image"
+          >
+            <Image size={22} />
+            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Fill Img</span>
+          </button>
+        )}
+
+        {hasSelection && selectedIsImage && (
+          <button
+            onClick={onCropImage}
+            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+            style={{ color: '#6b7280' }}
+            title="Crop image"
+          >
+            <Crop size={22} />
+            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Crop</span>
           </button>
         )}
       </div>

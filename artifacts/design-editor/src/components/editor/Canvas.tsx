@@ -34,7 +34,12 @@ interface CanvasProps {
   guides?: { h: number[]; v: number[] };
   gridLocked?: boolean;
   onGuideMove?: (axis: 'h' | 'v', idx: number, newDesignPos: number) => void;
+  panActive?: boolean;
 }
+
+/* Extra scroll room on each side for panning — canvas element stays design-sized,
+   the outer scroll area is always this much wider/taller so the user can pan freely. */
+export const PAN_MARGIN = 600;
 
 export default function CanvasWorkspace({
   canvasRef, containerRef, hasObjects,
@@ -51,12 +56,13 @@ export default function CanvasWorkspace({
   guides,
   gridLocked = false,
   onGuideMove,
+  panActive = false,
 }: CanvasProps) {
   const tileSize = gridSize * zoom;
   const showEmptyHint = !hasObjects && !penActive && !brushActive;
   const showPenSvg = penActive && penPoints.length > 0;
 
-  const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : 'default';
+  const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : panActive ? 'grab' : 'default';
 
   /* ── Drag tooltip position ── */
   let tooltipLeft = 0, tooltipTop = 0;
@@ -111,6 +117,37 @@ export default function CanvasWorkspace({
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, [gridLocked, zoom]);
 
+  /* ── Single-finger touch pan on container when pan tool is active ── */
+  const touchPanRef = useRef<{ lastX: number; lastY: number } | null>(null);
+  useEffect(() => {
+    const ct = containerRef.current;
+    if (!ct) return;
+    const onTouchStart = (e: TouchEvent) => {
+      if (!panActive || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      touchPanRef.current = { lastX: t.clientX, lastY: t.clientY };
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchPanRef.current || e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const dx = t.clientX - touchPanRef.current.lastX;
+      const dy = t.clientY - touchPanRef.current.lastY;
+      touchPanRef.current = { lastX: t.clientX, lastY: t.clientY };
+      ct.scrollLeft -= dx;
+      ct.scrollTop -= dy;
+    };
+    const onTouchEnd = () => { touchPanRef.current = null; };
+    ct.addEventListener('touchstart', onTouchStart, { passive: false });
+    ct.addEventListener('touchmove', onTouchMove, { passive: false });
+    ct.addEventListener('touchend', onTouchEnd);
+    return () => {
+      ct.removeEventListener('touchstart', onTouchStart);
+      ct.removeEventListener('touchmove', onTouchMove);
+      ct.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [containerRef, panActive]);
+
   return (
     <div
       ref={containerRef}
@@ -120,189 +157,192 @@ export default function CanvasWorkspace({
         cursor: canvasCursor,
         overflow: 'auto',
         scrollbarWidth: 'none',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'flex-start',
-        padding: '20px',
       }}
       data-testid="canvas-workspace"
     >
+      {/* Large scroll area — always PAN_MARGIN wider/taller than the canvas on each side.
+          This gives the user room to pan in any direction without objects disappearing. */}
       <div
-        className="relative overflow-hidden shadow-2xl border border-neutral-800/40"
         style={{
-          width: `${canvasWidth * zoom}px`,
-          height: `${canvasHeight * zoom}px`,
+          width: `${canvasWidth * zoom + 2 * PAN_MARGIN}px`,
+          height: `${canvasHeight * zoom + 2 * PAN_MARGIN}px`,
+          position: 'relative',
           flexShrink: 0,
-          margin: 'auto',
-          background: transparentBg ? `repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 20px 20px` : `#ffffff`,
         }}
       >
-        <canvas ref={canvasRef} id="fabric-canvas" className="absolute top-0 left-0 w-full h-full" data-testid="fabric-canvas" />
-
-        {/* High-contrast grid overlay */}
+        {/* The actual design canvas, centered inside the scroll area */}
         <div
-          aria-hidden="true"
-          className="absolute inset-0 pointer-events-none"
+          className="overflow-hidden shadow-2xl border border-neutral-800/40"
           style={{
-            opacity: gridEnabled ? 1 : 0,
-            backgroundImage: `
-              linear-gradient(rgba(0,0,0,0.3) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(0,0,0,0.3) 1px, transparent 1px),
-              linear-gradient(rgba(255,255,255,0.25) 1.5px, transparent 1.5px),
-              linear-gradient(90deg, rgba(255,255,255,0.25) 1.5px, transparent 1.5px)
-            `,
-            backgroundSize: `${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px`,
-            backgroundPosition: `${vpX % tileSize - 0.5}px ${vpY % tileSize - 0.5}px, ${vpX % tileSize - 0.5}px ${vpY % tileSize - 0.5}px, ${vpX % tileSize}px ${vpY % tileSize}px, ${vpX % tileSize}px ${vpY % tileSize}px`,
+            position: 'absolute',
+            left: `${PAN_MARGIN}px`,
+            top: `${PAN_MARGIN}px`,
+            width: `${canvasWidth * zoom}px`,
+            height: `${canvasHeight * zoom}px`,
+            background: transparentBg ? `repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 20px 20px` : `#ffffff`,
           }}
-        />
-
-        {/* Horizontal guide lines */}
-        {guides?.h.map((pos, i) => {
-          const yPx = pos * zoom + vpY;
-          if (yPx < 0 || yPx > canvasHeight * zoom) return null;
-          return (
-            <div
-              key={`gh${i}`}
-              style={{
-                position: 'absolute', left: 0, right: 0,
-                top: yPx, height: 2,
-                background: 'rgba(255, 80, 80, 0.85)',
-                boxShadow: '0 0 4px rgba(255,80,80,0.7)',
-                cursor: gridLocked ? 'default' : 'ns-resize',
-                pointerEvents: gridLocked ? 'none' : 'auto',
-                zIndex: 15,
-              }}
-              onMouseDown={(e) => {
-                if (gridLocked) return;
-                e.stopPropagation();
-                guideDragRef.current = { axis: 'h', idx: i, startClient: e.clientY, startDesign: pos };
-              }}
-            />
-          );
-        })}
-
-        {/* Vertical guide lines */}
-        {guides?.v.map((pos, i) => {
-          const xPx = pos * zoom + vpX;
-          if (xPx < 0 || xPx > canvasWidth * zoom) return null;
-          return (
-            <div
-              key={`gv${i}`}
-              style={{
-                position: 'absolute', top: 0, bottom: 0,
-                left: xPx, width: 2,
-                background: 'rgba(255, 80, 80, 0.85)',
-                boxShadow: '0 0 4px rgba(255,80,80,0.7)',
-                cursor: gridLocked ? 'default' : 'ew-resize',
-                pointerEvents: gridLocked ? 'none' : 'auto',
-                zIndex: 15,
-              }}
-              onMouseDown={(e) => {
-                if (gridLocked) return;
-                e.stopPropagation();
-                guideDragRef.current = { axis: 'v', idx: i, startClient: e.clientX, startDesign: pos };
-              }}
-            />
-          );
-        })}
-
-        {/* Empty-state hint */}
-        <div
-          aria-hidden={!showEmptyHint}
-          className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 animate-fade-in"
-          style={{ opacity: showEmptyHint ? 1 : 0 }}
         >
-          <p className="text-neutral-400 text-sm tracking-wider font-medium bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm">
-            Tap + to add your first element
-          </p>
-        </div>
+          <canvas ref={canvasRef} id="fabric-canvas" className="absolute top-0 left-0 w-full h-full" data-testid="fabric-canvas" />
 
-        {/* Pen SVG overlay */}
-        <svg
-          aria-hidden={!showPenSvg}
-          className="absolute inset-0 w-full h-full pointer-events-none z-20"
-          style={{ overflow: 'visible', display: showPenSvg ? 'block' : 'none' }}
-        >
-          {penPoints.length >= 2 && (
-            <polyline
-              points={penPoints.map((p) => `${p.x * zoom + vpX},${p.y * zoom + vpY}`).join(' ')}
-              fill="none" stroke="#00F5FF" strokeWidth="1.5" strokeDasharray="6 3" opacity="0.6"
-            />
-          )}
-          {penPoints.map((p, i) => {
-            const cx = p.x * zoom + vpX;
-            const cy = p.y * zoom + vpY;
-            const isFirst = i === 0;
+          {/* High-contrast grid overlay */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              opacity: gridEnabled ? 1 : 0,
+              backgroundImage: `
+                linear-gradient(rgba(0,0,0,0.3) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.3) 1px, transparent 1px),
+                linear-gradient(rgba(255,255,255,0.25) 1.5px, transparent 1.5px),
+                linear-gradient(90deg, rgba(255,255,255,0.25) 1.5px, transparent 1.5px)
+              `,
+              backgroundSize: `${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px`,
+              backgroundPosition: `${vpX % tileSize - 0.5}px ${vpY % tileSize - 0.5}px, ${vpX % tileSize - 0.5}px ${vpY % tileSize - 0.5}px, ${vpX % tileSize}px ${vpY % tileSize}px, ${vpX % tileSize}px ${vpY % tileSize}px`,
+            }}
+          />
+
+          {/* Horizontal guide lines */}
+          {guides?.h.map((pos, i) => {
+            const yPx = pos * zoom + vpY;
+            if (yPx < 0 || yPx > canvasHeight * zoom) return null;
             return (
-              <g key={`pt-${i}-${Math.round(p.x)}-${Math.round(p.y)}`}>
-                <circle cx={cx} cy={cy} r={isFirst ? 7 : 5} fill={isFirst ? '#ff6b6b' : '#00F5FF'} stroke="#fff" strokeWidth="1.5" />
-                {isFirst && penPoints.length >= 3 && (
-                  <circle cx={cx} cy={cy} r={12} fill="none" stroke="#ff6b6b" strokeWidth="1" opacity="0.5" strokeDasharray="3 2" />
-                )}
-              </g>
+              <div
+                key={`gh${i}`}
+                style={{
+                  position: 'absolute', left: 0, right: 0,
+                  top: yPx, height: 2,
+                  background: 'rgba(255, 80, 80, 0.85)',
+                  boxShadow: '0 0 4px rgba(255,80,80,0.7)',
+                  cursor: gridLocked ? 'default' : 'ns-resize',
+                  pointerEvents: gridLocked ? 'none' : 'auto',
+                  zIndex: 15,
+                }}
+                onMouseDown={(e) => {
+                  if (gridLocked) return;
+                  e.stopPropagation();
+                  guideDragRef.current = { axis: 'h', idx: i, startClient: e.clientY, startDesign: pos };
+                }}
+              />
             );
           })}
-        </svg>
 
-        {/* Vector anchor + handle editor overlay */}
-        {vectorAnchors.length > 0 && (
-          <svg
-            className="absolute inset-0 w-full h-full z-30"
-            style={{ overflow: 'visible', pointerEvents: 'none' }}
+          {/* Vertical guide lines */}
+          {guides?.v.map((pos, i) => {
+            const xPx = pos * zoom + vpX;
+            if (xPx < 0 || xPx > canvasWidth * zoom) return null;
+            return (
+              <div
+                key={`gv${i}`}
+                style={{
+                  position: 'absolute', top: 0, bottom: 0,
+                  left: xPx, width: 2,
+                  background: 'rgba(255, 80, 80, 0.85)',
+                  boxShadow: '0 0 4px rgba(255,80,80,0.7)',
+                  cursor: gridLocked ? 'default' : 'ew-resize',
+                  pointerEvents: gridLocked ? 'none' : 'auto',
+                  zIndex: 15,
+                }}
+                onMouseDown={(e) => {
+                  if (gridLocked) return;
+                  e.stopPropagation();
+                  guideDragRef.current = { axis: 'v', idx: i, startClient: e.clientX, startDesign: pos };
+                }}
+              />
+            );
+          })}
+
+          {/* Empty-state hint */}
+          <div
+            aria-hidden={!showEmptyHint}
+            className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 animate-fade-in"
+            style={{ opacity: showEmptyHint ? 1 : 0 }}
           >
-            {/* Handle arm lines: connect each handle to its paired anchor */}
-            {vectorAnchors
-              .filter(a => a.kind === 'handle' && a.pairScreenX !== null)
-              .map((a, i) => (
-                <line key={`arm-${i}`}
-                  x1={a.screenX} y1={a.screenY}
-                  x2={a.pairScreenX!} y2={a.pairScreenY!}
-                  stroke="rgba(123,47,255,0.55)" strokeWidth="1" strokeDasharray="3 2"
-                  pointerEvents="none"
-                />
-              ))}
+            <p className="text-neutral-400 text-sm tracking-wider font-medium bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm">
+              Tap + to add your first element
+            </p>
+          </div>
 
-            {/* Anchors (circles) and Handles (diamonds) */}
-            {vectorAnchors.map((anchor, i) => {
-              const isHandle = anchor.kind === 'handle';
+          {/* Pen SVG overlay */}
+          <svg
+            aria-hidden={!showPenSvg}
+            className="absolute inset-0 w-full h-full pointer-events-none z-20"
+            style={{ overflow: 'visible', display: showPenSvg ? 'block' : 'none' }}
+          >
+            {penPoints.length >= 2 && (
+              <polyline
+                points={penPoints.map((p) => `${p.x * zoom + vpX},${p.y * zoom + vpY}`).join(' ')}
+                fill="none" stroke="#00F5FF" strokeWidth="1.5" strokeDasharray="6 3" opacity="0.6"
+              />
+            )}
+            {penPoints.map((p, i) => {
+              const cx = p.x * zoom + vpX;
+              const cy = p.y * zoom + vpY;
+              const isFirst = i === 0;
               return (
-                <g
-                  key={`va-${i}`}
-                  style={{ pointerEvents: 'auto', cursor: 'move' }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    onVectorAnchorDragStart?.(i);
-                    anchorDragRef.current = { idx: i, startClientX: e.clientX, startClientY: e.clientY };
-                  }}
-                >
-                  {isHandle ? (
-                    <>
-                      {/* Handle hit-area */}
-                      <circle cx={anchor.screenX} cy={anchor.screenY} r={9} fill="transparent" />
-                      {/* Diamond shape */}
-                      <rect
-                        x={anchor.screenX - 4.5} y={anchor.screenY - 4.5}
-                        width={9} height={9}
-                        fill="#7B2FFF" stroke="white" strokeWidth={1.5}
-                        transform={`rotate(45 ${anchor.screenX} ${anchor.screenY})`}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      {/* Anchor glow ring */}
-                      <circle cx={anchor.screenX} cy={anchor.screenY} r={10} fill="rgba(0,245,255,0.12)" stroke="rgba(0,245,255,0.4)" strokeWidth={1} />
-                      {/* Anchor dot */}
-                      <circle cx={anchor.screenX} cy={anchor.screenY} r={5} fill="#00F5FF" stroke="white" strokeWidth={1.5} />
-                    </>
+                <g key={`pt-${i}-${Math.round(p.x)}-${Math.round(p.y)}`}>
+                  <circle cx={cx} cy={cy} r={isFirst ? 7 : 5} fill={isFirst ? '#ff6b6b' : '#00F5FF'} stroke="#fff" strokeWidth="1.5" />
+                  {isFirst && penPoints.length >= 3 && (
+                    <circle cx={cx} cy={cy} r={12} fill="none" stroke="#ff6b6b" strokeWidth="1" opacity="0.5" strokeDasharray="3 2" />
                   )}
                 </g>
               );
             })}
           </svg>
-        )}
+
+          {/* Vector anchor + handle editor overlay */}
+          {vectorAnchors.length > 0 && (
+            <svg
+              className="absolute inset-0 w-full h-full z-30"
+              style={{ overflow: 'visible', pointerEvents: 'none' }}
+            >
+              {vectorAnchors
+                .filter(a => a.kind === 'handle' && a.pairScreenX !== null)
+                .map((a, i) => (
+                  <line key={`arm-${i}`}
+                    x1={a.screenX} y1={a.screenY}
+                    x2={a.pairScreenX!} y2={a.pairScreenY!}
+                    stroke="rgba(123,47,255,0.55)" strokeWidth="1" strokeDasharray="3 2"
+                    pointerEvents="none"
+                  />
+                ))}
+
+              {vectorAnchors.map((anchor, i) => {
+                const isHandle = anchor.kind === 'handle';
+                return (
+                  <g
+                    key={`va-${i}`}
+                    style={{ pointerEvents: 'auto', cursor: 'move' }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      onVectorAnchorDragStart?.(i);
+                      anchorDragRef.current = { idx: i, startClientX: e.clientX, startClientY: e.clientY };
+                    }}
+                  >
+                    {isHandle ? (
+                      <>
+                        <circle cx={anchor.screenX} cy={anchor.screenY} r={9} fill="transparent" />
+                        <rect
+                          x={anchor.screenX - 4.5} y={anchor.screenY - 4.5}
+                          width={9} height={9}
+                          fill="#7B2FFF" stroke="white" strokeWidth={1.5}
+                          transform={`rotate(45 ${anchor.screenX} ${anchor.screenY})`}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <circle cx={anchor.screenX} cy={anchor.screenY} r={10} fill="rgba(0,245,255,0.12)" stroke="rgba(0,245,255,0.4)" strokeWidth={1} />
+                        <circle cx={anchor.screenX} cy={anchor.screenY} r={5} fill="#00F5FF" stroke="white" strokeWidth={1.5} />
+                      </>
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+        </div>
       </div>
 
-      {/* Pen instruction */}
+      {/* Pen instruction — absolute over the whole container */}
       <div aria-hidden={!penActive} className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none z-20" style={{ display: penActive ? 'flex' : 'none' }}>
         <div className="px-3 py-1.5 rounded-full text-xs font-medium" style={{ background: 'rgba(0,0,0,0.8)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.35)' }}>
           {penPoints.length === 0 ? 'Tap to place first anchor point' : penPoints.length < 3 ? `${penPoints.length} point${penPoints.length > 1 ? 's' : ''} — keep tapping` : 'Tap first point to close shape'}

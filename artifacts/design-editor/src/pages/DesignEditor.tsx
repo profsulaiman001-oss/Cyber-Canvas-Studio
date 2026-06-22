@@ -107,11 +107,11 @@ export default function DesignEditor() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync canvas bg on mount
+  // Sync canvas bg whenever it changes (covers mount + project load + dialog changes)
   useEffect(() => {
     controller.setCanvasBackground(state.canvasBg);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [state.canvasBg]);
 
   /* ── Brush activation ── */
   useEffect(() => {
@@ -289,6 +289,11 @@ export default function DesignEditor() {
           </div>
         )}
 
+        {/* ── Nudge overlay — absolute, sits above toolbar, no canvas resize ── */}
+        <div className="absolute bottom-full left-0 right-0 z-50">
+          <NudgePanel onNudge={handleNudgeElement} />
+        </div>
+
         {/* ── Zoom Tray overlay — absolute, sits above toolbar ── */}
         {state.activePanel === 'zoom' && !brushActive && !penActive && (
           <div
@@ -332,15 +337,15 @@ export default function DesignEditor() {
               </div>
             </div>
             <Slider
-              min={10} max={500} step={5}
+              min={10} max={100} step={5}
               value={[zoomPercent]}
               onValueChange={([v]) => controller.setZoomLevel(v)}
               className="w-full"
             />
             <div className="flex justify-between mt-1">
               <span className="text-[9px] text-muted-foreground">10%</span>
+              <span className="text-[9px] text-muted-foreground">50%</span>
               <span className="text-[9px] text-muted-foreground">100%</span>
-              <span className="text-[9px] text-muted-foreground">500%</span>
             </div>
           </div>
         )}
@@ -386,7 +391,6 @@ export default function DesignEditor() {
       />
       <TextPanel controller={controller} />
       <ShapeModifiersPanel controller={controller} />
-      <NudgePanel onNudge={handleNudgeElement} />
       <AdjustPanel controller={controller} />
       <StrokePanel controller={controller} />
       <ShadowsPanel controller={controller} />

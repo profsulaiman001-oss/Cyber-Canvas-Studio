@@ -252,6 +252,10 @@ export function useFabricCanvas(
   const [vectorAnchors, setVectorAnchors] = useState<VectorAnchor[]>([]);
   const [isVectorEditActive, setIsVectorEditActive] = useState(false);
 
+  // Pan offset tracking (used during pinch-to-zoom to accumulate pan delta)
+  const panOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
   // Pen tool state
   const [penPoints, setPenPoints] = useState<PenPoint[]>([]);
   const penPointsRef = useRef<PenPoint[]>([]);
@@ -545,6 +549,7 @@ export function useFabricCanvas(
         c.selection = false;
         lastPanX = (me as MouseEvent).clientX;
         lastPanY = (me as MouseEvent).clientY;
+        c.setCursor('grabbing');
       }
     });
 
@@ -554,12 +559,14 @@ export function useFabricCanvas(
         const dy = (opt.e as MouseEvent).clientY - lastPanY;
         lastPanX = (opt.e as MouseEvent).clientX;
         lastPanY = (opt.e as MouseEvent).clientY;
-        if (panModeRef.current) {
-          const ct = containerEl.current;
-          if (ct) { ct.scrollLeft -= dx; ct.scrollTop -= dy; }
-        } else {
-          c.relativePan(new Point(dx, dy));
+        // AutoCAD-style panning: translate the Fabric viewport transform
+        const vpt = c.viewportTransform;
+        if (vpt) {
+          vpt[4] += dx;
+          vpt[5] += dy;
+          c.setViewportTransform(vpt);
         }
+        c.requestRenderAll();
       }
     });
 
@@ -592,7 +599,7 @@ export function useFabricCanvas(
         if (!Number.isFinite(ratio) || ratio <= 0) return;
         const rawZ = c.getZoom() * ratio;
         if (!Number.isFinite(rawZ) || rawZ <= 0) return;
-        const z = Math.min(Math.max(rawZ, 0.1), 5.0);
+        const z = Math.min(Math.max(rawZ, 0.1), 1.0);
         c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
         c.setViewportTransform([z, 0, 0, z, 0, 0]);
         const panDx = midX - lastMidX;
@@ -613,7 +620,7 @@ export function useFabricCanvas(
       ev.preventDefault();
       ev.stopPropagation();
       if (!Number.isFinite(rawZ) || rawZ <= 0) return;
-      const z = Math.min(Math.max(rawZ, 0.1), 5.0);
+      const z = Math.min(Math.max(rawZ, 0.1), 1.0);
       c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
       c.setViewportTransform([z, 0, 0, z, 0, 0]);
       setZoom(z);
@@ -689,7 +696,7 @@ export function useFabricCanvas(
   const addRect = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Rect({ left: cx - 50, top: cy - 50, width: 100, height: 100, fill: '#00F5FF', strokeWidth: 0 });
+    const obj = new Rect({ left: cx - 50, top: cy - 50, width: 100, height: 100, fill: '#00F5FF', strokeWidth: 0, strokeUniform: true });
     tagObj(obj, 'rect'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
@@ -1238,7 +1245,7 @@ export function useFabricCanvas(
   const applyZoom = useCallback((rawZ: number) => {
     const c = canvasRef.current; if (!c) return;
     if (!Number.isFinite(rawZ) || rawZ <= 0) return;
-    const z = Math.min(Math.max(rawZ, 0.1), 5.0);
+    const z = Math.min(Math.max(rawZ, 0.1), 1.0);
     c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
     c.setViewportTransform([z, 0, 0, z, 0, 0]);
     setZoom(z);

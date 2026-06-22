@@ -22,6 +22,8 @@ import StrokePanel from '@/components/editor/StrokePanel';
 import ShadowsPanel from '@/components/editor/ShadowsPanel';
 import ThreeDPanel from '@/components/editor/ThreeDPanel';
 import VectorsPanel from '@/components/editor/VectorsPanel';
+import CropDialog from '@/components/editor/CropDialog';
+import FillCropModal from '@/components/editor/FillCropModal';
 import ColorPicker from '@/components/editor/ColorPicker';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
@@ -40,6 +42,14 @@ export default function DesignEditor() {
 
   // Brush color picker as floating overlay (no layout shift on canvas)
   const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
+
+  // Crop dialog — opened directly from the bottom toolbar (bypasses PropertiesPanel)
+  const [cropDialogOpen, setCropDialogOpen] = useState(false);
+
+  // Pre-fill crop modal — intercepts fill-with-image to let user crop first
+  const [fillCropOpen, setFillCropOpen] = useState(false);
+  const [pendingFillFile, setPendingFillFile] = useState<File | null>(null);
+  const pendingFillTargetRef = useRef<import('fabric').FabricObject | null>(null);
 
   const handleSelectionChange = useCallback(
     (ids: string[]) => { dispatch({ type: 'SET_SELECTED', payload: ids }); },
@@ -245,15 +255,27 @@ export default function DesignEditor() {
     fillWithImageRef.current?.click();
   }, []);
 
+  // Intercept fill-with-image: store the target object + file, open pre-fill crop modal
   const handleFillImageFile = useCallback((file: File) => {
     const obj = controller.selectedObject;
-    if (obj) controller.fillShapeWithImage(obj, file);
+    if (!obj) return;
+    pendingFillTargetRef.current = obj;
+    setPendingFillFile(file);
+    setFillCropOpen(true);
   }, [controller]);
 
-  // Crop: open Properties panel which has the built-in crop UI
+  // Called when FillCropModal applies a crop: commit the cropped canvas to the shape
+  const handleFillCropApply = useCallback((canvas: HTMLCanvasElement) => {
+    const obj = pendingFillTargetRef.current;
+    if (obj) controller.fillShapeWithImage(obj, canvas);
+    setPendingFillFile(null);
+    pendingFillTargetRef.current = null;
+  }, [controller]);
+
+  // Crop: open CropDialog directly, bypassing PropertiesPanel
   const handleCropImage = useCallback(() => {
-    dispatch({ type: 'TOGGLE_PANEL', payload: 'properties' });
-  }, [dispatch]);
+    if (controller.selectedObject) setCropDialogOpen(true);
+  }, [controller.selectedObject]);
 
   return (
     <div
@@ -261,7 +283,12 @@ export default function DesignEditor() {
       style={{ background: '#0B0C10', touchAction: 'none', height: '100dvh' }}
       data-testid="design-editor"
     >
-      <TopBar onUndo={controller.undo} onRedo={controller.redo} />
+      <TopBar
+        onUndo={controller.undo}
+        onRedo={controller.redo}
+        onCopy={controller.copySelected}
+        onPaste={controller.pasteSelected}
+      />
 
       <CanvasWorkspace
         canvasRef={canvasRef}
@@ -419,6 +446,27 @@ export default function DesignEditor() {
           onCropImage={handleCropImage}
         />
       </div>
+
+      {/* ── Crop dialog — opened directly from bottom toolbar for image objects ── */}
+      <CropDialog
+        open={cropDialogOpen}
+        onClose={() => setCropDialogOpen(false)}
+        obj={controller.selectedObject}
+        onApply={(cx, cy, cw, ch) => {
+          if (controller.selectedObject) controller.cropImage(controller.selectedObject, cx, cy, cw, ch);
+        }}
+        onFlipH={() => controller.flipHorizontal()}
+        onFlipV={() => controller.flipVertical()}
+        onRotate90={() => controller.rotate90()}
+      />
+
+      {/* ── Pre-fill crop modal — shown before committing an image fill ── */}
+      <FillCropModal
+        open={fillCropOpen}
+        file={pendingFillFile}
+        onClose={() => { setFillCropOpen(false); setPendingFillFile(null); pendingFillTargetRef.current = null; }}
+        onApply={handleFillCropApply}
+      />
 
       {/* Panels & Dialogs */}
       <LayersPanel controller={controller} />

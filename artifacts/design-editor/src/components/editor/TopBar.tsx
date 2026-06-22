@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Undo2, Redo2, LayoutTemplate, Menu, Grid3x3, Magnet, AlignCenter, Palette, Settings2 } from 'lucide-react';
+import { Undo2, Redo2, LayoutTemplate, Menu, Grid3x3, Magnet, AlignCenter, Palette, Settings2, Copy, ClipboardPaste } from 'lucide-react';
 import { useEditor } from '@/store/editorStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,9 +9,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 interface TopBarProps {
   onUndo: () => void;
   onRedo: () => void;
+  onCopy: () => void;
+  onPaste: () => void;
 }
 
-export default function TopBar({ onUndo, onRedo }: TopBarProps) {
+export default function TopBar({ onUndo, onRedo, onCopy, onPaste }: TopBarProps) {
   const { state, dispatch } = useEditor();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(state.projectName);
@@ -45,40 +47,46 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
 
   return (
     <div
-      className="flex-shrink-0 flex items-center px-2 gap-1"
+      className="flex-shrink-0 flex items-center"
       style={{ height: '52px', background: '#11141A', borderBottom: '1px solid rgba(0,245,255,0.1)' }}
       data-testid="top-bar"
     >
-      {/* Menu */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"
-            onClick={() => dispatch({ type: 'TOGGLE_PANEL', payload: 'project' })} data-testid="button-open-projects">
-            <Menu size={18} />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Projects</TooltipContent>
-      </Tooltip>
+      {/* ── Fixed left: hamburger menu ── */}
+      <div className="flex items-center px-1 shrink-0">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"
+              onClick={() => dispatch({ type: 'TOGGLE_PANEL', payload: 'project' })} data-testid="button-open-projects">
+              <Menu size={18} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Projects</TooltipContent>
+        </Tooltip>
+      </div>
 
-      {/* Project name */}
-      <div className="flex-1 flex justify-center min-w-0">
+      {/* ── Project name (centered, fixed) ── */}
+      <div className="flex justify-center items-center shrink-0 min-w-[110px] max-w-[160px]">
         {editing ? (
           <input ref={inputRef} value={name} onChange={(e) => setName(e.target.value)}
             onBlur={handleNameBlur} onKeyDown={handleNameKeyDown}
-            className="text-sm font-medium text-center bg-transparent border-b border-primary outline-none w-40 text-foreground" />
+            className="text-sm font-medium text-center bg-transparent border-b border-primary outline-none w-36 text-foreground" />
         ) : (
           <button onClick={handleNameClick}
-            className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors px-2 truncate max-w-[140px]">
+            className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors px-2 truncate max-w-[150px]">
             {state.projectName}{state.isDirty && <span className="text-primary ml-1">•</span>}
           </button>
         )}
       </div>
 
-      {/* Right toolbar */}
-      <div className="flex items-center gap-0.5 shrink-0">
+      {/* ── Scrollable right section ── */}
+      <div
+        className="flex items-center gap-0.5 px-1 min-w-0 flex-1"
+        style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        {/* Undo / Redo */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onUndo} disabled={!state.canUndo}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onUndo} disabled={!state.canUndo}>
               <Undo2 size={15} />
             </Button>
           </TooltipTrigger>
@@ -86,19 +94,39 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onRedo} disabled={!state.canRedo}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onRedo} disabled={!state.canRedo}>
               <Redo2 size={15} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Redo</TooltipContent>
         </Tooltip>
 
-        <div className="w-px h-5 mx-0.5" style={{ background: 'rgba(255,255,255,0.1)' }} />
+        <div className="w-px h-5 mx-0.5 shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />
+
+        {/* Copy / Paste */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onCopy}>
+              <Copy size={14} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Copy (Ctrl+C)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onPaste}>
+              <ClipboardPaste size={14} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Paste (Ctrl+V)</TooltipContent>
+        </Tooltip>
+
+        <div className="w-px h-5 mx-0.5 shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />
 
         {/* Grid toggle */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => dispatch({ type: 'TOGGLE_GRID' })}
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => dispatch({ type: 'TOGGLE_GRID' })}
               style={iconBtn(state.gridEnabled)}>
               <Grid3x3 size={15} />
             </Button>
@@ -106,8 +134,8 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
           <TooltipContent>{state.gridEnabled ? 'Hide Grid' : 'Show Grid'}</TooltipContent>
         </Tooltip>
 
-        {/* Grid settings — inline popover, only when grid is visible */}
-        <div className="relative" ref={gridSettingsRef}>
+        {/* Grid settings — inline popover */}
+        <div className="relative shrink-0" ref={gridSettingsRef}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -131,46 +159,27 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
             >
               <p className="text-xs font-semibold" style={{ color: '#00F5FF' }}>Grid Settings</p>
 
-              {/* Cell size */}
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Cell Size (px)</Label>
                 <Input
-                  type="number"
-                  min={4}
-                  max={200}
-                  value={state.gridSize}
+                  type="number" min={4} max={200} value={state.gridSize}
                   onChange={(e) => dispatch({ type: 'SET_GRID_SIZE', payload: Math.max(4, parseInt(e.target.value) || 20) })}
                   className="h-7 text-xs"
                 />
               </div>
 
-              {/* Columns */}
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Columns ({cols})</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={cols}
-                  onChange={(e) => setCols(parseInt(e.target.value) || 1)}
-                  className="h-7 text-xs"
-                />
+                <Input type="number" min={1} max={200} value={cols}
+                  onChange={(e) => setCols(parseInt(e.target.value) || 1)} className="h-7 text-xs" />
               </div>
 
-              {/* Rows */}
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Rows ({rows})</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={rows}
-                  onChange={(e) => setRows(parseInt(e.target.value) || 1)}
-                  className="h-7 text-xs"
-                />
+                <Input type="number" min={1} max={200} value={rows}
+                  onChange={(e) => setRows(parseInt(e.target.value) || 1)} className="h-7 text-xs" />
               </div>
 
-              {/* Guide lock toggle */}
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">Lock Guides</Label>
                 <button
@@ -187,12 +196,10 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
                 </button>
               </div>
 
-              {/* Horizontal guides */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs text-muted-foreground">H Guides</Label>
-                  <button
-                    type="button"
+                  <button type="button"
                     onClick={() => dispatch({ type: 'ADD_GUIDE', payload: { axis: 'h', pos: Math.round(state.canvasSize.height / 2) } })}
                     className="text-[10px] px-1.5 py-0.5 rounded"
                     style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
@@ -206,12 +213,10 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
                 ))}
               </div>
 
-              {/* Vertical guides */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs text-muted-foreground">V Guides</Label>
-                  <button
-                    type="button"
+                  <button type="button"
                     onClick={() => dispatch({ type: 'ADD_GUIDE', payload: { axis: 'v', pos: Math.round(state.canvasSize.width / 2) } })}
                     className="text-[10px] px-1.5 py-0.5 rounded"
                     style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
@@ -239,7 +244,7 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
         {/* Snap toggle */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => dispatch({ type: 'TOGGLE_SNAP' })}
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => dispatch({ type: 'TOGGLE_SNAP' })}
               style={iconBtn(state.snapToGrid)}>
               <Magnet size={15} />
             </Button>
@@ -250,7 +255,7 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
         {/* Alignment panel */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8"
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"
               onClick={() => dispatch({ type: 'TOGGLE_PANEL', payload: 'alignment' })}
               style={iconBtn(state.activePanel === 'alignment')}>
               <AlignCenter size={15} />
@@ -262,7 +267,7 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
         {/* Canvas background */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8"
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"
               onClick={() => dispatch({ type: 'TOGGLE_PANEL', payload: 'canvasBg' })}
               style={iconBtn(state.activePanel === 'canvasBg')}>
               <Palette size={15} />
@@ -274,7 +279,7 @@ export default function TopBar({ onUndo, onRedo }: TopBarProps) {
         {/* Canvas size */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8"
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"
               onClick={() => dispatch({ type: 'TOGGLE_PANEL', payload: 'canvasSize' })}>
               <LayoutTemplate size={15} />
             </Button>

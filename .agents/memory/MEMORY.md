@@ -7,3 +7,7 @@
 - [Toolbar overlay pattern](toolbar-overlay.md) — brush color picker and zoom tray must be absolute-positioned (bottom-full) inside a relative wrapper div, NOT inline in toolbar flex flow — avoids canvas resize
 - [Pan mode](pan-mode.md) — container-scroll approach: mouse:move scrolls containerEl (not vpt); PAN_MARGIN=600 extra px on each side in Canvas.tsx; fitToContainer scrolls to PAN_MARGIN to center; single-finger touch pan handled in Canvas.tsx touchmove on container
 - [Mask/clipPath](mask-clippath.md) — applyMaskFromSelection: topmost z-order object becomes clipPath of bottom; clone then set absolute-positioned offset relative to target; remove mask shape from canvas
+- [Image fill pattern](image-fill-pattern.md) — fillShapeWithImage: pre-render cover-fit to offscreen canvas at obj.width×obj.height; use patternTransform:[1,0,0,1,-w/2,-h/2]; accepts File|HTMLCanvasElement for pre-crop flow
+- [3D extrusion fix](3d-extrusion.md) — destination-over is invisible on opaque backgrounds; use source-over back-to-front loop then re-render main object on top; this doubles the object render but gives correct depth-behind look
+- [Copy/paste clipboard](copy-paste.md) — internal canvas clipboard via clipboardRef in useFabricCanvas; copySelected clones active obj into ref; pasteSelected clones ref and offsets +20,+20
+- [Pre-fill crop flow](pre-fill-crop.md) — FillCropModal intercepts fill-with-image in DesignEditor; pendingFillTargetRef stores target shape; onApply receives HTMLCanvasElement cropped region then calls fillShapeWithImage(obj, canvas)

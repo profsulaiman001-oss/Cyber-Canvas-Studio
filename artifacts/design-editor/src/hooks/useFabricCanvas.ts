@@ -199,23 +199,36 @@ function draw3DLayer(
   const origFill = o.fill;
   const origShadow = o.shadow;
   const origSW = o.strokeWidth;
+
+  // Paint depth slabs back-to-front (farthest first) with solid extrusion color
+  // Using source-over so they appear on the canvas regardless of background opacity
   o.fill = color;
   o.shadow = null;
   o.strokeWidth = 0;
-  for (let i = 1; i <= steps; i++) {
+  for (let i = steps; i >= 1; i--) {
+    const t = i / steps; // 1 = farthest, near 0 = closest
     const ox = Math.cos(ar) * i;
     const oy = Math.sin(ar) * i;
     ctx.save();
-    ctx.globalCompositeOperation = 'destination-over';
-    ctx.globalAlpha = baseOpacity * Math.max(0.25, 1 - 0.65 * (i / steps));
+    ctx.globalCompositeOperation = 'source-over';
+    // Fade far slabs to 40%, near slabs to 85% — creates visible depth gradient
+    ctx.globalAlpha = baseOpacity * (0.4 + 0.45 * (1 - t));
     ctx.setTransform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
     ctx.translate(ox, oy);
     obj.render(ctx);
     ctx.restore();
   }
+
+  // Restore original properties then re-render the main object on top of depth slabs
   o.fill = origFill;
   o.shadow = origShadow;
   o.strokeWidth = origSW;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = baseOpacity;
+  ctx.setTransform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
+  obj.render(ctx);
+  ctx.restore();
 }
 
 export function useFabricCanvas(
@@ -953,33 +966,58 @@ export function useFabricCanvas(
   }, []);
 
   /* ─── Fill Shape with Image (CSS background-size: cover — proportional, centered) ─── */
-  const fillShapeWithImage = useCallback(async (obj: FabricObject, file: File) => {
+  // Accepts either a raw File or a pre-cropped HTMLCanvasElement (from FillCropModal)
+  const fillShapeWithImage = useCallback(async (obj: FabricObject, source: File | HTMLCanvasElement) => {
     const c = canvasRef.current; if (!c) return;
-    const url = URL.createObjectURL(file);
+    const w = Math.max(1, obj.width ?? 100);
+    const h = Math.max(1, obj.height ?? 100);
+
+    let imgEl: HTMLImageElement | HTMLCanvasElement;
+    let imgW: number, imgH: number;
+    let objUrl: string | null = null;
+
     try {
-      const fabImg = await FabricImage.fromURL(url);
-      const w = obj.width ?? 100;
-      const h = obj.height ?? 100;
-      const imgW = fabImg.width || 1;
-      const imgH = fabImg.height || 1;
-      // Cover: scale uniformly so image fills every pixel of the shape
-      const scale = Math.max(w / imgW, h / imgH);
-      const scaledW = imgW * scale;
-      const scaledH = imgH * scale;
-      // Center the scaled image within the shape coordinate space
-      const offsetX = -w / 2 - (scaledW - w) / 2;
-      const offsetY = -h / 2 - (scaledH - h) / 2;
+      if (source instanceof HTMLCanvasElement) {
+        imgEl = source;
+        imgW = source.width || 1;
+        imgH = source.height || 1;
+      } else {
+        objUrl = URL.createObjectURL(source);
+        const fabImg = await FabricImage.fromURL(objUrl);
+        imgEl = fabImg.getElement() as HTMLImageElement;
+        imgW = (imgEl as HTMLImageElement).naturalWidth || imgEl.width || 1;
+        imgH = (imgEl as HTMLImageElement).naturalHeight || imgEl.height || 1;
+      }
+
+      // Pre-render a cover-fitted image into an offscreen canvas sized to the object's
+      // LOCAL (pre-scale) dimensions. The pattern transform then maps 1:1 into local space.
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(w);
+      cv.height = Math.round(h);
+      const ctx2 = cv.getContext('2d')!;
+      const imgAR = imgW / imgH;
+      const objAR = w / h;
+      let dw: number, dh: number, dx: number, dy: number;
+      if (imgAR > objAR) {
+        dh = h; dw = dh * imgAR; dx = (w - dw) / 2; dy = 0;
+      } else {
+        dw = w; dh = dw / imgAR; dx = 0; dy = (h - dh) / 2;
+      }
+      ctx2.drawImage(imgEl, dx, dy, dw, dh);
+
+      // In Fabric v6 the object renders with its center at the local origin.
+      // Shift the pattern to start at (-w/2, -h/2) so it covers the full local bounding box.
       const pat = new Pattern({
-        source: fabImg.getElement() as HTMLImageElement,
+        source: cv,
         repeat: 'no-repeat',
-        patternTransform: [scale, 0, 0, scale, offsetX, offsetY],
+        patternTransform: [1, 0, 0, 1, -w / 2, -h / 2],
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       obj.set('fill', pat as any);
       c.requestRenderAll();
       pushUndo();
     } finally {
-      URL.revokeObjectURL(url);
+      if (objUrl) URL.revokeObjectURL(objUrl);
     }
   }, [pushUndo]);
 
@@ -1454,6 +1492,32 @@ export function useFabricCanvas(
     });
   }, []);
 
+  /* ─── Copy / Paste (internal canvas clipboard) ─── */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const clipboardRef = useRef<any>(null);
+
+  const copySelected = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const active = c.getActiveObject(); if (!active) return;
+    active.clone().then((cloned: FabricObject) => {
+      clipboardRef.current = cloned;
+    });
+  }, []);
+
+  const pasteSelected = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const src = clipboardRef.current; if (!src) return;
+    src.clone().then((cloned: FabricObject) => {
+      cloned.set({ left: (cloned.left || 0) + 20, top: (cloned.top || 0) + 20 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (cloned as any)._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (cloned as any)._name = `${(src as any)._name || 'Object'} copy`;
+      c.add(cloned); c.setActiveObject(cloned); c.renderAll();
+      pushUndo(); syncObjects();
+    });
+  }, [pushUndo, syncObjects]);
+
   const bringForward = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1524,7 +1588,7 @@ export function useFabricCanvas(
     // Mask (clipPath)
     applyMaskFromSelection, releaseMask,
     // Object ops
-    deleteSelected, duplicateSelected, bringForward, sendBackward,
+    deleteSelected, duplicateSelected, copySelected, pasteSelected, bringForward, sendBackward,
     toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById,
     moveObjectToIndex,
     // Image transforms

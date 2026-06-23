@@ -969,54 +969,53 @@ export function useFabricCanvas(
   // Accepts either a raw File or a pre-cropped HTMLCanvasElement (from FillCropModal)
   const fillShapeWithImage = useCallback(async (obj: FabricObject, source: File | HTMLCanvasElement) => {
     const c = canvasRef.current; if (!c) return;
+    // Object local (pre-scale) dimensions
     const w = Math.max(1, obj.width ?? 100);
     const h = Math.max(1, obj.height ?? 100);
 
-    let imgEl: HTMLImageElement | HTMLCanvasElement;
+    let patternSource: HTMLImageElement | HTMLCanvasElement;
     let imgW: number, imgH: number;
     let objUrl: string | null = null;
 
     try {
       if (source instanceof HTMLCanvasElement) {
-        imgEl = source;
+        // Already a cropped canvas at native resolution — use it directly.
+        patternSource = source;
         imgW = source.width || 1;
         imgH = source.height || 1;
       } else {
+        // Load at full native resolution — no intermediate canvas so no quality loss.
         objUrl = URL.createObjectURL(source);
         const fabImg = await FabricImage.fromURL(objUrl);
-        imgEl = fabImg.getElement() as HTMLImageElement;
-        imgW = (imgEl as HTMLImageElement).naturalWidth || imgEl.width || 1;
-        imgH = (imgEl as HTMLImageElement).naturalHeight || imgEl.height || 1;
+        patternSource = fabImg.getElement() as HTMLImageElement;
+        imgW = (patternSource as HTMLImageElement).naturalWidth || patternSource.width || 1;
+        imgH = (patternSource as HTMLImageElement).naturalHeight || patternSource.height || 1;
       }
 
-      // Pre-render a cover-fitted image into an offscreen canvas sized to the object's
-      // LOCAL (pre-scale) dimensions. The pattern transform then maps 1:1 into local space.
-      const cv = document.createElement('canvas');
-      cv.width = Math.round(w);
-      cv.height = Math.round(h);
-      const ctx2 = cv.getContext('2d')!;
-      const imgAR = imgW / imgH;
-      const objAR = w / h;
-      let dw: number, dh: number, dx: number, dy: number;
-      if (imgAR > objAR) {
-        dh = h; dw = dh * imgAR; dx = (w - dw) / 2; dy = 0;
-      } else {
-        dw = w; dh = dw / imgAR; dx = 0; dy = (h - dh) / 2;
-      }
-      ctx2.drawImage(imgEl, dx, dy, dw, dh);
+      // ── Correct patternTransform for Fabric v7 ────────────────────────────────
+      // Fabric's _applyPatternGradientTransform already does:
+      //   ctx.translate(-objWidth/2, -objHeight/2)   ← shifts origin to top-left
+      // and then multiplies by patternTransform. So patternTransform must only
+      // encode the cover-fit scale + centering — NO additional -w/2,-h/2 shift.
+      //
+      // Cover-fit scale: make the image fill the entire object in local space.
+      const scale = Math.max(w / imgW, h / imgH);
+      // Center the (possibly oversized) scaled image within the object bounds.
+      const tx = -(imgW * scale - w) / 2;
+      const ty = -(imgH * scale - h) / 2;
 
-      // In Fabric v6 the object renders with its center at the local origin.
-      // Shift the pattern to start at (-w/2, -h/2) so it covers the full local bounding box.
       const pat = new Pattern({
-        source: cv,
+        source: patternSource,
         repeat: 'no-repeat',
-        patternTransform: [1, 0, 0, 1, -w / 2, -h / 2],
+        // [a, b, c, d, e, f] = [scaleX, 0, 0, scaleY, translateX, translateY]
+        patternTransform: [scale, 0, 0, scale, tx, ty],
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       obj.set('fill', pat as any);
       c.requestRenderAll();
       pushUndo();
     } finally {
+      // Safe to revoke — HTMLImageElement keeps its decoded data after load.
       if (objUrl) URL.revokeObjectURL(objUrl);
     }
   }, [pushUndo]);

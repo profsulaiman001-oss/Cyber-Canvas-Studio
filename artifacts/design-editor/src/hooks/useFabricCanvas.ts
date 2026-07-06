@@ -127,7 +127,7 @@ function drawInnerShadow(
   vp: number[]
 ) {
   ctx.save();
-  ctx.setTransform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
+  ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
   const m = obj.calcTransformMatrix();
   ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
 
@@ -213,7 +213,7 @@ function draw3DLayer(
     ctx.globalCompositeOperation = 'source-over';
     // Fade far slabs to 40%, near slabs to 85% — creates visible depth gradient
     ctx.globalAlpha = baseOpacity * (0.4 + 0.45 * (1 - t));
-    ctx.setTransform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
+    ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
     ctx.translate(ox, oy);
     obj.render(ctx);
     ctx.restore();
@@ -226,7 +226,7 @@ function draw3DLayer(
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = baseOpacity;
-  ctx.setTransform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
+  ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
   obj.render(ctx);
   ctx.restore();
 }

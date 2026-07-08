@@ -123,13 +123,17 @@ export default function CanvasWorkspace({
     const ct = containerRef.current;
     if (!ct) return;
     const onTouchStart = (e: TouchEvent) => {
+      // Always prevent native browser touch-scroll — we own scrolling via JS.
+      // This is the sole fix for "panning when tool is OFF": the browser never
+      // gets a chance to scroll the overflow:auto container natively.
+      e.preventDefault();
       if (!panActive || e.touches.length !== 1) return;
       const t = e.touches[0];
       touchPanRef.current = { lastX: t.clientX, lastY: t.clientY };
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (!touchPanRef.current || e.touches.length !== 1) return;
-      e.preventDefault();
+      e.preventDefault(); // always block native scroll
+      if (!touchPanRef.current || !panActive || e.touches.length !== 1) return;
       const t = e.touches[0];
       const dx = t.clientX - touchPanRef.current.lastX;
       const dy = t.clientY - touchPanRef.current.lastY;
@@ -157,6 +161,7 @@ export default function CanvasWorkspace({
         cursor: canvasCursor,
         overflow: 'auto',
         scrollbarWidth: 'none',
+        touchAction: 'none', // disable native browser touch-scroll; JS owns all scrolling
       }}
       data-testid="canvas-workspace"
     >

@@ -565,7 +565,12 @@ export function useFabricCanvas(
         updatePenPreview(newPts);
         return;
       }
-      if (panModeRef.current || (me as MouseEvent).altKey) {
+      // Touch-based pan is handled exclusively by the container touch handlers in
+      // Canvas.tsx. If we let touch events reach this mouse:down pan path, Fabric
+      // synthesizes them from TouchEvents where .clientX is undefined, producing NaN
+      // deltas that corrupt ct.scrollLeft → black-screen viewport crash.
+      const isTouch = 'touches' in me;
+      if (!isTouch && (panModeRef.current || (me as MouseEvent).altKey)) {
         isPanning = true;
         c.selection = false;
         lastPanX = (me as MouseEvent).clientX;
@@ -575,7 +580,8 @@ export function useFabricCanvas(
     });
 
     c.on('mouse:move', (opt) => {
-      if (isPanning) {
+      // Skip pan delta math for touch events — same NaN-safety guard as mouse:down.
+      if (isPanning && !('touches' in opt.e)) {
         const dx = (opt.e as MouseEvent).clientX - lastPanX;
         const dy = (opt.e as MouseEvent).clientY - lastPanY;
         lastPanX = (opt.e as MouseEvent).clientX;

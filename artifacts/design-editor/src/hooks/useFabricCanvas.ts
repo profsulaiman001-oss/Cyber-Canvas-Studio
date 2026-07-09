@@ -1040,17 +1040,44 @@ export function useFabricCanvas(
     type: 'linear' | 'radial',
     stops: { offset: number; color: string }[],
     radialRadius?: number,
+    angleDeg?: number,
   ) => {
     if (!obj) return;
     const c = canvasRef.current; if (!c) return;
     const w = obj.width ?? 100;
     const h = obj.height ?? 100;
-    const r2 = radialRadius ?? Math.max(w, h) / 2;
+
+    // ─── Coordinate system note ────────────────────────────────────────────────
+    // Fabric's _applyPatternGradientTransform always applies:
+    //   ctx.transform(1, 0, 0, 1, -width/2, -height/2)   (for 'pixels' units)
+    // before calling ctx.fill(), shifting the origin to the TOP-LEFT corner of
+    // the object.  So gradient pixel coords must use top-left (0,0) → (w,h).
+    // ──────────────────────────────────────────────────────────────────────────
+
+    let coords: Record<string, number>;
+    if (type === 'radial') {
+      // Center at (w/2, h/2), inner radius 0, outer radius fills the shape
+      const r2 = radialRadius ?? Math.max(w, h) / 2;
+      coords = { x1: w / 2, y1: h / 2, r1: 0, x2: w / 2, y2: h / 2, r2 };
+    } else {
+      // Linear: vector from one edge to the opposite, through the center
+      // Default 0° = left→right; positive angle rotates clockwise
+      const rad = ((angleDeg ?? 0) * Math.PI) / 180;
+      const cx = w / 2;
+      const cy = h / 2;
+      // Half-length: reach to the bounding box edge along the gradient direction
+      const halfLen = Math.abs(cx * Math.cos(rad)) + Math.abs(cy * Math.sin(rad));
+      coords = {
+        x1: cx - halfLen * Math.cos(rad),
+        y1: cy - halfLen * Math.sin(rad),
+        x2: cx + halfLen * Math.cos(rad),
+        y2: cy + halfLen * Math.sin(rad),
+      };
+    }
+
     const grad = new Gradient({
       type: type === 'radial' ? 'radial' : 'linear',
-      coords: type === 'radial'
-        ? { x1: 0, y1: 0, r1: 0, x2: 0, y2: 0, r2 }
-        : { x1: -w / 2, y1: 0, x2: w / 2, y2: 0 },
+      coords,
       colorStops: stops,
       gradientUnits: 'pixels',
     });

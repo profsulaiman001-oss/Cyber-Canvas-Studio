@@ -63,25 +63,15 @@ export default function BottomToolbar({
     ? { borderTop: '1px solid rgba(251,191,36,0.5)' }
     : { borderTop: '1px solid rgba(0,245,255,0.15)' };
 
-  /* ── Vector Edit Mode ── */
+  /* ── Vector Edit Mode ── VectorNodePanel renders the real controls above this bar */
   if (vectorEditActive) {
     return (
       <div
-        className="flex-shrink-0 flex items-start justify-around px-2 pt-3"
-        style={{ minHeight: '64px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
+        className="flex-shrink-0 flex items-center justify-center gap-2 px-4"
+        style={{ minHeight: '40px', paddingBottom: 'max(8px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       >
-        <button onClick={onVectorEditEnd} className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#6b7280' }}>
-          <MousePointer2 size={22} />
-          <span className="text-[10px] font-medium leading-none">Done</span>
-        </button>
-        <div className="flex flex-col items-center gap-1 px-4 py-2">
-          <Spline size={22} style={{ color: '#7B2FFF', filter: 'drop-shadow(0 0 6px #7B2FFF80)' }} />
-          <span className="text-[10px] font-medium leading-none" style={{ color: '#7B2FFF' }}>Edit Points</span>
-        </div>
-        <div className="flex flex-col items-center gap-1 px-4 py-2 opacity-40">
-          <X size={22} style={{ color: '#ff6b6b' }} />
-          <span className="text-[10px] font-medium leading-none" style={{ color: '#ff6b6b' }}>Cancel</span>
-        </div>
+        <Spline size={14} style={{ color: '#7B2FFF', filter: 'drop-shadow(0 0 4px #7B2FFF80)' }} />
+        <span className="text-[11px] font-medium tracking-wide" style={{ color: '#7B2FFF' }}>Vector Node Editor</span>
       </div>
     );
   }

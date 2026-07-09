@@ -22,6 +22,7 @@ import StrokePanel from '@/components/editor/StrokePanel';
 import ShadowsPanel from '@/components/editor/ShadowsPanel';
 import ThreeDPanel from '@/components/editor/ThreeDPanel';
 import VectorsPanel from '@/components/editor/VectorsPanel';
+import VectorNodePanel from '@/components/editor/VectorNodePanel';
 import CropModal from '@/components/editor/CropModal';
 import ColorPicker from '@/components/editor/ColorPicker';
 import { Slider } from '@/components/ui/slider';
@@ -180,7 +181,15 @@ export default function DesignEditor() {
 
   const handleVectorEditEnd = useCallback(() => {
     controller.deactivateVectorEdit();
+    controller.setSelectedVectorAnchorIdx(null);
   }, [controller]);
+
+  const handleReactivatePen = useCallback(() => {
+    controller.deactivateVectorEdit();
+    controller.setSelectedVectorAnchorIdx(null);
+    controller.activatePenTool();
+    dispatch({ type: 'SET_TOOL', payload: 'pen' });
+  }, [controller, dispatch]);
 
   const handleGuideMove = useCallback((axis: 'h' | 'v', idx: number, newPos: number) => {
     const g = state.guides;
@@ -387,6 +396,8 @@ export default function DesignEditor() {
         gridLocked={state.gridLocked}
         onGuideMove={handleGuideMove}
         panActive={panActive}
+        penLiveHandle={controller.penLiveHandle}
+        selectedAnchorIdx={controller.selectedVectorAnchorIdx}
       />
 
       {/* Hidden file inputs */}
@@ -428,6 +439,22 @@ export default function DesignEditor() {
         <div className="absolute bottom-full left-0 right-0 z-50">
           <NudgePanel onNudge={handleNudgeElement} />
         </div>
+
+        {/* Vector Node Panel — replaces nudge/zoom trays when in vector edit mode */}
+        {vectorEditActive && (
+          <div className="absolute bottom-full left-0 right-0 z-50">
+            <VectorNodePanel
+              vectorAnchors={controller.vectorAnchors}
+              selectedAnchorIdx={controller.selectedVectorAnchorIdx}
+              onSelectAnchor={controller.setSelectedVectorAnchorIdx}
+              onAddNode={controller.addVectorNodeAfter}
+              onDeleteNode={controller.deleteSelectedVectorNode}
+              onNudgeNode={controller.nudgeSelectedVectorNode}
+              onDone={handleVectorEditEnd}
+              onReactivatePen={handleReactivatePen}
+            />
+          </div>
+        )}
 
         {/* Zoom Tray overlay */}
         {state.activePanel === 'zoom' && !brushActive && !penActive && (

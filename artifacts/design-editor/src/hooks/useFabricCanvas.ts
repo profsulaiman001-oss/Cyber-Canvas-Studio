@@ -52,7 +52,14 @@ interface UseFabricCanvasOptions {
   onUndoRedoChange: (canUndo: boolean, canRedo: boolean) => void;
 }
 
-export interface PenPoint { x: number; y: number }
+export interface PenPoint {
+  x: number;
+  y: number;
+  /** Outgoing bezier control handle (absolute design coords). Null = corner/straight. */
+  cpOut?: { x: number; y: number };
+  /** Incoming bezier control handle (mirrored from drag, absolute design coords). */
+  cpIn?: { x: number; y: number };
+}
 
 export interface VectorAnchor {
   cmdIdx: number;
@@ -274,6 +281,19 @@ export function useFabricCanvas(
   const penPointsRef = useRef<PenPoint[]>([]);
   const penPreviewRef = useRef<Path | null>(null);
   const penAnchorRefs = useRef<Circle[]>([]);
+  // Bezier pen drag tracking — records the mouse-down position until mouseup commits the node
+  const penMouseDownRef = useRef(false);
+  const penDownPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const penLiveHandleRef = useRef<{
+    cpOut: { x: number; y: number };
+    cpIn: { x: number; y: number };
+  } | null>(null);
+  const [penLiveHandle, setPenLiveHandle] = useState<{
+    x: number; y: number; cpOut: { x: number; y: number };
+  } | null>(null);
+
+  // Vector node editor state
+  const [selectedVectorAnchorIdx, setSelectedVectorAnchorIdx] = useState<number | null>(null);
 
   const syncObjects = useCallback(() => {
     const c = canvasRef.current;
@@ -363,20 +383,43 @@ export function useFabricCanvas(
   }, [containerEl]);
 
   /* ─── Pen tool helpers ─── */
-  const buildPreviewPathStr = (pts: PenPoint[], closed = false): string => {
-    if (pts.length < 2) return '';
+
+  /** Build an SVG path string supporting straight lines and cubic bezier segments */
+  const buildBezierPathStr = (pts: PenPoint[], closed = false): string => {
+    if (pts.length < 1) return '';
     let d = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x} ${pts[i].y}`;
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const curr = pts[i];
+      const cp1 = prev.cpOut ?? { x: prev.x, y: prev.y };
+      const cp2 = curr.cpIn ?? { x: curr.x, y: curr.y };
+      if (cp1.x === prev.x && cp1.y === prev.y && cp2.x === curr.x && cp2.y === curr.y) {
+        d += ` L ${curr.x} ${curr.y}`;
+      } else {
+        d += ` C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${curr.x} ${curr.y}`;
+      }
+    }
     if (closed) d += ' Z';
     return d;
   };
 
-  const updatePenPreview = useCallback((pts: PenPoint[]) => {
+  const updatePenPreview = useCallback((
+    pts: PenPoint[],
+    liveNode?: { x: number; y: number; cpIn?: { x: number; y: number } } | null,
+  ) => {
     const c = canvasRef.current;
-    if (!c || pts.length < 2) return;
+    if (!c || pts.length < 1) return;
     if (penPreviewRef.current) c.remove(penPreviewRef.current);
-    const p = new Path(buildPreviewPathStr(pts, false), {
-      stroke: '#00F5FF', strokeWidth: 2, fill: 'transparent',
+
+    // Build path including live preview segment to the in-progress drag node
+    const allPts: PenPoint[] = [...pts];
+    if (liveNode && pts.length >= 1) {
+      allPts.push({ x: liveNode.x, y: liveNode.y, cpIn: liveNode.cpIn });
+    }
+    if (allPts.length < 2) return;
+
+    const p = new Path(buildBezierPathStr(allPts, false), {
+      stroke: '#00F5FF', strokeWidth: 1.5, fill: 'transparent',
       selectable: false, evented: false, hasControls: false, hasBorders: false,
       strokeDashArray: [6, 3],
     });
@@ -394,9 +437,13 @@ export function useFabricCanvas(
     if (penPreviewRef.current) { c.remove(penPreviewRef.current); penPreviewRef.current = null; }
     penAnchorRefs.current.forEach((ci) => c.remove(ci));
     penAnchorRefs.current = [];
+    penMouseDownRef.current = false;
+    penDownPointerRef.current = null;
+    penLiveHandleRef.current = null;
+    setPenLiveHandle(null);
 
     const isClosed = pts.length >= 3;
-    const pathStr = buildPreviewPathStr(pts, isClosed);
+    const pathStr = buildBezierPathStr(pts, isClosed);
     const finalPath = new Path(pathStr, {
       stroke: '#00F5FF', strokeWidth: 3,
       fill: isClosed ? 'rgba(0,245,255,0.25)' : 'transparent',
@@ -421,6 +468,10 @@ export function useFabricCanvas(
     penAnchorRefs.current = [];
     penPointsRef.current = [];
     setPenPoints([]);
+    penMouseDownRef.current = false;
+    penDownPointerRef.current = null;
+    penLiveHandleRef.current = null;
+    setPenLiveHandle(null);
     penActiveRef.current = false;
     c.selection = true;
     c.requestRenderAll();
@@ -432,6 +483,10 @@ export function useFabricCanvas(
     penActiveRef.current = true;
     penPointsRef.current = [];
     setPenPoints([]);
+    penMouseDownRef.current = false;
+    penDownPointerRef.current = null;
+    penLiveHandleRef.current = null;
+    setPenLiveHandle(null);
     c.selection = false;
     c.discardActiveObject();
     c.requestRenderAll();
@@ -543,6 +598,7 @@ export function useFabricCanvas(
       if (penActiveRef.current) {
         const pointer = c.getScenePoint(opt.e as MouseEvent);
         const pts = penPointsRef.current;
+        // Close path when user clicks back on the first anchor (≥3 nodes already placed)
         if (pts.length >= 3) {
           const first = pts[0];
           if (Math.hypot(pointer.x - first.x, pointer.y - first.y) < 20 / c.getZoom()) {
@@ -550,19 +606,11 @@ export function useFabricCanvas(
             return;
           }
         }
-        const newPts = [...pts, { x: pointer.x, y: pointer.y }];
-        penPointsRef.current = newPts;
-        setPenPoints([...newPts]);
-        const anchor = new Circle({
-          left: pointer.x - 5, top: pointer.y - 5, radius: 5,
-          fill: pts.length === 0 ? '#ff6b6b' : '#00F5FF',
-          stroke: '#ffffff', strokeWidth: 1.5,
-          selectable: false, evented: false, hasControls: false, hasBorders: false,
-        });
-        (anchor as unknown as Record<string, unknown>)._isPenAux = true;
-        c.add(anchor);
-        penAnchorRefs.current.push(anchor);
-        updatePenPreview(newPts);
+        // Record the mouse-down position. The node is committed on mouse:up,
+        // allowing a drag to pull out bezier control handles before releasing.
+        penMouseDownRef.current = true;
+        penDownPointerRef.current = { x: pointer.x, y: pointer.y };
+        penLiveHandleRef.current = null;
         return;
       }
       // Touch-based pan is handled exclusively by the container touch handlers in
@@ -580,6 +628,23 @@ export function useFabricCanvas(
     });
 
     c.on('mouse:move', (opt) => {
+      // Bezier pen: while mouse button is held, compute live bezier handle from drag
+      if (penActiveRef.current && penMouseDownRef.current && penDownPointerRef.current) {
+        const pointer = c.getScenePoint(opt.e as MouseEvent);
+        const dx = pointer.x - penDownPointerRef.current.x;
+        const dy = pointer.y - penDownPointerRef.current.y;
+        const dragDist = Math.hypot(dx, dy);
+        if (dragDist > 3 / c.getZoom()) {
+          const anchor = penDownPointerRef.current;
+          const cpOut = { x: anchor.x + dx, y: anchor.y + dy };
+          const cpIn  = { x: anchor.x - dx, y: anchor.y - dy };
+          penLiveHandleRef.current = { cpOut, cpIn };
+          setPenLiveHandle({ x: anchor.x, y: anchor.y, cpOut });
+          // Live preview shows path from committed nodes to current drag position
+          updatePenPreview(penPointsRef.current, { x: anchor.x, y: anchor.y, cpIn });
+        }
+      }
+
       // Skip pan delta math for touch events — same NaN-safety guard as mouse:down.
       if (isPanning && !('touches' in opt.e)) {
         const dx = (opt.e as MouseEvent).clientX - lastPanX;
@@ -594,6 +659,29 @@ export function useFabricCanvas(
     });
 
     c.on('mouse:up', () => {
+      // Bezier pen: commit the node (with handles if drag occurred) on mouse release
+      if (penActiveRef.current && penMouseDownRef.current && penDownPointerRef.current) {
+        const anchor = penDownPointerRef.current;
+        const liveHandle = penLiveHandleRef.current;
+        const newNode: PenPoint = {
+          x: anchor.x,
+          y: anchor.y,
+          ...(liveHandle ? { cpOut: liveHandle.cpOut, cpIn: liveHandle.cpIn } : {}),
+        };
+        const newPts = [...penPointsRef.current, newNode];
+        penPointsRef.current = newPts;
+        setPenPoints([...newPts]);
+        // Remove old Fabric circle anchors — the SVG overlay in Canvas.tsx handles visuals
+        penAnchorRefs.current.forEach((ci) => { try { c.remove(ci); } catch { /* ok */ } });
+        penAnchorRefs.current = [];
+        setPenLiveHandle(null);
+        penLiveHandleRef.current = null;
+        penDownPointerRef.current = null;
+        penMouseDownRef.current = false;
+        updatePenPreview(newPts, null);
+      } else {
+        penMouseDownRef.current = false;
+      }
       isPanning = false;
       if (!penActiveRef.current && !brushActiveRef.current) c.selection = true;
       setDragInfo(null);
@@ -1209,8 +1297,12 @@ export function useFabricCanvas(
     const anchors: VectorAnchor[] = [];
 
     const toScreen = (lx: number, ly: number): { screenX: number; screenY: number } => {
+      // Fabric renders path via: ctx.transform(calcTransformMatrix()); ctx.translate(-pathOffset.x, -pathOffset.y); draw(path)
+      // So a path coordinate (lx, ly) maps to design space as: matrix * (lx - pathOffset.x, ly - pathOffset.y)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cp = util.transformPoint({ x: lx, y: ly }, matrix as any);
+      const po = (obj as any).pathOffset ?? { x: 0, y: 0 };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cp = util.transformPoint({ x: lx - po.x, y: ly - po.y }, matrix as any);
       return { screenX: vt[4] + cp.x * vt[0], screenY: vt[5] + cp.y * vt[3] };
     };
 
@@ -1300,6 +1392,37 @@ export function useFabricCanvas(
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any).set({ path: newPath });
+
+    // Recompute bounding box from the new path data so selection handles track changes.
+    // Path coords are in raw local space; pathOffset is the bbox center in that space.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    newPath.forEach(cmd => {
+      for (let k = 1; k + 1 < cmd.length; k += 2) {
+        const px = cmd[k] as number, py = cmd[k + 1] as number;
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          minX = Math.min(minX, px); minY = Math.min(minY, py);
+          maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+        }
+      }
+    });
+    if (Number.isFinite(minX)) {
+      const newPo = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oldPo = (obj as any).pathOffset ?? { x: 0, y: 0 };
+      // Shift left/top to compensate for the moved bbox center so other points stay put
+      const dX = newPo.x - oldPo.x;
+      const dY = newPo.y - oldPo.y;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (obj as any).set({
+        pathOffset: newPo,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY),
+        left: (obj.left ?? 0) + dX * (obj.scaleX ?? 1),
+        top: (obj.top ?? 0) + dY * (obj.scaleY ?? 1),
+      });
+    }
+
+    obj.dirty = true;
     obj.setCoords();
     c.requestRenderAll();
     refreshVectorAnchors();
@@ -1309,6 +1432,129 @@ export function useFabricCanvas(
     vectorDragStartRef.current = null;
     pushUndo();
   }, [pushUndo]);
+
+  /* ─── Vector node add / delete / nudge ─── */
+
+  /** Nudge the currently selected anchor by (dx, dy) in design units */
+  const nudgeSelectedVectorNode = useCallback((dx: number, dy: number) => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = vectorEditObjRef.current; if (!obj) return;
+    if (selectedVectorAnchorIdx === null) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPath: [string, ...number[]][] = (obj as any).path ?? [];
+    const anchorsOnly = vectorAnchors.filter(a => a.kind === 'anchor');
+    const target = anchorsOnly[selectedVectorAnchorIdx];
+    if (!target) return;
+
+    // Convert design-unit nudge to local path space via inverse transform
+    const vt = c.viewportTransform ?? [1, 0, 0, 1, 0, 0];
+    const z = vt[0] || 1;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inv = util.invertTransform(obj.calcTransformMatrix() as any);
+    const localDx = inv[0] * dx * z + inv[2] * dy * z;
+    const localDy = inv[1] * dx * z + inv[3] * dy * z;
+
+    const newPath = rawPath.map((cmd, i) => {
+      if (i !== target.cmdIdx) return cmd;
+      const nc = [...cmd] as [string, ...number[]];
+      nc[target.xOff] = target.localX + localDx;
+      nc[target.yOff] = target.localY + localDy;
+      return nc;
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).set({ path: newPath });
+    obj.dirty = true;
+    obj.setCoords();
+    c.requestRenderAll();
+    refreshVectorAnchors();
+  }, [selectedVectorAnchorIdx, vectorAnchors, refreshVectorAnchors]);
+
+  /** Delete the currently selected anchor node */
+  const deleteSelectedVectorNode = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = vectorEditObjRef.current; if (!obj) return;
+    if (selectedVectorAnchorIdx === null) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPath: [string, ...number[]][] = (obj as any).path ?? [];
+    const anchorsOnly = vectorAnchors.filter(a => a.kind === 'anchor');
+    const target = anchorsOnly[selectedVectorAnchorIdx];
+    if (!target) return;
+
+    // Remove the command at cmdIdx (and any adjacent handle commands for C segments)
+    const newPath = rawPath.filter((_, i) => i !== target.cmdIdx);
+    if (newPath.length < 1) return; // Must keep at least M
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).set({ path: newPath });
+    // Update bbox
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    newPath.forEach(cmd => {
+      for (let k = 1; k + 1 < cmd.length; k += 2) {
+        const px = cmd[k] as number, py = cmd[k + 1] as number;
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          minX = Math.min(minX, px); minY = Math.min(minY, py);
+          maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+        }
+      }
+    });
+    if (Number.isFinite(minX)) {
+      const newPo = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oldPo = (obj as any).pathOffset ?? { x: 0, y: 0 };
+      const dX = newPo.x - oldPo.x, dY = newPo.y - oldPo.y;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (obj as any).set({
+        pathOffset: newPo, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY),
+        left: (obj.left ?? 0) + dX * (obj.scaleX ?? 1),
+        top: (obj.top ?? 0) + dY * (obj.scaleY ?? 1),
+      });
+    }
+    obj.dirty = true;
+    obj.setCoords();
+    c.requestRenderAll();
+    setSelectedVectorAnchorIdx(prev => prev === null ? null : Math.max(0, prev - 1));
+    refreshVectorAnchors();
+    pushUndo();
+  }, [selectedVectorAnchorIdx, vectorAnchors, refreshVectorAnchors, pushUndo]);
+
+  /** Insert a new anchor at the midpoint after the selected anchor */
+  const addVectorNodeAfter = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const obj = vectorEditObjRef.current; if (!obj) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPath: [string, ...number[]][] = (obj as any).path ?? [];
+    const anchorsOnly = vectorAnchors.filter(a => a.kind === 'anchor');
+    const targetIdx = selectedVectorAnchorIdx ?? (anchorsOnly.length > 0 ? 0 : null);
+    if (targetIdx === null) return;
+    const target = anchorsOnly[targetIdx];
+    const next = anchorsOnly[targetIdx + 1];
+    if (!target) return;
+
+    // Midpoint between target and next anchor (or +30px right if last node)
+    const mx = next ? (target.localX + next.localX) / 2 : target.localX + 30;
+    const my = next ? (target.localY + next.localY) / 2 : target.localY;
+
+    const insertAfterCmdIdx = target.cmdIdx;
+    const newCmd: [string, ...number[]] = ['L', mx, my];
+    const newPath = [
+      ...rawPath.slice(0, insertAfterCmdIdx + 1),
+      newCmd,
+      ...rawPath.slice(insertAfterCmdIdx + 1),
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).set({ path: newPath });
+    obj.dirty = true;
+    obj.setCoords();
+    c.requestRenderAll();
+    setSelectedVectorAnchorIdx(targetIdx + 1);
+    refreshVectorAnchors();
+    pushUndo();
+  }, [selectedVectorAnchorIdx, vectorAnchors, refreshVectorAnchors, pushUndo]);
 
   /* ─── Pan Mode ─── */
   const setPanMode = useCallback((active: boolean) => {
@@ -1644,10 +1890,15 @@ export function useFabricCanvas(
     // Effects
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
     applyGradientFill, fillShapeWithImage, cropImage, applyCircularCrop, addRasterLayer, applyImageFilters,
+    // Pen bezier live handle (for SVG overlay in Canvas.tsx)
+    penLiveHandle,
     // Vector anchor editor
     vectorAnchors, isVectorEditActive,
     activateVectorEdit, deactivateVectorEdit,
     vectorAnchorDragStart, vectorAnchorDragMove, vectorAnchorDragEnd,
+    // Vector node editor panel
+    selectedVectorAnchorIdx, setSelectedVectorAnchorIdx,
+    addVectorNodeAfter, deleteSelectedVectorNode, nudgeSelectedVectorNode,
     // Util
     syncObjects, fitToContainer,
   };

@@ -1056,12 +1056,53 @@ export function useFabricCanvas(
     c.renderAll(); syncObjects();
   }, [syncObjects]);
 
-  /* ─── Crop Image ─── */
+  /* ─── Crop Image (Fabric native cropX/cropY) ─── */
   const cropImage = useCallback((obj: FabricObject, cropX: number, cropY: number, cropW: number, cropH: number) => {
     const c = canvasRef.current; if (!c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any).set({ cropX, cropY, width: cropW, height: cropH });
     obj.setCoords();
+    c.requestRenderAll();
+    pushUndo();
+  }, [pushUndo]);
+
+  /* ─── Apply circular clip-path to a FabricImage ─── */
+  const applyCircularCrop = useCallback((obj: FabricObject) => {
+    const c = canvasRef.current; if (!c) return;
+    const w = obj.width ?? 100;
+    const h = obj.height ?? 100;
+    const r = Math.min(w, h) / 2;
+    const clip = new Circle({
+      radius: r,
+      originX: 'center',
+      originY: 'center',
+    });
+    obj.set('clipPath', clip);
+    obj.setCoords();
+    c.requestRenderAll();
+    pushUndo();
+  }, [pushUndo]);
+
+  /* ─── Add a raster HTMLCanvasElement as a new FabricImage at design position ─── */
+  const addRasterLayer = useCallback(async (
+    canvas: HTMLCanvasElement,
+    designLeft: number,
+    designTop: number,
+    mult: number,
+  ) => {
+    const c = canvasRef.current; if (!c) return;
+    const dataUrl = canvas.toDataURL('image/png');
+    const fabImg = await FabricImage.fromURL(dataUrl);
+    fabImg.set({
+      left: designLeft,
+      top: designTop,
+      // mult is the pixel multiplier used when rasterising, so 1/mult maps
+      // back from raster pixels → design units with no quality loss.
+      scaleX: 1 / mult,
+      scaleY: 1 / mult,
+    });
+    c.add(fabImg);
+    c.setActiveObject(fabImg);
     c.requestRenderAll();
     pushUndo();
   }, [pushUndo]);
@@ -1602,7 +1643,7 @@ export function useFabricCanvas(
     alignObjects,
     // Effects
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
-    applyGradientFill, fillShapeWithImage, cropImage, applyImageFilters,
+    applyGradientFill, fillShapeWithImage, cropImage, applyCircularCrop, addRasterLayer, applyImageFilters,
     // Vector anchor editor
     vectorAnchors, isVectorEditActive,
     activateVectorEdit, deactivateVectorEdit,

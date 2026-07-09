@@ -22,16 +22,18 @@ import StrokePanel from '@/components/editor/StrokePanel';
 import ShadowsPanel from '@/components/editor/ShadowsPanel';
 import ThreeDPanel from '@/components/editor/ThreeDPanel';
 import VectorsPanel from '@/components/editor/VectorsPanel';
-import CropDialog from '@/components/editor/CropDialog';
-import FillCropModal from '@/components/editor/FillCropModal';
+import CropModal from '@/components/editor/CropModal';
 import ColorPicker from '@/components/editor/ColorPicker';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
+/* Pixel multiplier used when rasterising any non-image canvas object for crop */
+const RASTER_MULT = 2;
+
 export default function DesignEditor() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { state, dispatch } = useEditor();
   const { toast } = useToast();
@@ -40,16 +42,22 @@ export default function DesignEditor() {
   const [vpX, setVpX] = useState(0);
   const [vpY, setVpY] = useState(0);
 
-  // Brush color picker as floating overlay (no layout shift on canvas)
   const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
 
-  // Crop dialog — opened directly from the bottom toolbar (bypasses PropertiesPanel)
-  const [cropDialogOpen, setCropDialogOpen] = useState(false);
-
-  // Pre-fill crop modal — intercepts fill-with-image to let user crop first
-  const [fillCropOpen, setFillCropOpen] = useState(false);
+  /* ── Unified crop modal state ── */
+  type CropMode = 'image' | 'fill' | 'raster';
+  const [cropOpen,    setCropOpen]    = useState(false);
+  const [cropMode,    setCropMode]    = useState<CropMode>('image');
+  // fill mode
   const [pendingFillFile, setPendingFillFile] = useState<File | null>(null);
   const pendingFillTargetRef = useRef<import('fabric').FabricObject | null>(null);
+  // raster mode
+  const [rasterDataUrl, setRasterDataUrl] = useState('');
+  const [rasterSrcW,    setRasterSrcW]    = useState(1);
+  const [rasterSrcH,    setRasterSrcH]    = useState(1);
+  const rasterObjRef     = useRef<import('fabric').FabricObject | null>(null);
+  const rasterDesignLeft = useRef(0);
+  const rasterDesignTop  = useRef(0);
 
   const handleSelectionChange = useCallback(
     (ids: string[]) => { dispatch({ type: 'SET_SELECTED', payload: ids }); },
@@ -75,16 +83,15 @@ export default function DesignEditor() {
     width: state.canvasSize.width,
     height: state.canvasSize.height,
     onSelectionChange: handleSelectionChange,
-    onCanvasChanged: handleCanvasChanged,
-    onUndoRedoChange: handleUndoRedoChange,
+    onCanvasChanged:   handleCanvasChanged,
+    onUndoRedoChange:  handleUndoRedoChange,
   });
 
-  /* ── Directional Nudge — each step is its own undo entry ── */
+  /* ── Directional Nudge ── */
   const handleNudgeElement = useCallback((direction: 'up' | 'down' | 'left' | 'right', amount: number) => {
-    const activeObject = controller.selectedObject;
-    const fabricCanvas = controller.getCanvas();
+    const activeObject  = controller.selectedObject;
+    const fabricCanvas  = controller.getCanvas();
     if (!activeObject || !fabricCanvas) return;
-
     switch (direction) {
       case 'up':    activeObject.set('top',  (activeObject.top  || 0) - amount); break;
       case 'down':  activeObject.set('top',  (activeObject.top  || 0) + amount); break;
@@ -96,15 +103,12 @@ export default function DesignEditor() {
     controller.pushUndoNow();
   }, [controller]);
 
-  // Load custom fonts on mount
   useEffect(() => { loadStoredFonts((action) => dispatch(action)); }, [dispatch]);
 
-  // Sync grid options into canvas controller whenever they change
   useEffect(() => {
     controller.setGridOptions(state.gridEnabled, state.snapToGrid, state.gridSize);
   }, [state.gridEnabled, state.snapToGrid, state.gridSize, controller.setGridOptions]);
 
-  // Track viewport position for grid overlay alignment
   useEffect(() => {
     const c = controller.getCanvas();
     if (!c) return;
@@ -117,13 +121,11 @@ export default function DesignEditor() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync canvas bg whenever it changes (covers mount + project load + dialog changes)
   useEffect(() => {
     controller.setCanvasBackground(state.canvasBg);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.canvasBg]);
 
-  /* ── Brush activation ── */
   useEffect(() => {
     if (state.activeTool === 'brush') {
       controller.activateBrush(state.brushPreset, state.brushColor, state.brushSize);
@@ -133,22 +135,18 @@ export default function DesignEditor() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activeTool, state.brushPreset, state.brushColor, state.brushSize]);
 
-  /* ── Pan mode ── */
   useEffect(() => {
     controller.setPanMode(state.activeTool === 'pan');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activeTool]);
 
-  /* ── Close brush picker when brush deactivates ── */
   useEffect(() => {
-    if (state.activeTool !== 'brush') {
-      setBrushColorPickerOpen(false);
-    }
+    if (state.activeTool !== 'brush') setBrushColorPickerOpen(false);
   }, [state.activeTool]);
 
-  const penActive = state.activeTool === 'pen';
-  const brushActive = state.activeTool === 'brush';
-  const panActive = state.activeTool === 'pan';
+  const penActive    = state.activeTool === 'pen';
+  const brushActive  = state.activeTool === 'brush';
+  const panActive    = state.activeTool === 'pan';
   const hasSelection = state.selectedObjectIds.length > 0;
   const selectedType = controller.selectedObject?.type || '';
   const selectedIsText = ['i-text', 'text', 'textbox'].includes(selectedType);
@@ -210,7 +208,6 @@ export default function DesignEditor() {
       } catch { /* user cancelled */ }
       return;
     }
-
     if (controller.eyedropperActive) {
       controller.deactivateEyedropper();
       return;
@@ -229,7 +226,6 @@ export default function DesignEditor() {
     });
   }, [controller, dispatch, toast]);
 
-  /* ── Vector pen start (from VectorsPanel) ── */
   const handleVectorsPenStart = useCallback(() => {
     controller.activatePenTool();
     dispatch({ type: 'SET_TOOL', payload: 'pen' });
@@ -241,9 +237,7 @@ export default function DesignEditor() {
   const importImagesRef = useRef<HTMLInputElement>(null);
   const fillWithImageRef = useRef<HTMLInputElement>(null);
 
-  const handleImportImages = useCallback(() => {
-    importImagesRef.current?.click();
-  }, []);
+  const handleImportImages = useCallback(() => { importImagesRef.current?.click(); }, []);
 
   const handleImportImageFiles = useCallback(async (files: FileList) => {
     for (const file of Array.from(files)) {
@@ -251,31 +245,108 @@ export default function DesignEditor() {
     }
   }, [controller]);
 
-  const handleFillWithImage = useCallback(() => {
-    fillWithImageRef.current?.click();
-  }, []);
+  const handleFillWithImage = useCallback(() => { fillWithImageRef.current?.click(); }, []);
 
-  // Intercept fill-with-image: store the target object + file, open pre-fill crop modal
+  /* Fill-with-image: store target + file, open CropModal in fill mode */
   const handleFillImageFile = useCallback((file: File) => {
     const obj = controller.selectedObject;
     if (!obj) return;
     pendingFillTargetRef.current = obj;
     setPendingFillFile(file);
-    setFillCropOpen(true);
+    setCropMode('fill');
+    setCropOpen(true);
   }, [controller]);
 
-  // Called when FillCropModal applies a crop: commit the cropped canvas to the shape
-  const handleFillCropApply = useCallback((canvas: HTMLCanvasElement) => {
+  /* ── Universal crop handler ── */
+  const handleCropImage = useCallback(() => {
+    const obj = controller.selectedObject;
+    const canvas = controller.getCanvas();
+    if (!obj || !canvas) return;
+
+    if (obj.type === 'image') {
+      // Fabric-native crop via cropX/cropY
+      setCropMode('image');
+      setCropOpen(true);
+      return;
+    }
+
+    // Any other object (vector, text, group…) → rasterise and crop
+    const zoom = canvas.getZoom();
+    const bbox = obj.getBoundingRect(); // canvas viewport pixels
+
+    // Export the selection region at RASTER_MULT× quality
+    try {
+      const fullUrl = canvas.toDataURL({ format: 'png', multiplier: RASTER_MULT } as Parameters<typeof canvas.toDataURL>[0]);
+      const img = new Image();
+      img.onload = () => {
+        const sx = Math.round(bbox.left  * RASTER_MULT);
+        const sy = Math.round(bbox.top   * RASTER_MULT);
+        const sw = Math.round(bbox.width * RASTER_MULT);
+        const sh = Math.round(bbox.height * RASTER_MULT);
+        const offscreen = document.createElement('canvas');
+        offscreen.width  = Math.max(1, sw);
+        offscreen.height = Math.max(1, sh);
+        offscreen.getContext('2d')?.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+        // Store design-unit top-left for repositioning the raster crop result
+        rasterObjRef.current     = obj;
+        rasterDesignLeft.current = bbox.left / zoom;
+        rasterDesignTop.current  = bbox.top  / zoom;
+        setRasterDataUrl(offscreen.toDataURL('image/png'));
+        setRasterSrcW(offscreen.width);
+        setRasterSrcH(offscreen.height);
+        setCropMode('raster');
+        setCropOpen(true);
+      };
+      img.src = fullUrl;
+    } catch {
+      toast({ title: 'Cannot rasterise selection', description: 'Try with an image object instead', variant: 'destructive' });
+    }
+  }, [controller, toast]);
+
+  /* ── Crop apply callbacks ── */
+  const handleApplyImage = useCallback((
+    cropX: number, cropY: number, cropW: number, cropH: number, circular: boolean,
+  ) => {
+    const obj = controller.selectedObject;
+    if (!obj) return;
+    controller.cropImage(obj, cropX, cropY, cropW, cropH);
+    if (circular) controller.applyCircularCrop(obj);
+  }, [controller]);
+
+  const handleApplyFill = useCallback((canvas: HTMLCanvasElement) => {
     const obj = pendingFillTargetRef.current;
     if (obj) controller.fillShapeWithImage(obj, canvas);
     setPendingFillFile(null);
     pendingFillTargetRef.current = null;
   }, [controller]);
 
-  // Crop: open CropDialog directly, bypassing PropertiesPanel
-  const handleCropImage = useCallback(() => {
-    if (controller.selectedObject) setCropDialogOpen(true);
-  }, [controller.selectedObject]);
+  const handleApplyRaster = useCallback(async (canvas: HTMLCanvasElement, circular: boolean) => {
+    const obj = rasterObjRef.current;
+    const fabricCanvas = controller.getCanvas();
+    if (!obj || !fabricCanvas) return;
+    // If circular was requested, clip the output canvas to a circle before adding
+    if (circular) {
+      const cw = canvas.width, ch = canvas.height;
+      const tmp = document.createElement('canvas');
+      tmp.width = cw; tmp.height = ch;
+      const ctx2d = tmp.getContext('2d')!;
+      ctx2d.beginPath();
+      ctx2d.ellipse(cw / 2, ch / 2, cw / 2, ch / 2, 0, 0, Math.PI * 2);
+      ctx2d.clip();
+      ctx2d.drawImage(canvas, 0, 0);
+      canvas = tmp;
+    }
+    // Remove original, add the raster crop at the same design-unit position
+    fabricCanvas.remove(obj);
+    await controller.addRasterLayer(canvas, rasterDesignLeft.current, rasterDesignTop.current, RASTER_MULT);
+    rasterObjRef.current = null;
+  }, [controller]);
+
+  const closeCrop = useCallback(() => {
+    setCropOpen(false);
+    setPendingFillFile(null);
+    pendingFillTargetRef.current = null;
+  }, []);
 
   return (
     <div
@@ -318,35 +389,26 @@ export default function DesignEditor() {
         panActive={panActive}
       />
 
-      {/* Hidden file inputs for image toolbar */}
+      {/* Hidden file inputs */}
       <input
         ref={importImagesRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
+        type="file" accept="image/*" multiple className="hidden"
         onChange={(e) => { if (e.target.files?.length) { handleImportImageFiles(e.target.files); e.target.value = ''; } }}
       />
       <input
         ref={fillWithImageRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
+        type="file" accept="image/*" className="hidden"
         onChange={(e) => { if (e.target.files?.[0]) { handleFillImageFile(e.target.files[0]); e.target.value = ''; } }}
       />
 
-      {/* ── Toolbar wrapper — position:relative so overlays float above without layout impact ── */}
+      {/* ── Toolbar wrapper ── */}
       <div className="relative flex-shrink-0">
 
-        {/* ── Brush Color Picker overlay — absolute, sits above toolbar, no canvas resize ── */}
+        {/* Brush Color Picker overlay */}
         {brushActive && brushColorPickerOpen && (
           <div
             className="absolute bottom-full left-0 right-0 z-50 px-4 pt-4 pb-3"
-            style={{
-              background: '#11141A',
-              borderTop: '1px solid rgba(0,245,255,0.3)',
-              boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
-            }}
+            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.3)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
           >
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-semibold tracking-wider" style={{ color: '#00F5FF' }}>BRUSH COLOR</p>
@@ -362,20 +424,16 @@ export default function DesignEditor() {
           </div>
         )}
 
-        {/* ── Nudge overlay — absolute, sits above toolbar, no canvas resize ── */}
+        {/* Nudge overlay */}
         <div className="absolute bottom-full left-0 right-0 z-50">
           <NudgePanel onNudge={handleNudgeElement} />
         </div>
 
-        {/* ── Zoom Tray overlay — absolute, sits above toolbar ── */}
+        {/* Zoom Tray overlay */}
         {state.activePanel === 'zoom' && !brushActive && !penActive && (
           <div
             className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
-            style={{
-              background: '#11141A',
-              borderTop: '1px solid rgba(167,139,250,0.4)',
-              boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
-            }}
+            style={{ background: '#11141A', borderTop: '1px solid rgba(167,139,250,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
           >
             <div className="flex items-center gap-2 mb-2 justify-between">
               <p className="text-xs font-semibold tracking-wider" style={{ color: '#a78bfa' }}>ZOOM</p>
@@ -384,29 +442,18 @@ export default function DesignEditor() {
                   onClick={controller.zoomOut}
                   className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
                   style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
-                >
-                  −
-                </button>
-                <span
-                  className="text-xs font-mono font-bold min-w-[52px] text-center"
-                  style={{ color: '#a78bfa' }}
-                >
-                  {zoomPercent}%
-                </span>
+                >−</button>
+                <span className="text-xs font-mono font-bold min-w-[52px] text-center" style={{ color: '#a78bfa' }}>{zoomPercent}%</span>
                 <button
                   onClick={controller.zoomIn}
                   className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
                   style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
-                >
-                  +
-                </button>
+                >+</button>
                 <button
                   onClick={controller.resetZoom}
                   className="text-[10px] px-2 py-1 rounded-lg"
                   style={{ background: 'rgba(167,139,250,0.08)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.2)' }}
-                >
-                  Fit
-                </button>
+                >Fit</button>
               </div>
             </div>
             <Slider
@@ -447,25 +494,22 @@ export default function DesignEditor() {
         />
       </div>
 
-      {/* ── Crop dialog — opened directly from bottom toolbar for image objects ── */}
-      <CropDialog
-        open={cropDialogOpen}
-        onClose={() => setCropDialogOpen(false)}
-        obj={controller.selectedObject}
-        onApply={(cx, cy, cw, ch) => {
-          if (controller.selectedObject) controller.cropImage(controller.selectedObject, cx, cy, cw, ch);
-        }}
+      {/* ── Unified Crop Modal — handles image, fill, and any-object (raster) modes ── */}
+      <CropModal
+        open={cropOpen}
+        onClose={closeCrop}
+        mode={cropMode}
+        fabricObj={cropMode === 'image' ? controller.selectedObject : null}
+        file={cropMode === 'fill' ? pendingFillFile : null}
+        dataUrl={cropMode === 'raster' ? rasterDataUrl : undefined}
+        sourceW={cropMode === 'raster' ? rasterSrcW : undefined}
+        sourceH={cropMode === 'raster' ? rasterSrcH : undefined}
+        onApplyImage={handleApplyImage}
+        onApplyFill={handleApplyFill}
+        onApplyRaster={handleApplyRaster}
         onFlipH={() => controller.flipHorizontal()}
         onFlipV={() => controller.flipVertical()}
         onRotate90={() => controller.rotate90()}
-      />
-
-      {/* ── Pre-fill crop modal — shown before committing an image fill ── */}
-      <FillCropModal
-        open={fillCropOpen}
-        file={pendingFillFile}
-        onClose={() => { setFillCropOpen(false); setPendingFillFile(null); pendingFillTargetRef.current = null; }}
-        onApply={handleFillCropApply}
       />
 
       {/* Panels & Dialogs */}

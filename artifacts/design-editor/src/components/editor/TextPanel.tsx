@@ -3,7 +3,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Upload, Plus } from 'lucide-react';
@@ -11,9 +10,10 @@ import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { IText, Textbox } from 'fabric';
-import { FONTS_STORE_KEY, StoredFont, injectFontFace, removeStoredFont } from './FontUploader';
+import { FONTS_STORE_KEY, StoredFont, injectFontFace } from './FontUploader';
+import FontPicker from './FontPicker';
 import { useToast } from '@/hooks/use-toast';
-import { Trash2, Type } from 'lucide-react';
+import { Type } from 'lucide-react';
 import localforage from 'localforage';
 
 const SYSTEM_FONTS = ['Inter', 'Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Impact'];
@@ -167,71 +167,47 @@ export default function TextPanel({ controller }: TextPanelProps) {
     addContent, addFontSize, addFontFamily, addFontWeight, addFontStyle, addUnderline, addTextAlign,
   ]);
 
-  /* ── Font import ── */
+  /* ── Font import (supports multiple files in one batch) ── */
   const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const extMatch = file.name.match(/\.(ttf|otf|woff2?)$/i);
-    const ext = extMatch ? extMatch[1].toLowerCase() : 'ttf';
-    const rawName = file.name.replace(/\.(ttf|otf|woff2?)$/i, '').replace(/[-_]/g, ' ').trim();
-    const fontName = rawName || 'Custom Font';
-    try {
-      const buffer = await file.arrayBuffer();
-      const face = new FontFace(fontName, buffer);
-      await face.load();
-      document.fonts.add(face);
-      injectFontFace(fontName, buffer, ext);
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0) return;
 
-      const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
-      if (!stored.find((f) => f.name === fontName)) {
-        stored.push({ name: fontName, data: buffer, ext });
-        await localforage.setItem(FONTS_STORE_KEY, stored);
+    const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
+    let loaded = 0;
+    let failed = 0;
+
+    await Promise.all(files.map(async (file) => {
+      const extMatch = file.name.match(/\.(ttf|otf|woff2?)$/i);
+      const ext = extMatch ? extMatch[1].toLowerCase() : 'ttf';
+      const rawName = file.name.replace(/\.(ttf|otf|woff2?)$/i, '').replace(/[-_]/g, ' ').trim();
+      const fontName = rawName || 'Custom Font';
+      try {
+        const buffer = await file.arrayBuffer();
+        const face = new FontFace(fontName, buffer);
+        await face.load();
+        document.fonts.add(face);
+        injectFontFace(fontName, buffer, ext);
+
+        if (!stored.find((f) => f.name === fontName)) {
+          stored.push({ name: fontName, data: buffer, ext });
+        }
+        dispatch({ type: 'ADD_CUSTOM_FONT', payload: fontName });
+        loaded += 1;
+      } catch {
+        failed += 1;
       }
-      dispatch({ type: 'ADD_CUSTOM_FONT', payload: fontName });
-      toast({ title: 'Font loaded', description: `"${fontName}" is ready to use` });
-    } catch {
-      toast({ title: 'Font error', description: 'Could not load this font file', variant: 'destructive' });
+    }));
+
+    await localforage.setItem(FONTS_STORE_KEY, stored);
+
+    if (loaded > 0) {
+      toast({ title: 'Fonts loaded', description: `${loaded} font${loaded > 1 ? 's' : ''} ready to use` });
+    }
+    if (failed > 0) {
+      toast({ title: 'Font error', description: `${failed} file${failed > 1 ? 's' : ''} could not be loaded`, variant: 'destructive' });
     }
     if (fontInputRef.current) fontInputRef.current.value = '';
   };
-
-  const handleDeleteFont = async (fontName: string) => {
-    await removeStoredFont(fontName, dispatch);
-    toast({ title: 'Font removed', description: `"${fontName}" deleted` });
-  };
-
-  /* ── Shared Font Library section ── */
-  const FontLibrarySection = (
-    <>
-      <Separator />
-      <SectionLabel>Font Library</SectionLabel>
-      <input ref={fontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2" onChange={handleFontUpload} className="hidden" />
-      <Button type="button" variant="secondary" size="sm" className="w-full gap-2 h-9" onClick={() => fontInputRef.current?.click()}>
-        <Upload size={13} />
-        Import Font (.ttf / .otf / .woff)
-      </Button>
-
-      {state.customFonts.length > 0 && (
-        <div className="space-y-1">
-          {[...state.customFonts].sort((a, b) => a.localeCompare(b)).map((font) => (
-            <div
-              key={font}
-              className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.04)' }}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <Type size={11} className="text-primary flex-shrink-0" />
-                <span className="text-xs truncate" style={{ fontFamily: font }}>{font}</span>
-              </div>
-              <button onClick={() => handleDeleteFont(font)} className="text-destructive hover:text-red-400 p-1 rounded flex-shrink-0">
-                <Trash2 size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  );
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
@@ -282,20 +258,12 @@ export default function TextPanel({ controller }: TextPanelProps) {
 
             <Separator />
             <SectionLabel>Font</SectionLabel>
-            <Select value={addFontFamily} onValueChange={setAddFontFamily}>
-              <SelectTrigger className="w-full text-xs h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {SYSTEM_FONTS.map((f) => <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>)}
-                {state.customFonts.length > 0 && (
-                  <>
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Custom</div>
-                    {[...state.customFonts].sort((a, b) => a.localeCompare(b)).map((f) => (
-                      <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
-                    ))}
-                  </>
-                )}
-              </SelectContent>
-            </Select>
+            <FontPicker
+              value={addFontFamily}
+              onChange={setAddFontFamily}
+              systemFonts={SYSTEM_FONTS}
+              customFonts={state.customFonts}
+            />
 
             {state.recentFonts.length > 0 && (
               <div className="space-y-1">
@@ -320,7 +288,14 @@ export default function TextPanel({ controller }: TextPanelProps) {
               <Plus size={15} />Add to Canvas
             </Button>
 
-            {FontLibrarySection}
+            <Separator />
+            <SectionLabel>Import Fonts</SectionLabel>
+            <input ref={fontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2" multiple onChange={handleFontUpload} className="hidden" data-testid="input-font-upload-add" />
+            <Button type="button" variant="secondary" size="sm" className="w-full gap-2 h-9" onClick={() => fontInputRef.current?.click()}>
+              <Upload size={13} />
+              Import Fonts (.ttf / .otf / .woff)
+            </Button>
+
             <div className="h-2" />
           </div>
 
@@ -359,20 +334,13 @@ export default function TextPanel({ controller }: TextPanelProps) {
 
             <Separator />
             <SectionLabel>Font</SectionLabel>
-            <Select value={fontFamily} onValueChange={applyFontFamily}>
-              <SelectTrigger className="w-full text-xs h-9" data-testid="text-panel-font-select"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {SYSTEM_FONTS.map((f) => <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>)}
-                {state.customFonts.length > 0 && (
-                  <>
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Custom</div>
-                    {[...state.customFonts].sort((a, b) => a.localeCompare(b)).map((f) => (
-                      <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
-                    ))}
-                  </>
-                )}
-              </SelectContent>
-            </Select>
+            <FontPicker
+              value={fontFamily}
+              onChange={applyFontFamily}
+              systemFonts={SYSTEM_FONTS}
+              customFonts={state.customFonts}
+              data-testid="text-panel-font-select"
+            />
 
             {state.recentFonts.length > 0 && (
               <div className="space-y-1">
@@ -391,7 +359,13 @@ export default function TextPanel({ controller }: TextPanelProps) {
               </div>
             )}
 
-            {FontLibrarySection}
+            <Separator />
+            <SectionLabel>Import Fonts</SectionLabel>
+            <input ref={fontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2" multiple onChange={handleFontUpload} className="hidden" data-testid="input-font-upload-edit" />
+            <Button type="button" variant="secondary" size="sm" className="w-full gap-2 h-9" onClick={() => fontInputRef.current?.click()}>
+              <Upload size={13} />
+              Import Fonts (.ttf / .otf / .woff)
+            </Button>
 
             {/* ── Glow Effect ── */}
             <Separator />

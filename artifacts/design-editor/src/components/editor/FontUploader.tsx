@@ -91,31 +91,44 @@ export default function FontUploader() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0) return;
 
-    const extMatch = file.name.match(/\.(ttf|otf|woff2?)$/i);
-    const ext = extMatch ? extMatch[1].toLowerCase() : 'ttf';
-    const rawName = file.name.replace(/\.(ttf|otf|woff2?)$/i, '').replace(/[-_]/g, ' ').trim();
-    const fontName = rawName || 'Custom Font';
+    const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
+    let loaded = 0;
+    let failed = 0;
 
-    try {
-      const buffer = await file.arrayBuffer();
-      const face = new FontFace(fontName, buffer);
-      await face.load();
-      document.fonts.add(face);
-      injectFontFace(fontName, buffer, ext);
+    await Promise.all(files.map(async (file) => {
+      const extMatch = file.name.match(/\.(ttf|otf|woff2?)$/i);
+      const ext = extMatch ? extMatch[1].toLowerCase() : 'ttf';
+      const rawName = file.name.replace(/\.(ttf|otf|woff2?)$/i, '').replace(/[-_]/g, ' ').trim();
+      const fontName = rawName || 'Custom Font';
 
-      const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
-      if (!stored.find((f) => f.name === fontName)) {
-        stored.push({ name: fontName, data: buffer, ext });
-        await localforage.setItem(FONTS_STORE_KEY, stored);
+      try {
+        const buffer = await file.arrayBuffer();
+        const face = new FontFace(fontName, buffer);
+        await face.load();
+        document.fonts.add(face);
+        injectFontFace(fontName, buffer, ext);
+
+        if (!stored.find((f) => f.name === fontName)) {
+          stored.push({ name: fontName, data: buffer, ext });
+        }
+
+        dispatch({ type: 'ADD_CUSTOM_FONT', payload: fontName });
+        loaded += 1;
+      } catch {
+        failed += 1;
       }
+    }));
 
-      dispatch({ type: 'ADD_CUSTOM_FONT', payload: fontName });
-      toast({ title: 'Font loaded', description: `"${fontName}" is ready to use` });
-    } catch {
-      toast({ title: 'Font error', description: 'Could not load this font file', variant: 'destructive' });
+    await localforage.setItem(FONTS_STORE_KEY, stored);
+
+    if (loaded > 0) {
+      toast({ title: 'Fonts loaded', description: `${loaded} font${loaded > 1 ? 's' : ''} ready to use` });
+    }
+    if (failed > 0) {
+      toast({ title: 'Font error', description: `${failed} file${failed > 1 ? 's' : ''} could not be loaded`, variant: 'destructive' });
     }
 
     if (inputRef.current) inputRef.current.value = '';
@@ -138,6 +151,7 @@ export default function FontUploader() {
         ref={inputRef}
         type="file"
         accept=".ttf,.otf,.woff,.woff2"
+        multiple
         onChange={handleFileSelect}
         className="hidden"
         data-testid="input-font-upload"

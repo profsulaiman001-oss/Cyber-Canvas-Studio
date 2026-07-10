@@ -287,19 +287,7 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
               </div>
             )}
 
-          <SliderRow label="Opacity" value={opacity} min={0} max={100} onChange={applyOpacity} unit="%" />
-
-          {/* Corner radius — normalized for any aspect ratio */}
-          {isRect && (
-            <SliderRow
-              label="Corner Radius"
-              value={rx}
-              min={0}
-              max={rxMax}
-              onChange={applyRx}
-              unit="px"
-            />
-          )}
+          {/* Opacity and Corner Radius are now in the Bottom Toolbar quick tray */}
 
           {/* ── Image actions ── */}
           {isImage && (

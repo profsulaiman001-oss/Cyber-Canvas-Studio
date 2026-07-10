@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useEditor } from '@/store/editorStore';
-import { CanvasController } from '@/hooks/useFabricCanvas';
+import { CanvasController, extractColorAlpha, withAlpha, opaqueColor } from '@/hooks/useFabricCanvas';
 import { FabricObject } from 'fabric';
 import { PenLine } from 'lucide-react';
 import ColorPicker from './ColorPicker';
@@ -32,7 +32,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-semibold text-primary uppercase tracking-wider pt-1">{children}</p>;
 }
 
-/* Dash presets — gap is controlled separately via the spacing slider */
 const DASH_PRESETS: { id: string; label: string; dashLen: number | null; dotLen: number | null }[] = [
   { id: 'solid',   label: 'Solid',  dashLen: null, dotLen: null },
   { id: 'dash',    label: 'Dash',   dashLen: 12,   dotLen: null },
@@ -40,7 +39,6 @@ const DASH_PRESETS: { id: string; label: string; dashLen: number | null; dotLen:
   { id: 'mix',     label: 'Mix',    dashLen: 12,   dotLen: 2   },
 ];
 
-/** Build the strokeDashArray for a given preset + gap value */
 function buildDashArray(presetId: string, gap: number): number[] | null {
   const p = DASH_PRESETS.find((x) => x.id === presetId);
   if (!p || p.dashLen === null) return null;
@@ -50,7 +48,6 @@ function buildDashArray(presetId: string, gap: number): number[] | null {
   return null;
 }
 
-/** Detect the closest preset id from a raw strokeDashArray */
 function detectPresetId(da: number[] | null | undefined): string {
   if (!da || da.length === 0) return 'solid';
   if (da.length === 2 && da[0] >= 8) return 'dash';
@@ -59,7 +56,6 @@ function detectPresetId(da: number[] | null | undefined): string {
   return 'dash';
 }
 
-/** Extract the gap value from a raw strokeDashArray */
 function extractGap(da: number[] | null | undefined): number {
   if (!da || da.length < 2) return 8;
   return da[1] ?? 8;
@@ -71,7 +67,9 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
   const obj = controller.selectedObject;
 
   const [enabled, setEnabled] = useState(false);
+  // color stores only the opaque RGB — alpha is tracked separately via strokeOpacity
   const [color, setColor] = useState('#000000');
+  const [strokeOpacity, setStrokeOpacity] = useState(100); // 0–100
   const [width, setWidth] = useState(2);
   const [dashPreset, setDashPreset] = useState('solid');
   const [gapWidth, setGapWidth] = useState(8);
@@ -83,7 +81,10 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
     const sw = typeof o.strokeWidth === 'number' ? o.strokeWidth : 0;
     setEnabled(sw > 0);
     setWidth(sw > 0 ? sw : 2);
-    setColor(typeof o.stroke === 'string' && o.stroke ? o.stroke : '#000000');
+    // Separate the stored stroke color into RGB part + alpha part
+    const rawStroke = typeof o.stroke === 'string' && o.stroke ? o.stroke : '#000000';
+    setColor(opaqueColor(rawStroke));
+    setStrokeOpacity(Math.round(extractColorAlpha(rawStroke) * 100));
     const da = (o as FabricObject & { strokeDashArray?: number[] | null }).strokeDashArray;
     setDashPreset(detectPresetId(da));
     setGapWidth(extractGap(da));
@@ -91,11 +92,22 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
   useEffect(() => { syncFromObj(); }, [syncFromObj]);
 
-  const applyStroke = useCallback((en: boolean, c: string, w: number, preset: string, gap: number) => {
+  /**
+   * Build the final stroke color string by merging the RGB color with the opacity.
+   * This keeps fill opacity and stroke opacity completely independent — the stroke
+   * never inherits from obj.opacity.
+   */
+  const buildStrokeColor = (rgb: string, opacityPct: number): string =>
+    withAlpha(rgb, opacityPct / 100);
+
+  const applyStroke = useCallback((
+    en: boolean, c: string, w: number, preset: string, gap: number, opacityPct: number,
+  ) => {
     if (!obj) return;
     const dashArr = en ? buildDashArray(preset, gap) : null;
+    const finalStroke = en ? buildStrokeColor(c, opacityPct) : undefined;
     obj.set({
-      stroke: en ? c : undefined,
+      stroke: finalStroke,
       strokeWidth: en ? w : 0,
       strokeDashArray: dashArr,
     });
@@ -106,8 +118,6 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
   }, [obj, controller]);
 
   const isDashed = dashPreset !== 'solid';
-
-  /* Visual preview dash array for SVG */
   const previewDash = buildDashArray(dashPreset, gapWidth);
 
   if (!obj) return null;
@@ -136,7 +146,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
               checked={enabled}
               onCheckedChange={(v) => {
                 setEnabled(v);
-                applyStroke(v, color, width, dashPreset, gapWidth);
+                applyStroke(v, color, width, dashPreset, gapWidth, strokeOpacity);
               }}
             />
           </div>
@@ -153,7 +163,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
               >
                 <div
                   className="w-8 h-8 rounded border border-border flex-shrink-0"
-                  style={{ background: color }}
+                  style={{ background: buildStrokeColor(color, strokeOpacity) }}
                 />
                 <span className="text-xs font-mono text-muted-foreground">{color.toUpperCase()}</span>
                 <span className="ml-auto text-[10px] text-muted-foreground">{colorOpen ? '▲' : '▼'}</span>
@@ -162,13 +172,31 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                 <ColorPicker
                   value={color}
                   onChange={(v) => {
-                    setColor(v);
-                    applyStroke(true, v, width, dashPreset, gapWidth);
+                    // v arrives as an opaque color from the picker
+                    const rgb = opaqueColor(v);
+                    setColor(rgb);
+                    applyStroke(true, rgb, width, dashPreset, gapWidth, strokeOpacity);
                   }}
                 />
               )}
 
-              {/* ── Width — micro-scale 0.05px increments ── */}
+              {/* ── Stroke Opacity (independent of fill opacity) ── */}
+              <Separator />
+              <SectionLabel>Stroke Opacity</SectionLabel>
+              <SliderRow
+                label="Opacity"
+                value={strokeOpacity}
+                min={0}
+                max={100}
+                step={1}
+                unit="%"
+                onChange={(v) => {
+                  setStrokeOpacity(v);
+                  applyStroke(true, color, width, dashPreset, gapWidth, v);
+                }}
+              />
+
+              {/* ── Width ── */}
               <Separator />
               <SectionLabel>Width</SectionLabel>
               <SliderRow
@@ -179,10 +207,9 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                 step={0.05}
                 unit="px"
                 decimals={2}
-                onChange={(v) => { setWidth(v); applyStroke(true, color, v, dashPreset, gapWidth); }}
+                onChange={(v) => { setWidth(v); applyStroke(true, color, v, dashPreset, gapWidth, strokeOpacity); }}
               />
 
-              {/* Fine-tune numeric input for sub-pixel precision */}
               <div className="flex items-center gap-2">
                 <Label className="text-[10px] text-muted-foreground flex-shrink-0">Exact px</Label>
                 <input
@@ -194,7 +221,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                   onChange={(e) => {
                     const v = Math.max(0, Math.min(40, parseFloat(e.target.value) || 0));
                     setWidth(v);
-                    applyStroke(true, color, v, dashPreset, gapWidth);
+                    applyStroke(true, color, v, dashPreset, gapWidth, strokeOpacity);
                   }}
                   className="w-24 h-7 bg-transparent border border-border rounded px-2 text-xs text-foreground focus:outline-none focus:border-primary"
                 />
@@ -209,7 +236,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                     key={p.id}
                     onClick={() => {
                       setDashPreset(p.id);
-                      applyStroke(true, color, width, p.id, gapWidth);
+                      applyStroke(true, color, width, p.id, gapWidth, strokeOpacity);
                     }}
                     className="py-2 rounded-lg text-xs transition-all border"
                     style={{
@@ -227,13 +254,12 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
               <svg width="100%" height="20" style={{ overflow: 'visible' }}>
                 <line
                   x1="0" y1="10" x2="100%" y2="10"
-                  stroke={color}
+                  stroke={buildStrokeColor(color, strokeOpacity)}
                   strokeWidth={Math.min(width, 6)}
                   strokeDasharray={previewDash ? previewDash.join(' ') : ''}
                 />
               </svg>
 
-              {/* ── Pattern Spacing — only visible for non-solid presets ── */}
               {isDashed && (
                 <>
                   <Separator />
@@ -247,7 +273,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                     unit="px"
                     onChange={(v) => {
                       setGapWidth(v);
-                      applyStroke(true, color, width, dashPreset, v);
+                      applyStroke(true, color, width, dashPreset, v, strokeOpacity);
                     }}
                   />
                   <p className="text-[10px] text-muted-foreground">

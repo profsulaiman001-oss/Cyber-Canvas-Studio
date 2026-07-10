@@ -20,6 +20,39 @@ import {
   filters,
 } from 'fabric';
 
+/* ── Color utilities for decoupled fill / stroke opacity ─────────────────── */
+/** Parse any CSS color to its RGB triple (ignores existing alpha). */
+function _cssColorToRgb(cssColor: string): [number, number, number] | null {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = cssColor;
+    ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  } catch { return null; }
+}
+/** Extract the alpha component from a CSS color string (defaults to 1). */
+export function extractColorAlpha(cssColor: string): number {
+  const m = cssColor?.match?.(/rgba\s*\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/i);
+  return m ? Math.max(0, Math.min(1, parseFloat(m[1]))) : 1;
+}
+/** Rebuild a CSS color string with a new alpha channel. */
+export function withAlpha(cssColor: string, alpha: number): string {
+  const rgb = _cssColorToRgb(cssColor);
+  if (!rgb) return cssColor;
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
+}
+/** Strip alpha from a color, returning an opaque `rgb(...)` string. */
+export function opaqueColor(cssColor: string): string {
+  const rgb = _cssColorToRgb(cssColor);
+  if (!rgb) return cssColor;
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+
 export interface ObjectMeta {
   id: string;
   name: string;
@@ -1086,6 +1119,54 @@ export function useFabricCanvas(
     c.requestRenderAll();
   }, []);
 
+  /* ─── Decoupled Fill Opacity (encodes alpha into fill color, never touches obj.opacity) ─── */
+  const applyFillOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
+    if (!obj) return;
+    const c = canvasRef.current; if (!c) return;
+    const fill = obj.fill;
+    if (typeof fill === 'string') {
+      obj.set('fill', withAlpha(fill, fraction));
+    } else if (fill && typeof fill === 'object' && 'colorStops' in (fill as object)) {
+      // Gradient: rebuild with opacity baked into each stop's alpha
+      const gf = fill as { type?: string; colorStops?: { offset: number; color: string }[]; coords?: Record<string, number>; gradientUnits?: string };
+      if (gf.colorStops && gf.type) {
+        const newStops = gf.colorStops.map((s) => ({ offset: s.offset, color: withAlpha(s.color, fraction) }));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        obj.set('fill', new Gradient({ type: gf.type as 'linear' | 'radial', coords: gf.coords ?? {}, colorStops: newStops, gradientUnits: (gf.gradientUnits ?? 'pixels') as 'pixels' | 'percentage' }) as any);
+      }
+    }
+    // Keep obj.opacity = 1 so stroke is never dimmed by this fill-opacity change
+    obj.set('opacity', 1);
+    c.requestRenderAll();
+  }, []);
+
+  const getFillOpacity = useCallback((obj: FabricObject | null): number => {
+    if (!obj) return 1;
+    const fill = obj.fill;
+    if (typeof fill === 'string') return extractColorAlpha(fill);
+    if (fill && typeof fill === 'object' && 'colorStops' in (fill as object)) {
+      const gf = fill as { colorStops?: { offset: number; color: string }[] };
+      if (gf.colorStops?.length) return extractColorAlpha(gf.colorStops[0].color);
+    }
+    return 1;
+  }, []);
+
+  /* ─── Decoupled Stroke Opacity (encodes alpha into stroke color string) ─── */
+  const applyStrokeOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
+    if (!obj) return;
+    const c = canvasRef.current; if (!c) return;
+    const stroke = typeof obj.stroke === 'string' && obj.stroke ? obj.stroke : '#000000';
+    obj.set('stroke', withAlpha(stroke, fraction));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).setDirty?.(true);
+    c.requestRenderAll();
+  }, []);
+
+  const getStrokeOpacity = useCallback((obj: FabricObject | null): number => {
+    if (!obj) return 1;
+    return extractColorAlpha(typeof obj.stroke === 'string' ? obj.stroke : '');
+  }, []);
+
   /* ─── Fill Shape with Image (CSS background-size: cover — proportional, centered) ─── */
   // Accepts either a raw File or a pre-cropped HTMLCanvasElement (from FillCropModal)
   const fillShapeWithImage = useCallback(async (obj: FabricObject, source: File | HTMLCanvasElement) => {
@@ -1917,6 +1998,8 @@ export function useFabricCanvas(
     // Effects
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
     applyGradientFill, fillShapeWithImage, cropImage, applyCircularCrop, addRasterLayer, applyImageFilters,
+    // Decoupled fill / stroke opacity
+    applyFillOpacity, getFillOpacity, applyStrokeOpacity, getStrokeOpacity,
     // Pen bezier live handle (for SVG overlay in Canvas.tsx)
     penLiveHandle,
     // Vector anchor editor

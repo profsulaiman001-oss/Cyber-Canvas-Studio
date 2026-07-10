@@ -242,6 +242,50 @@ export default function DesignEditor() {
 
   const zoomPercent = Math.round(controller.zoom * 100);
 
+  /* ── Quick-tray: fill opacity + corner radius ── */
+  const [quickFillOpacity, setQuickFillOpacity] = useState(100);
+  const [quickCornerRadius, setQuickCornerRadius] = useState(0);
+  const [quickCornerRadiusMax, setQuickCornerRadiusMax] = useState(50);
+
+  useEffect(() => {
+    const obj = controller.selectedObject;
+    if (!obj) { setQuickFillOpacity(100); setQuickCornerRadius(0); return; }
+    setQuickFillOpacity(Math.round(controller.getFillOpacity(obj) * 100));
+    if (obj.type === 'rect') {
+      const rx = (obj as import('fabric').FabricObject & { rx?: number }).rx ?? 0;
+      const scaleX = (obj.scaleX ?? 1) || 1;
+      const scaleY = (obj.scaleY ?? 1) || 1;
+      setQuickCornerRadius(Math.round(rx * scaleX));
+      setQuickCornerRadiusMax(Math.max(4, Math.min(
+        Math.round(obj.getScaledWidth() / 2),
+        Math.round(obj.getScaledHeight() / 2),
+      )));
+      void scaleY; // used above for rxMax via getScaledHeight
+    } else {
+      setQuickCornerRadius(0);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controller.selectedObject]);
+
+  const handleFillOpacityChange = useCallback((v: number) => {
+    setQuickFillOpacity(v);
+    const obj = controller.selectedObject;
+    if (!obj) return;
+    controller.applyFillOpacity(obj, v / 100);
+    controller.commitChange();
+  }, [controller]);
+
+  const handleCornerRadiusChange = useCallback((v: number) => {
+    setQuickCornerRadius(v);
+    const obj = controller.selectedObject;
+    if (!obj || obj.type !== 'rect') return;
+    const scaleX = (obj.scaleX ?? 1) || 1;
+    const scaleY = (obj.scaleY ?? 1) || 1;
+    obj.set({ rx: v / scaleX, ry: v / scaleY });
+    controller.getCanvas()?.renderAll();
+    controller.commitChange();
+  }, [controller]);
+
   /* ── Image toolbar actions ── */
   const importImagesRef = useRef<HTMLInputElement>(null);
   const fillWithImageRef = useRef<HTMLInputElement>(null);
@@ -505,6 +549,7 @@ export default function DesignEditor() {
           selectedIsPath={selectedType === 'path'}
           selectedIsText={selectedIsText}
           selectedIsImage={selectedType === 'image'}
+          isRect={selectedType === 'rect'}
           vectorEditActive={vectorEditActive}
           onPenCancel={handlePenCancel}
           onBrushDone={handleBrushDone}
@@ -518,6 +563,11 @@ export default function DesignEditor() {
           onImportImages={handleImportImages}
           onFillWithImage={handleFillWithImage}
           onCropImage={handleCropImage}
+          fillOpacity={quickFillOpacity}
+          onFillOpacityChange={handleFillOpacityChange}
+          cornerRadius={quickCornerRadius}
+          cornerRadiusMax={quickCornerRadiusMax}
+          onCornerRadiusChange={handleCornerRadiusChange}
         />
       </div>
 

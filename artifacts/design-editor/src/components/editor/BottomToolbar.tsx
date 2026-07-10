@@ -28,6 +28,13 @@ interface BottomToolbarProps {
   onImportImages?: () => void;
   onFillWithImage?: () => void;
   onCropImage?: () => void;
+  // Quick-tray: fill opacity + corner radius
+  fillOpacity?: number;
+  onFillOpacityChange?: (v: number) => void;
+  cornerRadius?: number;
+  cornerRadiusMax?: number;
+  onCornerRadiusChange?: (v: number) => void;
+  isRect?: boolean;
 }
 
 const PRESET_LABELS: Record<BrushPreset, string> = {
@@ -50,6 +57,12 @@ export default function BottomToolbar({
   onImportImages,
   onFillWithImage,
   onCropImage,
+  fillOpacity = 100,
+  onFillOpacityChange,
+  cornerRadius = 0,
+  cornerRadiusMax = 50,
+  onCornerRadiusChange,
+  isRect = false,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
 
@@ -63,7 +76,7 @@ export default function BottomToolbar({
     ? { borderTop: '1px solid rgba(251,191,36,0.5)' }
     : { borderTop: '1px solid rgba(0,245,255,0.15)' };
 
-  /* ── Vector Edit Mode ── VectorNodePanel renders the real controls above this bar */
+  /* ── Vector Edit Mode ── */
   if (vectorEditActive) {
     return (
       <div
@@ -114,7 +127,6 @@ export default function BottomToolbar({
           paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
         }}
       >
-        {/* Row 1 — label, color swatch, preset chips, done */}
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <Paintbrush size={15} style={{ color: '#00F5FF', filter: 'drop-shadow(0 0 6px #00F5FF80)' }} />
@@ -122,8 +134,6 @@ export default function BottomToolbar({
               {PRESET_LABELS[state.brushPreset]} Brush
             </span>
           </div>
-
-          {/* Color swatch — opens the absolute overlay above the toolbar (no layout shift) */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <span className="text-[10px] text-muted-foreground">Color</span>
             <button
@@ -137,8 +147,6 @@ export default function BottomToolbar({
               aria-label="Open brush color picker"
             />
           </div>
-
-          {/* Preset chips */}
           <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
             {(['standard', 'glow', 'airbrush'] as BrushPreset[]).map((p) => (
               <button
@@ -163,14 +171,10 @@ export default function BottomToolbar({
             </button>
           </div>
         </div>
-
-        {/* Row 2 — size slider */}
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-muted-foreground shrink-0">Size: {state.brushSize}px</span>
           <Slider min={1} max={80} step={1} value={[state.brushSize]} onValueChange={([v]) => onBrushSizeChange(v)} className="flex-1" />
         </div>
-
-        {/* Row 3 — glow intensity (neon preset only) */}
         {isNeonPreset && (
           <div className="flex items-center gap-3 mt-2">
             <span className="text-[10px] shrink-0" style={{ color: '#00F5FF' }}>Glow: {state.neonIntensity}%</span>
@@ -186,7 +190,7 @@ export default function BottomToolbar({
     );
   }
 
-  /* ── Normal Toolbar (horizontal scroll) ── */
+  /* ── Normal Toolbar ── */
   type ToolId = ActivePanel | 'select' | 'pan-tool' | 'zoom-tool';
 
   const tools: {
@@ -224,12 +228,7 @@ export default function BottomToolbar({
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'zoom' }),
       accent: '#a78bfa',
     },
-    {
-      id: 'add',
-      icon: <Plus size={24} />,
-      label: 'Add',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }),
-    },
+    { id: 'add', icon: <Plus size={24} />, label: 'Add', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }) },
     {
       id: 'vectors',
       icon: <GitBranch size={22} />,
@@ -237,12 +236,7 @@ export default function BottomToolbar({
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'vectors' }),
       accent: '#7B2FFF',
     },
-    {
-      id: 'text',
-      icon: <Type size={22} />,
-      label: 'Text',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }),
-    },
+    { id: 'text', icon: <Type size={22} />, label: 'Text', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }) },
     {
       id: 'shapeModifiers',
       icon: <Layers2 size={22} />,
@@ -263,12 +257,7 @@ export default function BottomToolbar({
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'nudge' }),
       disabled: !hasSelection,
     },
-    {
-      id: 'layers',
-      icon: <Layers size={22} />,
-      label: 'Layers',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'layers' }),
-    },
+    { id: 'layers', icon: <Layers size={22} />, label: 'Layers', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'layers' }) },
     {
       id: 'properties',
       icon: <SlidersHorizontal size={22} />,
@@ -303,107 +292,158 @@ export default function BottomToolbar({
       label: 'Colors',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' }),
     },
-    {
-      id: 'export',
-      icon: <Download size={22} />,
-      label: 'Export',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'export' }),
-    },
+    { id: 'export', icon: <Download size={22} />, label: 'Export', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'export' }) },
   ];
+
+  /* ── Quick-access tray: Opacity + Corner Radius ── */
+  const showQuickTray = hasSelection && !penActive && !brushActive && !vectorEditActive;
 
   return (
     <div
-      className="flex-shrink-0 overflow-x-auto scrollbar-hide"
+      className="flex-shrink-0"
       style={{ background: '#11141A', ...toolbarBg }}
       data-testid="bottom-toolbar"
     >
-      <div
-        className="flex items-start px-1 pt-3 gap-0"
-        style={{ minWidth: 'max-content', paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
-      >
-        {tools.map((tool) => {
-          const isActive =
-            tool.id === 'select'
-              ? state.activeTool === 'select' && state.activePanel === null
-              : tool.id === 'pan-tool'
-              ? state.activeTool === 'pan'
-              : tool.id === 'zoom-tool'
-              ? state.activePanel === 'zoom'
-              : state.activePanel === tool.id;
-
-          const activeColor = tool.accent ?? '#00F5FF';
-
-          return (
-            <button
-              key={tool.id}
-              onClick={tool.disabled ? undefined : tool.action}
-              disabled={tool.disabled}
-              data-testid={`toolbar-${tool.id}`}
-              className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 disabled:opacity-30 flex-shrink-0 min-w-[60px]"
-              style={{
-                color: isActive ? activeColor : '#6b7280',
-                filter: isActive ? `drop-shadow(0 0 6px ${activeColor}80)` : 'none',
-              }}
-            >
-              {tool.icon}
-              <span className="text-[10px] font-medium leading-none whitespace-nowrap">{tool.label}</span>
-              {isActive && (
-                <span
-                  className="absolute bottom-1 w-1 h-1 rounded-full"
-                  style={{ background: activeColor, boxShadow: `0 0 4px ${activeColor}` }}
-                />
-              )}
-            </button>
-          );
-        })}
-
-        {/* Vector anchor editor — only shown when a path object is selected */}
-        {selectedIsPath && hasSelection && (
-          <button
-            onClick={onVectorEditStart}
-            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-            style={{ color: '#7B2FFF' }}
-            title="Edit anchor points"
-          >
-            <Spline size={22} />
-            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Points</span>
-          </button>
-        )}
-
-        {/* Image tools — always show Photos; show Fill when selection isn't already an image; show Crop when image is selected */}
-        <button
-          onClick={onImportImages}
-          className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-          style={{ color: '#6b7280' }}
-          title="Import images"
+      {/* ── Quick-tray: fill opacity + corner radius ── */}
+      {showQuickTray && (
+        <div
+          className="flex items-center gap-3 px-4 pt-2 pb-1"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
         >
-          <ImagePlus size={22} />
-          <span className="text-[10px] font-medium leading-none whitespace-nowrap">Photos</span>
-        </button>
+          {/* Fill Opacity */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span
+              className="text-[10px] font-medium shrink-0 tabular-nums"
+              style={{ color: '#00F5FF', minWidth: '28px' }}
+            >
+              {fillOpacity}%
+            </span>
+            <span className="text-[9px] text-muted-foreground shrink-0">Opacity</span>
+            <Slider
+              min={0} max={100} step={1}
+              value={[fillOpacity]}
+              onValueChange={([v]) => onFillOpacityChange?.(v)}
+              className="flex-1"
+            />
+          </div>
 
-        {hasSelection && !selectedIsImage && (
+          {/* Corner Radius — only for rect objects */}
+          {isRect && (
+            <>
+              <div
+                className="w-px self-stretch shrink-0"
+                style={{ background: 'rgba(255,255,255,0.08)' }}
+              />
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span
+                  className="text-[10px] font-medium shrink-0 tabular-nums"
+                  style={{ color: '#a78bfa', minWidth: '24px' }}
+                >
+                  {cornerRadius}
+                </span>
+                <span className="text-[9px] text-muted-foreground shrink-0">Radius</span>
+                <Slider
+                  min={0} max={cornerRadiusMax} step={1}
+                  value={[cornerRadius]}
+                  onValueChange={([v]) => onCornerRadiusChange?.(v)}
+                  className="flex-1"
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Scrollable icon row ── */}
+      <div className="overflow-x-auto scrollbar-hide">
+        <div
+          className="flex items-start px-1 pt-3 gap-0"
+          style={{ minWidth: 'max-content', paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+        >
+          {tools.map((tool) => {
+            const isActive =
+              tool.id === 'select'
+                ? state.activeTool === 'select' && state.activePanel === null
+                : tool.id === 'pan-tool'
+                ? state.activeTool === 'pan'
+                : tool.id === 'zoom-tool'
+                ? state.activePanel === 'zoom'
+                : state.activePanel === tool.id;
+
+            const activeColor = tool.accent ?? '#00F5FF';
+
+            return (
+              <button
+                key={tool.id}
+                onClick={tool.disabled ? undefined : tool.action}
+                disabled={tool.disabled}
+                data-testid={`toolbar-${tool.id}`}
+                className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 disabled:opacity-30 flex-shrink-0 min-w-[60px]"
+                style={{
+                  color: isActive ? activeColor : '#6b7280',
+                  filter: isActive ? `drop-shadow(0 0 6px ${activeColor}80)` : 'none',
+                }}
+              >
+                {tool.icon}
+                <span className="text-[10px] font-medium leading-none whitespace-nowrap">{tool.label}</span>
+                {isActive && (
+                  <span
+                    className="absolute bottom-1 w-1 h-1 rounded-full"
+                    style={{ background: activeColor, boxShadow: `0 0 4px ${activeColor}` }}
+                  />
+                )}
+              </button>
+            );
+          })}
+
+          {/* Vector anchor editor — only shown when a path object is selected */}
+          {selectedIsPath && hasSelection && (
+            <button
+              onClick={onVectorEditStart}
+              className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+              style={{ color: '#7B2FFF' }}
+              title="Edit anchor points"
+            >
+              <Spline size={22} />
+              <span className="text-[10px] font-medium leading-none whitespace-nowrap">Points</span>
+            </button>
+          )}
+
+          {/* Image tools */}
           <button
-            onClick={onFillWithImage}
+            onClick={onImportImages}
             className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
             style={{ color: '#6b7280' }}
-            title="Fill shape with image"
+            title="Import images"
           >
-            <Image size={22} />
-            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Fill Img</span>
+            <ImagePlus size={22} />
+            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Photos</span>
           </button>
-        )}
 
-        {hasSelection && selectedIsImage && (
-          <button
-            onClick={onCropImage}
-            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-            style={{ color: '#6b7280' }}
-            title="Crop image"
-          >
-            <Crop size={22} />
-            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Crop</span>
-          </button>
-        )}
+          {hasSelection && !selectedIsImage && (
+            <button
+              onClick={onFillWithImage}
+              className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+              style={{ color: '#6b7280' }}
+              title="Fill shape with image"
+            >
+              <Image size={22} />
+              <span className="text-[10px] font-medium leading-none whitespace-nowrap">Fill Img</span>
+            </button>
+          )}
+
+          {hasSelection && selectedIsImage && (
+            <button
+              onClick={onCropImage}
+              className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+              style={{ color: '#6b7280' }}
+              title="Crop image"
+            >
+              <Crop size={22} />
+              <span className="text-[10px] font-medium leading-none whitespace-nowrap">Crop</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

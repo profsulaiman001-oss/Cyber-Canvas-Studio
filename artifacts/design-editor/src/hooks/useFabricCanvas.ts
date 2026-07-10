@@ -21,8 +21,28 @@ import {
 } from 'fabric';
 
 /* ── Color utilities for decoupled fill / stroke opacity ─────────────────── */
-/** Parse any CSS color to its RGB triple (ignores existing alpha). */
+/**
+ * Parse any CSS color to its RGB triple, preserving the original RGB even
+ * when the existing alpha is 0.  The canvas-based approach fails for zero-alpha
+ * colors because the browser composites against the clear background and
+ * getImageData returns [0,0,0,0] → RGB is lost as black.  We therefore parse
+ * rgba/rgb strings directly first, and only fall back to canvas for named
+ * colors and hex values where alpha is never an issue.
+ */
 function _cssColorToRgb(cssColor: string): [number, number, number] | null {
+  if (!cssColor) return null;
+  // Direct parse for rgb/rgba — avoids canvas black-on-zero-alpha bug
+  const rgbaMatch = cssColor.match(
+    /rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i,
+  );
+  if (rgbaMatch) {
+    return [
+      Math.round(parseFloat(rgbaMatch[1])),
+      Math.round(parseFloat(rgbaMatch[2])),
+      Math.round(parseFloat(rgbaMatch[3])),
+    ];
+  }
+  // Fallback: canvas render for hex / named colors (these always have full alpha)
   try {
     const c = document.createElement('canvas');
     c.width = c.height = 1;

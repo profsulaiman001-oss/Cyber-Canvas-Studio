@@ -7,6 +7,7 @@ export type ActivePanel =
   | 'text' | 'shapeModifiers' | 'adjust' | 'nudge'
   | 'stroke' | 'shadows' | 'threeD'
   | 'vectors' | 'zoom'
+  | 'opacity-tool' | 'radius-tool'
   | null;
 
 export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush' | 'zoom';

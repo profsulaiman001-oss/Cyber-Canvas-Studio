@@ -27,6 +27,7 @@ import CropModal from '@/components/editor/CropModal';
 import ColorPicker from '@/components/editor/ColorPicker';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
+import { Droplet, SquareRoundCorner } from 'lucide-react';
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -541,6 +542,64 @@ export default function DesignEditor() {
           </div>
         )}
 
+        {/* Opacity Tool overlay — compact micro-panel, only shown when eligible object is selected */}
+        {state.activePanel === 'opacity-tool' && hasSelection && !brushActive && !penActive && !vectorEditActive && (
+          <div
+            className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
+            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
+          >
+            <div className="flex items-center gap-3">
+              <Droplet size={14} style={{ color: '#00F5FF', flexShrink: 0 }} />
+              <span className="text-xs font-semibold tracking-wider shrink-0" style={{ color: '#00F5FF' }}>OPACITY</span>
+              <span className="text-[10px] font-medium tabular-nums shrink-0" style={{ color: '#00F5FF', minWidth: '30px', textAlign: 'right' }}>
+                {quickFillOpacity}%
+              </span>
+              <Slider
+                min={0} max={100} step={1}
+                value={[quickFillOpacity]}
+                onValueChange={([v]) => handleFillOpacityChange(v)}
+                className="flex-1"
+              />
+              <button
+                onClick={() => dispatch({ type: 'CLOSE_PANEL' })}
+                className="text-[10px] px-2 py-1 rounded-lg shrink-0"
+                style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Corner Radius Tool overlay — compact micro-panel, only shown for rect objects */}
+        {state.activePanel === 'radius-tool' && hasSelection && selectedType === 'rect' && !brushActive && !penActive && !vectorEditActive && (
+          <div
+            className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
+            style={{ background: '#11141A', borderTop: '1px solid rgba(167,139,250,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
+          >
+            <div className="flex items-center gap-3">
+              <SquareRoundCorner size={14} style={{ color: '#a78bfa', flexShrink: 0 }} />
+              <span className="text-xs font-semibold tracking-wider shrink-0" style={{ color: '#a78bfa' }}>RADIUS</span>
+              <span className="text-[10px] font-medium tabular-nums shrink-0" style={{ color: '#a78bfa', minWidth: '24px', textAlign: 'right' }}>
+                {quickCornerRadius}
+              </span>
+              <Slider
+                min={0} max={quickCornerRadiusMax} step={1}
+                value={[quickCornerRadius]}
+                onValueChange={([v]) => handleCornerRadiusChange(v)}
+                className="flex-1"
+              />
+              <button
+                onClick={() => dispatch({ type: 'CLOSE_PANEL' })}
+                className="text-[10px] px-2 py-1 rounded-lg shrink-0"
+                style={{ background: 'rgba(167,139,250,0.1)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+
         <BottomToolbar
           hasSelection={hasSelection}
           penActive={penActive}
@@ -563,11 +622,6 @@ export default function DesignEditor() {
           onImportImages={handleImportImages}
           onFillWithImage={handleFillWithImage}
           onCropImage={handleCropImage}
-          fillOpacity={quickFillOpacity}
-          onFillOpacityChange={handleFillOpacityChange}
-          cornerRadius={quickCornerRadius}
-          cornerRadiusMax={quickCornerRadiusMax}
-          onCornerRadiusChange={handleCornerRadiusChange}
         />
       </div>
 

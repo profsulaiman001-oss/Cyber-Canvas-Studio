@@ -2,6 +2,7 @@ import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
   PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus,
+  Droplet, SquareRoundCorner,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
@@ -28,12 +29,6 @@ interface BottomToolbarProps {
   onImportImages?: () => void;
   onFillWithImage?: () => void;
   onCropImage?: () => void;
-  // Quick-tray: fill opacity + corner radius
-  fillOpacity?: number;
-  onFillOpacityChange?: (v: number) => void;
-  cornerRadius?: number;
-  cornerRadiusMax?: number;
-  onCornerRadiusChange?: (v: number) => void;
   isRect?: boolean;
 }
 
@@ -57,11 +52,6 @@ export default function BottomToolbar({
   onImportImages,
   onFillWithImage,
   onCropImage,
-  fillOpacity = 100,
-  onFillOpacityChange,
-  cornerRadius = 0,
-  cornerRadiusMax = 50,
-  onCornerRadiusChange,
   isRect = false,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
@@ -238,6 +228,22 @@ export default function BottomToolbar({
     },
     { id: 'text', icon: <Type size={22} />, label: 'Text', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }) },
     {
+      id: 'opacity-tool',
+      icon: <Droplet size={22} />,
+      label: 'Opacity',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'opacity-tool' }),
+      disabled: !hasSelection,
+      accent: '#00F5FF',
+    },
+    {
+      id: 'radius-tool',
+      icon: <SquareRoundCorner size={22} />,
+      label: 'Radius',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'radius-tool' }),
+      disabled: !hasSelection || !isRect,
+      accent: '#a78bfa',
+    },
+    {
       id: 'shapeModifiers',
       icon: <Layers2 size={22} />,
       label: 'Modifiers',
@@ -295,65 +301,12 @@ export default function BottomToolbar({
     { id: 'export', icon: <Download size={22} />, label: 'Export', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'export' }) },
   ];
 
-  /* ── Quick-access tray: Opacity + Corner Radius ── */
-  const showQuickTray = hasSelection && !penActive && !brushActive && !vectorEditActive;
-
   return (
     <div
       className="flex-shrink-0"
       style={{ background: '#11141A', ...toolbarBg }}
       data-testid="bottom-toolbar"
     >
-      {/* ── Quick-tray: fill opacity + corner radius ── */}
-      {showQuickTray && (
-        <div
-          className="flex items-center gap-3 px-4 pt-2 pb-1"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-        >
-          {/* Fill Opacity */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span
-              className="text-[10px] font-medium shrink-0 tabular-nums"
-              style={{ color: '#00F5FF', minWidth: '28px' }}
-            >
-              {fillOpacity}%
-            </span>
-            <span className="text-[9px] text-muted-foreground shrink-0">Opacity</span>
-            <Slider
-              min={0} max={100} step={1}
-              value={[fillOpacity]}
-              onValueChange={([v]) => onFillOpacityChange?.(v)}
-              className="flex-1"
-            />
-          </div>
-
-          {/* Corner Radius — only for rect objects */}
-          {isRect && (
-            <>
-              <div
-                className="w-px self-stretch shrink-0"
-                style={{ background: 'rgba(255,255,255,0.08)' }}
-              />
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span
-                  className="text-[10px] font-medium shrink-0 tabular-nums"
-                  style={{ color: '#a78bfa', minWidth: '24px' }}
-                >
-                  {cornerRadius}
-                </span>
-                <span className="text-[9px] text-muted-foreground shrink-0">Radius</span>
-                <Slider
-                  min={0} max={cornerRadiusMax} step={1}
-                  value={[cornerRadius]}
-                  onValueChange={([v]) => onCornerRadiusChange?.(v)}
-                  className="flex-1"
-                />
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
       {/* ── Scrollable icon row ── */}
       <div className="overflow-x-auto scrollbar-hide">
         <div

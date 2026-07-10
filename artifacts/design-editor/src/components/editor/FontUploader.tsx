@@ -69,6 +69,40 @@ export async function loadStoredFonts(
   }
 }
 
+export async function renameStoredFont(
+  oldName: string,
+  newName: string,
+  dispatch: (action: { type: 'ADD_CUSTOM_FONT' | 'REMOVE_CUSTOM_FONT'; payload: string }) => void
+): Promise<boolean> {
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === oldName) return false;
+
+  const stored = (await localforage.getItem<StoredFont[]>(FONTS_STORE_KEY)) || [];
+  const entry = stored.find((f) => f.name === oldName);
+  if (!entry) return false;
+  if (stored.some((f) => f.name === trimmed)) return false;
+
+  try {
+    const face = new FontFace(trimmed, entry.data);
+    await face.load();
+    document.fonts.add(face);
+    injectFontFace(trimmed, entry.data, entry.ext || 'ttf');
+  } catch {
+    return false;
+  }
+
+  const oldStyleId = `font-face-${oldName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '')}`;
+  document.getElementById(oldStyleId)?.remove();
+
+  const updated = stored.map((f) => (f.name === oldName ? { ...f, name: trimmed } : f));
+  await localforage.setItem(FONTS_STORE_KEY, updated);
+
+  dispatch({ type: 'REMOVE_CUSTOM_FONT', payload: oldName });
+  dispatch({ type: 'ADD_CUSTOM_FONT', payload: trimmed });
+
+  return true;
+}
+
 export async function removeStoredFont(
   fontName: string,
   dispatch: (action: { type: 'REMOVE_CUSTOM_FONT'; payload: string }) => void

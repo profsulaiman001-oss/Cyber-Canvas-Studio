@@ -248,10 +248,10 @@ function drawInnerShadow(
 function draw3DLayer(
   ctx: CanvasRenderingContext2D,
   obj: FabricObject,
-  cfg: { steps: number; color: string; angle: number },
+  cfg: { steps: number; color: string; angle: number; bevel?: boolean; bevelTaper?: number },
   vp: number[]
 ) {
-  const { steps, color, angle } = cfg;
+  const { steps, color, angle, bevel = false, bevelTaper = 20 } = cfg;
   const ar = (angle * Math.PI) / 180;
   const baseOpacity = obj.opacity ?? 1;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -273,6 +273,10 @@ function draw3DLayer(
 
   // Each step = 2px offset so depth is visible on large shapes; paint farthest first
   const PX_PER_STEP = 2;
+  // Bevel: object center in design-space coordinates for scale pivot
+  const center = bevel ? obj.getCenterPoint() : null;
+  // bevelTaper is 0–50 (percentage); farthest layer shrinks by that fraction
+  const taperFraction = bevelTaper / 100;
 
   for (let i = steps; i >= 1; i--) {
     const t = i / steps; // 1 = farthest, near 0 = closest
@@ -284,6 +288,13 @@ function draw3DLayer(
     ctx.globalAlpha = baseOpacity * (0.4 + 0.45 * (1 - t));
     ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
     ctx.translate(ox, oy);
+    if (bevel && center) {
+      // Scale inward around the object's design-space center: farthest layer = (1 - taperFraction)
+      const s = 1 - t * taperFraction;
+      ctx.translate(center.x, center.y);
+      ctx.scale(s, s);
+      ctx.translate(-center.x, -center.y);
+    }
     obj.render(ctx);
     ctx.restore();
   }
@@ -1079,7 +1090,7 @@ export function useFabricCanvas(
   );
 
   /* ─── True 3D Extrusion ─── */
-  const apply3DDepth = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; steps: number; color: string; angle: number } | null) => {
+  const apply3DDepth = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; steps: number; color: string; angle: number; bevel?: boolean; bevelTaper?: number } | null) => {
     if (!obj) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any)._depth3d = cfg;

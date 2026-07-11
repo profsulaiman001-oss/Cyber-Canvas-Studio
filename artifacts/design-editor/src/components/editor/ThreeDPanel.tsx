@@ -30,6 +30,15 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-semibold text-primary uppercase tracking-wider pt-1">{children}</p>;
 }
 
+type Depth3dConfig = {
+  enabled?: boolean;
+  steps?: number;
+  color?: string;
+  angle?: number;
+  bevel?: boolean;
+  bevelTaper?: number;
+};
+
 export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'threeD';
@@ -40,26 +49,32 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
   const [color, setColor] = useState('#333333');
   const [angle, setAngle] = useState(225);
   const [colorOpen, setColorOpen] = useState(false);
+  const [bevel, setBevel] = useState(false);
+  const [bevelTaper, setBevelTaper] = useState(20);
 
   const syncFromObj = useCallback(() => {
     if (!obj) return;
-    const depth = (obj as FabricObject & Record<string, unknown>)._depth3d as
-      { enabled?: boolean; steps?: number; color?: string; angle?: number } | undefined;
+    const depth = (obj as FabricObject & Record<string, unknown>)._depth3d as Depth3dConfig | undefined;
     if (depth) {
       setEnabled(!!depth.enabled);
       setAmount(depth.steps ?? 8);
       setColor(depth.color ?? '#333333');
       setAngle(depth.angle ?? 225);
+      setBevel(!!depth.bevel);
+      setBevelTaper(depth.bevelTaper ?? 20);
     } else {
       setEnabled(false);
+      setBevel(false);
     }
   }, [obj]);
 
   useEffect(() => { syncFromObj(); }, [syncFromObj]);
 
-  const applyDepth = useCallback((en: boolean, steps: number, col: string, ang: number) => {
+  const applyDepth = useCallback((
+    en: boolean, steps: number, col: string, ang: number, bv: boolean, bt: number
+  ) => {
     if (!obj) return;
-    controller.apply3DDepth(obj, en ? { enabled: true, steps, color: col, angle: ang } : null);
+    controller.apply3DDepth(obj, en ? { enabled: true, steps, color: col, angle: ang, bevel: bv, bevelTaper: bt } : null);
     controller.commitChange();
   }, [obj, controller]);
 
@@ -86,13 +101,13 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
             <SectionLabel>3D Depth Effect</SectionLabel>
             <Switch
               checked={enabled}
-              onCheckedChange={(v) => { setEnabled(v); applyDepth(v, amount, color, angle); }}
+              onCheckedChange={(v) => { setEnabled(v); applyDepth(v, amount, color, angle, bevel, bevelTaper); }}
             />
           </div>
 
           {enabled && (
             <div className="space-y-4 pl-2 border-l border-border">
-              {/* Color picker */}
+              {/* Depth Color */}
               <div>
                 <button
                   className="flex items-center justify-between w-full py-0.5"
@@ -106,15 +121,15 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
                 </button>
                 {colorOpen && (
                   <div className="mt-2 mb-1">
-                    <ColorPicker value={color} onChange={(v) => { setColor(v); applyDepth(true, amount, v, angle); }} />
+                    <ColorPicker value={color} onChange={(v) => { setColor(v); applyDepth(true, amount, v, angle, bevel, bevelTaper); }} />
                   </div>
                 )}
               </div>
 
               <SliderRow label="Depth Steps" value={amount} min={1} max={80}
-                onChange={(v) => { setAmount(v); applyDepth(true, v, color, angle); }} />
+                onChange={(v) => { setAmount(v); applyDepth(true, v, color, angle, bevel, bevelTaper); }} />
               <SliderRow label="Angle" value={angle} min={0} max={360} unit="°"
-                onChange={(v) => { setAngle(v); applyDepth(true, amount, color, v); }} />
+                onChange={(v) => { setAngle(v); applyDepth(true, amount, color, v, bevel, bevelTaper); }} />
 
               {/* Visual angle preview */}
               <div className="flex items-center gap-3">
@@ -129,6 +144,28 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
                   />
                   <circle cx="0" cy="0" r="2.5" fill="#00F5FF" />
                 </svg>
+              </div>
+
+              {/* Bevel section */}
+              <div className="pt-1 border-t border-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Bevel Mode</Label>
+                  <Switch
+                    checked={bevel}
+                    onCheckedChange={(v) => { setBevel(v); applyDepth(true, amount, color, angle, v, bevelTaper); }}
+                    data-testid="switch-bevel"
+                  />
+                </div>
+                {bevel && (
+                  <SliderRow
+                    label="Bevel Taper"
+                    value={bevelTaper}
+                    min={1}
+                    max={50}
+                    unit="%"
+                    onChange={(v) => { setBevelTaper(v); applyDepth(true, amount, color, angle, true, v); }}
+                  />
+                )}
               </div>
             </div>
           )}

@@ -1,11 +1,7 @@
 import { useRef } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import { Label } from '@/components/ui/label';
 import { useEditor } from '@/store/editorStore';
-import { CanvasController, BrushPreset } from '@/hooks/useFabricCanvas';
-import { ImageIcon, Paintbrush } from 'lucide-react';
+import { CanvasController } from '@/hooks/useFabricCanvas';
 
 interface AddElementSheetProps {
   controller: CanvasController;
@@ -27,66 +23,12 @@ function ShapeCard({ label, onClick, testId, children }: {
   );
 }
 
-const BRUSH_PRESETS: { id: BrushPreset; label: string; desc: string; color: string; icon: React.ReactNode }[] = [
-  {
-    id: 'standard',
-    label: 'Paint Brush',
-    desc: 'Rich freehand stroke',
-    color: '#00F5FF',
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-6 h-6 fill-none stroke-current" strokeWidth="2">
-        <path d="M3 17c0 1 1 2 2 2s3-2 3-4c0-1.5-1-2.5-3-2.5S2 13 2 14" />
-        <path d="M7 15l10-10 2 2L9 17" />
-      </svg>
-    ),
-  },
-  {
-    id: 'glow',
-    label: 'Neon / Glow',
-    desc: 'Ambient light emission',
-    color: '#00F5FF',
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-6 h-6 fill-none stroke-current" strokeWidth="2">
-        <path d="M12 2L8 12l4 2-2 8 8-12-4-2 2-6z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'airbrush',
-    label: 'Airbrush',
-    desc: 'Soft feathered spray',
-    color: '#a78bfa',
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-6 h-6 fill-none stroke-current" strokeWidth="2">
-        <circle cx="9" cy="12" r="3" />
-        <path d="M12 12h8M18 9l3 3-3 3" />
-        <circle cx="6" cy="8" r="1" /><circle cx="4" cy="14" r="1" /><circle cx="8" cy="16" r="1" />
-      </svg>
-    ),
-  },
-];
-
 export default function AddElementSheet({ controller }: AddElementSheetProps) {
-  const { state, dispatch } = useEditor();
-  const isOpen = state.activePanel === 'add';
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const { dispatch } = useEditor();
+  const isOpen = useEditor().state.activePanel === 'add';
 
   const close = () => dispatch({ type: 'CLOSE_PANEL' });
   const add = (fn: () => void) => { fn(); close(); };
-
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    await controller.addImageFromFile(file);
-    close();
-    if (imageInputRef.current) imageInputRef.current.value = '';
-  };
-
-  const startBrush = (preset: BrushPreset) => {
-    dispatch({ type: 'SET_BRUSH_PRESET', payload: preset });
-    dispatch({ type: 'SET_TOOL', payload: 'brush' });
-    close();
-  };
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
@@ -101,52 +43,6 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
         </SheetHeader>
 
         <div className="px-4 pb-safe space-y-5" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-
-          {/* ── Draw / Brush ── */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider flex items-center gap-1.5">
-                <Paintbrush size={12} />
-                Draw
-              </p>
-              <span className="text-[10px] text-muted-foreground">
-                Vector tools → <span className="text-primary">Vectors</span> tab
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              {BRUSH_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  onClick={() => startBrush(preset.id)}
-                  className="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all active:scale-95"
-                  style={{
-                    background: state.brushPreset === preset.id && state.activeTool === 'brush'
-                      ? 'rgba(0,245,255,0.12)' : 'rgba(0,245,255,0.03)',
-                    borderColor: state.brushPreset === preset.id && state.activeTool === 'brush'
-                      ? '#00F5FF' : 'rgba(255,255,255,0.1)',
-                    color: preset.color,
-                  }}
-                >
-                  {preset.icon}
-                  <span className="text-xs font-medium" style={{ color: preset.id === 'airbrush' ? '#a78bfa' : '#00F5FF' }}>
-                    {preset.label}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground text-center leading-tight">{preset.desc}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="space-y-3 px-1">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Brush Size</Label>
-                <span className="text-xs text-muted-foreground">{state.brushSize}px</span>
-              </div>
-              <Slider
-                min={1} max={80} step={1} value={[state.brushSize]}
-                onValueChange={([v]) => dispatch({ type: 'SET_BRUSH_SIZE', payload: v })}
-              />
-            </div>
-          </div>
 
           {/* ── Basic Shapes ── */}
           <div>
@@ -197,15 +93,6 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
                 </svg>
               </ShapeCard>
             </div>
-          </div>
-
-          {/* ── Image ── */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Image</p>
-            <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageSelect} className="hidden" data-testid="input-image-upload" />
-            <Button variant="secondary" className="w-full gap-2" onClick={() => imageInputRef.current?.click()} data-testid="add-image">
-              <ImageIcon size={15} />Import from Gallery
-            </Button>
           </div>
 
         </div>

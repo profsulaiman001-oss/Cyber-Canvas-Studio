@@ -1,12 +1,19 @@
+import { useState } from 'react';
 import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
   PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus,
-  Droplet, SquareRoundCorner,
+  Droplet, SquareRoundCorner, ChevronUp,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
 import type { BrushPreset } from '@/hooks/useFabricCanvas';
+
+const BRUSH_MENU_PRESETS: { id: BrushPreset; label: string; desc: string }[] = [
+  { id: 'standard', label: 'Paint',    desc: 'Freehand stroke' },
+  { id: 'glow',     label: 'Neon',     desc: 'Glow emission'   },
+  { id: 'airbrush', label: 'Airbrush', desc: 'Feathered spray' },
+];
 
 interface BottomToolbarProps {
   hasSelection: boolean;
@@ -55,6 +62,13 @@ export default function BottomToolbar({
   isRect = false,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
+  const [brushMenuOpen, setBrushMenuOpen] = useState(false);
+
+  const startBrush = (preset: BrushPreset) => {
+    dispatch({ type: 'SET_BRUSH_PRESET', payload: preset });
+    dispatch({ type: 'SET_TOOL', payload: 'brush' });
+    setBrushMenuOpen(false);
+  };
 
   const toolbarBg = penActive
     ? { borderTop: '1px solid rgba(255,107,107,0.4)' }
@@ -216,7 +230,7 @@ export default function BottomToolbar({
       icon: <ZoomIn size={22} />,
       label: 'Zoom',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'zoom' }),
-      accent: '#a78bfa',
+      accent: '#00F5FF',
     },
     { id: 'add', icon: <Plus size={24} />, label: 'Add', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }) },
     {
@@ -307,6 +321,53 @@ export default function BottomToolbar({
       style={{ background: '#11141A', ...toolbarBg }}
       data-testid="bottom-toolbar"
     >
+      {/* ── Brush contextual popup ── */}
+      {brushMenuOpen && (
+        <div
+          className="px-4 py-3 space-y-3"
+          style={{ borderTop: '1px solid rgba(0,245,255,0.25)', background: '#11141A' }}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#00F5FF' }}>
+              <Paintbrush size={11} className="inline mr-1" />Brush
+            </span>
+            <button
+              onClick={() => setBrushMenuOpen(false)}
+              className="text-[10px] px-2 py-0.5 rounded"
+              style={{ color: '#6b7280', background: 'rgba(255,255,255,0.05)' }}
+            >✕</button>
+          </div>
+          <div className="flex gap-2">
+            {BRUSH_MENU_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => startBrush(p.id)}
+                className="flex-1 flex flex-col items-center gap-1 py-2 rounded-xl transition-all active:scale-95"
+                style={{
+                  background: state.brushPreset === p.id
+                    ? 'rgba(0,245,255,0.15)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${state.brushPreset === p.id ? '#00F5FF' : 'rgba(255,255,255,0.1)'}`,
+                  color: state.brushPreset === p.id ? '#00F5FF' : '#9ca3af',
+                }}
+              >
+                <Paintbrush size={16} />
+                <span className="text-[10px] font-medium leading-none">{p.label}</span>
+                <span className="text-[9px] text-muted-foreground leading-none">{p.desc}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-muted-foreground shrink-0">Size: {state.brushSize}px</span>
+            <Slider
+              min={1} max={80} step={1}
+              value={[state.brushSize]}
+              onValueChange={([v]) => dispatch({ type: 'SET_BRUSH_SIZE', payload: v })}
+              className="flex-1"
+            />
+          </div>
+        </div>
+      )}
+
       {/* ── Scrollable icon row ── */}
       <div className="overflow-x-auto scrollbar-hide">
         <div
@@ -348,6 +409,26 @@ export default function BottomToolbar({
               </button>
             );
           })}
+
+          {/* Brush tool button */}
+          <button
+            onClick={() => { setBrushMenuOpen((o) => !o); dispatch({ type: 'CLOSE_PANEL' }); }}
+            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+            style={{
+              color: brushMenuOpen ? '#00F5FF' : '#6b7280',
+              filter: brushMenuOpen ? 'drop-shadow(0 0 6px #00F5FF80)' : 'none',
+            }}
+            data-testid="toolbar-brush"
+          >
+            <Paintbrush size={22} />
+            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Brush</span>
+            {brushMenuOpen && (
+              <>
+                <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }} />
+                <ChevronUp size={10} className="absolute top-1 right-1 opacity-60" style={{ color: '#00F5FF' }} />
+              </>
+            )}
+          </button>
 
           {/* Vector anchor editor — only shown when a path object is selected */}
           {selectedIsPath && hasSelection && (

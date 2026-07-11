@@ -505,26 +505,26 @@ export default function DesignEditor() {
         {state.activePanel === 'zoom' && !brushActive && !penActive && (
           <div
             className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
-            style={{ background: '#11141A', borderTop: '1px solid rgba(167,139,250,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
+            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
           >
             <div className="flex items-center gap-2 mb-2 justify-between">
-              <p className="text-xs font-semibold tracking-wider" style={{ color: '#a78bfa' }}>ZOOM</p>
+              <p className="text-xs font-semibold tracking-wider" style={{ color: '#00F5FF' }}>ZOOM</p>
               <div className="flex items-center gap-2">
                 <button
                   onClick={controller.zoomOut}
                   className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
-                  style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
+                  style={{ background: 'rgba(0,245,255,0.12)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
                 >−</button>
-                <span className="text-xs font-mono font-bold min-w-[52px] text-center" style={{ color: '#a78bfa' }}>{zoomPercent}%</span>
+                <span className="text-xs font-mono font-bold min-w-[52px] text-center" style={{ color: '#00F5FF' }}>{zoomPercent}%</span>
                 <button
                   onClick={controller.zoomIn}
                   className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
-                  style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
+                  style={{ background: 'rgba(0,245,255,0.12)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
                 >+</button>
                 <button
                   onClick={controller.resetZoom}
                   className="text-[10px] px-2 py-1 rounded-lg"
-                  style={{ background: 'rgba(167,139,250,0.08)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.2)' }}
+                  style={{ background: 'rgba(0,245,255,0.08)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.2)' }}
                 >Fit</button>
               </div>
             </div>

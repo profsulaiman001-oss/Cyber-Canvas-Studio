@@ -259,16 +259,25 @@ function draw3DLayer(
   const origFill = o.fill;
   const origShadow = o.shadow;
   const origSW = o.strokeWidth;
+  const origStroke = o.stroke;
+  // Disable Fabric's object cache so our fill mutation is actually used during render
+  const origCaching = o.objectCaching;
+  const origDirty = o.dirty;
 
-  // Paint depth slabs back-to-front (farthest first) with solid extrusion color
-  // Using source-over so they appear on the canvas regardless of background opacity
   o.fill = color;
+  o.stroke = color;
   o.shadow = null;
   o.strokeWidth = 0;
+  o.objectCaching = false;
+  o.dirty = true;
+
+  // Each step = 2px offset so depth is visible on large shapes; paint farthest first
+  const PX_PER_STEP = 2;
+
   for (let i = steps; i >= 1; i--) {
     const t = i / steps; // 1 = farthest, near 0 = closest
-    const ox = Math.cos(ar) * i;
-    const oy = Math.sin(ar) * i;
+    const ox = Math.cos(ar) * i * PX_PER_STEP;
+    const oy = Math.sin(ar) * i * PX_PER_STEP;
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
     // Fade far slabs to 40%, near slabs to 85% — creates visible depth gradient
@@ -281,8 +290,11 @@ function draw3DLayer(
 
   // Restore original properties then re-render the main object on top of depth slabs
   o.fill = origFill;
+  o.stroke = origStroke;
   o.shadow = origShadow;
   o.strokeWidth = origSW;
+  o.objectCaching = origCaching;
+  o.dirty = origDirty;
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = baseOpacity;

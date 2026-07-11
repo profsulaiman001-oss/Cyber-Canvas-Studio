@@ -111,7 +111,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
                 )}
               </div>
 
-              <SliderRow label="Depth Steps" value={amount} min={1} max={30}
+              <SliderRow label="Depth Steps" value={amount} min={1} max={80}
                 onChange={(v) => { setAmount(v); applyDepth(true, v, color, angle); }} />
               <SliderRow label="Angle" value={angle} min={0} max={360} unit="°"
                 onChange={(v) => { setAngle(v); applyDepth(true, amount, color, v); }} />

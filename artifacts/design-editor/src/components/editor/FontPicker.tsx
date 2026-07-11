@@ -131,7 +131,10 @@ export default function FontPicker({ value, onChange, systemFonts, customFonts, 
             )}
           </div>
 
-          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+          <div
+            style={{ maxHeight: '300px', overflowY: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
             {filteredSystem.length === 0 && filteredCustom.length === 0 && (
               <div className="px-3 py-4 text-xs text-center text-muted-foreground">No fonts found</div>
             )}

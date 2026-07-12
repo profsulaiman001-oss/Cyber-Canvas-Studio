@@ -49,13 +49,29 @@ async function getPaper() {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fabricObjToWorldPath(obj: FabricObject, pp: any): Promise<any | null> {
-  // For images/groups just use a bounding-box rectangle — they have no vector outline
+  // For images/groups, build the world-space polygon from the transform matrix.
+  // Using obj.left/top directly is WRONG when originX/Y != 'left'/'top' (common
+  // after transforms), causing the "center-shift" bug. calcTransformMatrix() maps
+  // local half-extents to design/world coords correctly for any origin/rotation.
   if (obj.type === 'image' || obj.type === 'group' || obj.type === 'activeselection') {
-    const w = obj.getScaledWidth();
-    const h = obj.getScaledHeight();
-    const l = obj.left ?? 0;
-    const t = obj.top ?? 0;
-    return new pp.Path.Rectangle(new pp.Rectangle(l, t, w, h));
+    const m = obj.calcTransformMatrix();
+    const halfW = (obj.width ?? 0) / 2;
+    const halfH = (obj.height ?? 0) / 2;
+    // Transform each local corner to world space: world = M * local
+    const tx = (lx: number, ly: number) => ({
+      x: m[0] * lx + m[2] * ly + m[4],
+      y: m[1] * lx + m[3] * ly + m[5],
+    });
+    const tl = tx(-halfW, -halfH), tr = tx(halfW, -halfH);
+    const br = tx(halfW, halfH),   bl = tx(-halfW, halfH);
+    const poly = new pp.Path([
+      new pp.Segment(new pp.Point(tl.x, tl.y)),
+      new pp.Segment(new pp.Point(tr.x, tr.y)),
+      new pp.Segment(new pp.Point(br.x, br.y)),
+      new pp.Segment(new pp.Point(bl.x, bl.y)),
+    ]);
+    poly.closed = true;
+    return poly;
   }
 
   const svgStr = obj.toSVG();
@@ -224,6 +240,32 @@ async function performBooleanOp(objs: FabricObject[], op: BoolOp, canvas: Canvas
 
     if (!resultPathData.trim()) return false;
 
+    // ── Image-aware result: preserve texture via absolutePositioned clipPath ──
+    // The result path is in world/design coordinates. For raster images, applying
+    // it as an absolutePositioned clipPath preserves the pixel texture exactly,
+    // instead of replacing the image with a solid-filled vector path (Bug 1 fix).
+    const imageObj = objs.find((o) => o.type === 'image');
+    if (imageObj) {
+      // The clip shape lives in design-space (absolutePositioned:true = ignores
+      // the parent object's own transform, clips in canvas coordinates).
+      const clipShape = new FabricPath(resultPathData, {
+        absolutePositioned: true,
+        fill: 'black',          // colour irrelevant — only the shape matters
+        stroke: undefined,
+        strokeWidth: 0,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const clonedImg: FabricObject = await (imageObj as any).clone();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (clonedImg as any).clipPath = clipShape;
+      objs.forEach((o) => canvas.remove(o));
+      canvas.add(clonedImg);
+      canvas.setActiveObject(clonedImg);
+      canvas.renderAll();
+      return true;
+    }
+
+    // ── Vector-only result: create a filled FabricPath ──
     const opLabels: Record<string, string> = {
       unite: 'Union', subtract: 'Subtract', intersect: 'Intersect',
       exclude: 'Exclude', divide: 'Divide', trim: 'Trim', weld: 'Weld',

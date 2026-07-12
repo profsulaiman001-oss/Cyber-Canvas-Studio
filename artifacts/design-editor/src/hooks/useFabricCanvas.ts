@@ -125,6 +125,13 @@ export interface VectorAnchor {
   kind: 'anchor' | 'handle';
   pairScreenX: number | null;
   pairScreenY: number | null;
+  /** Local coords of the anchor this handle belongs to (for mirror math) */
+  anchorLocalX?: number;
+  anchorLocalY?: number;
+  /** Sibling handle location in path for Photoshop-style symmetric mirroring */
+  mirrorCmdIdx?: number;
+  mirrorXOff?: number;
+  mirrorYOff?: number;
 }
 
 const MAX_UNDO = 50;
@@ -338,6 +345,10 @@ export function useFabricCanvas(
   const snapToGridRef = useRef(false);
   const gridSizeRef = useRef(20);
   const penActiveRef = useRef(false);
+  const penModeRef = useRef<'pen' | 'bezier' | 'spline'>('pen');
+  // Callback fired after a pen path is committed — wired to activateVectorEdit (defined later)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const postPenCloseRef = useRef<((path: any) => void) | null>(null);
   const brushActiveRef = useRef(false);
   const eyedropperActiveRef = useRef(false);
   const eyedropperCallbackRef = useRef<((color: string) => void) | null>(null);
@@ -479,6 +490,40 @@ export function useFabricCanvas(
     return d;
   };
 
+  /** Build a smooth cubic Bezier path using Catmull-Rom interpolation.
+   *  Each clicked point becomes an anchor; control handles are auto-computed.
+   *  tension=0.375 gives natural-looking curves (Catmull-Rom α=0.5 centripetal). */
+  const buildCatmullRomPath = (pts: PenPoint[], closed = false, tension = 0.375): string => {
+    if (pts.length < 2) return pts.length === 1 ? `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}` : '';
+    const n = pts.length;
+    // Return a "ghost" point reflected across endpoint, for natural boundary behaviour
+    const getP = (i: number): { x: number; y: number } => {
+      if (i < 0) return closed ? pts[n + i] : { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y };
+      if (i >= n) return closed ? pts[i % n] : { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y };
+      return pts[i];
+    };
+    let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+    const count = closed ? n : n - 1;
+    for (let i = 0; i < count; i++) {
+      const p0 = getP(i - 1), p1 = getP(i), p2 = getP(i + 1), p3 = getP(i + 2);
+      // Catmull-Rom → cubic Bezier control point formula
+      const cp1x = p1.x + (p2.x - p0.x) * tension;
+      const cp1y = p1.y + (p2.y - p0.y) * tension;
+      const cp2x = p2.x - (p3.x - p1.x) * tension;
+      const cp2y = p2.y - (p3.y - p1.y) * tension;
+      d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)} ${cp2x.toFixed(2)} ${cp2y.toFixed(2)} ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+    }
+    if (closed) d += ' Z';
+    return d;
+  };
+
+  /** Choose path builder based on current pen mode */
+  const buildModePath = (pts: PenPoint[], closed = false): string => {
+    const mode = penModeRef.current;
+    if (mode === 'bezier' || mode === 'spline') return buildCatmullRomPath(pts, closed);
+    return buildBezierPathStr(pts, closed);
+  };
+
   const updatePenPreview = useCallback((
     pts: PenPoint[],
     liveNode?: { x: number; y: number; cpIn?: { x: number; y: number } } | null,
@@ -494,7 +539,12 @@ export function useFabricCanvas(
     }
     if (allPts.length < 2) return;
 
-    const p = new Path(buildBezierPathStr(allPts, false), {
+    // Use Catmull-Rom for bezier/spline modes, standard bezier for pen mode
+    const pathStr = (penModeRef.current === 'bezier' || penModeRef.current === 'spline')
+      ? buildCatmullRomPath(allPts, false)
+      : buildBezierPathStr(allPts, false);
+
+    const p = new Path(pathStr, {
       stroke: '#00F5FF', strokeWidth: 1.5, fill: 'transparent',
       selectable: false, evented: false, hasControls: false, hasBorders: false,
       strokeDashArray: [6, 3],
@@ -519,7 +569,11 @@ export function useFabricCanvas(
     setPenLiveHandle(null);
 
     const isClosed = pts.length >= 3;
-    const pathStr = buildBezierPathStr(pts, isClosed);
+    // Use Catmull-Rom for bezier/spline so the final committed path also curves correctly
+    const pathStr = (penModeRef.current === 'bezier' || penModeRef.current === 'spline')
+      ? buildCatmullRomPath(pts, isClosed)
+      : buildBezierPathStr(pts, isClosed);
+
     const finalPath = new Path(pathStr, {
       stroke: '#00F5FF', strokeWidth: 3,
       fill: isClosed ? 'rgba(0,245,255,0.25)' : 'transparent',
@@ -530,9 +584,14 @@ export function useFabricCanvas(
     penPointsRef.current = [];
     setPenPoints([]);
     penActiveRef.current = false;
+    penModeRef.current = 'pen'; // reset mode after path is committed
     c.selection = true;
     c.requestRenderAll();
     pushUndo();
+    // Enter vector edit on the new curve path immediately so handles are editable
+    // Use setTimeout to avoid calling activateVectorEdit before it is initialized
+    // (it is defined later in this file, after closePenPath)
+    setTimeout(() => { postPenCloseRef.current?.(finalPath); }, 0);
   }, [pushUndo]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -556,6 +615,39 @@ export function useFabricCanvas(
   const activatePenTool = useCallback(() => {
     const c = canvasRef.current;
     if (!c) return;
+    penModeRef.current = 'pen'; // ensure straight-line mode unless overridden
+    penActiveRef.current = true;
+    penPointsRef.current = [];
+    setPenPoints([]);
+    penMouseDownRef.current = false;
+    penDownPointerRef.current = null;
+    penLiveHandleRef.current = null;
+    setPenLiveHandle(null);
+    c.selection = false;
+    c.discardActiveObject();
+    c.requestRenderAll();
+  }, []);
+
+  /** Activate pen tool in Bézier curve mode — clicks produce smooth Catmull-Rom curves */
+  const activateBezierPen = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    penModeRef.current = 'bezier';
+    penActiveRef.current = true;
+    penPointsRef.current = [];
+    setPenPoints([]);
+    penMouseDownRef.current = false;
+    penDownPointerRef.current = null;
+    penLiveHandleRef.current = null;
+    setPenLiveHandle(null);
+    c.selection = false;
+    c.discardActiveObject();
+    c.requestRenderAll();
+  }, []);
+
+  /** Activate pen tool in Spline mode — Catmull-Rom interpolation through all clicked points */
+  const activateSplinePen = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    penModeRef.current = 'spline';
     penActiveRef.current = true;
     penPointsRef.current = [];
     setPenPoints([]);
@@ -1459,12 +1551,15 @@ export function useFabricCanvas(
 
     let prevAnchorScreen: { screenX: number; screenY: number } | null = null;
 
+    let prevAnchorLocal: { x: number; y: number } | null = null;
+
     rawPath.forEach((cmd, cmdIdx) => {
       if (cmd[0] === 'M' || cmd[0] === 'L') {
         const lx = cmd[1] as number, ly = cmd[2] as number;
         const screen = toScreen(lx, ly);
         anchors.push({ cmdIdx, xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = screen;
+        prevAnchorLocal = { x: lx, y: ly };
       } else if (cmd[0] === 'C') {
         const cx1 = cmd[1] as number, cy1 = cmd[2] as number;
         const cx2 = cmd[3] as number, cy2 = cmd[4] as number;
@@ -1472,18 +1567,35 @@ export function useFabricCanvas(
         const ep  = toScreen(ex, ey);
         const h1  = toScreen(cx1, cy1);
         const h2  = toScreen(cx2, cy2);
-        anchors.push({ cmdIdx, xOff: 1, yOff: 2, localX: cx1, localY: cy1, ...h1, kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null });
-        anchors.push({ cmdIdx, xOff: 3, yOff: 4, localX: cx2, localY: cy2, ...h2, kind: 'handle', pairScreenX: ep.screenX, pairScreenY: ep.screenY });
+        // cp1 = out-handle of prevAnchor. Mirror = cp2 of previous C cmd (cmdIdx-1, xOff=3,4)
+        anchors.push({
+          cmdIdx, xOff: 1, yOff: 2, localX: cx1, localY: cy1, ...h1,
+          kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
+          anchorLocalX: prevAnchorLocal?.x, anchorLocalY: prevAnchorLocal?.y,
+          mirrorCmdIdx: cmdIdx - 1, mirrorXOff: 3, mirrorYOff: 4,
+        });
+        // cp2 = in-handle of endpoint. Mirror = cp1 of next C cmd (cmdIdx+1, xOff=1,2)
+        anchors.push({
+          cmdIdx, xOff: 3, yOff: 4, localX: cx2, localY: cy2, ...h2,
+          kind: 'handle', pairScreenX: ep.screenX, pairScreenY: ep.screenY,
+          anchorLocalX: ex, anchorLocalY: ey,
+          mirrorCmdIdx: cmdIdx + 1, mirrorXOff: 1, mirrorYOff: 2,
+        });
         anchors.push({ cmdIdx, xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = ep;
+        prevAnchorLocal = { x: ex, y: ey };
       } else if (cmd[0] === 'Q') {
         const cx = cmd[1] as number, cy = cmd[2] as number;
         const ex = cmd[3] as number, ey = cmd[4] as number;
         const ep = toScreen(ex, ey);
         const h  = toScreen(cx, cy);
-        anchors.push({ cmdIdx, xOff: 1, yOff: 2, localX: cx, localY: cy, ...h, kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null });
+        anchors.push({
+          cmdIdx, xOff: 1, yOff: 2, localX: cx, localY: cy, ...h,
+          kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
+        });
         anchors.push({ cmdIdx, xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = ep;
+        prevAnchorLocal = { x: ex, y: ey };
       }
     });
 
@@ -1499,6 +1611,9 @@ export function useFabricCanvas(
     refreshVectorAnchors();
     setIsVectorEditActive(true);
   }, [refreshVectorAnchors]);
+
+  // Wire postPenCloseRef so closePenPath (defined earlier) can call activateVectorEdit
+  postPenCloseRef.current = activateVectorEdit;
 
   const deactivateVectorEdit = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
@@ -1526,7 +1641,7 @@ export function useFabricCanvas(
     const drag = vectorDragStartRef.current; if (!drag) return;
     const anchor = vectorAnchors[drag.anchorIdx]; if (!anchor) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawPath: [string, ...number[]][] = [...((obj as any).path ?? [])];
+    let rawPath: [string, ...number[]][] = [...((obj as any).path ?? [])];
     const vt = c.viewportTransform ?? [1, 0, 0, 1, 0, 0];
     const canvasDx = totalClientDx / (vt[0] || 1);
     const canvasDy = totalClientDy / (vt[3] || 1);
@@ -1534,13 +1649,44 @@ export function useFabricCanvas(
     const inv = util.invertTransform(obj.calcTransformMatrix() as any);
     const localDx = inv[0] * canvasDx + inv[2] * canvasDy;
     const localDy = inv[1] * canvasDx + inv[3] * canvasDy;
-    const newPath = rawPath.map((cmd, i) => {
+
+    const newHandleX = drag.localX + localDx;
+    const newHandleY = drag.localY + localDy;
+
+    // Update the dragged handle
+    let newPath = rawPath.map((cmd, i) => {
       if (i !== anchor.cmdIdx) return cmd;
       const nc = [...cmd] as [string, ...number[]];
-      nc[anchor.xOff] = drag.localX + localDx;
-      nc[anchor.yOff] = drag.localY + localDy;
+      nc[anchor.xOff] = newHandleX;
+      nc[anchor.yOff] = newHandleY;
       return nc;
     });
+
+    // Photoshop-style symmetric mirroring: when dragging a handle, update its
+    // sibling handle to maintain C1 continuity (smooth node behaviour).
+    if (
+      anchor.kind === 'handle' &&
+      anchor.anchorLocalX !== undefined &&
+      anchor.anchorLocalY !== undefined &&
+      anchor.mirrorCmdIdx !== undefined &&
+      anchor.mirrorCmdIdx >= 0 && anchor.mirrorCmdIdx < rawPath.length
+    ) {
+      const mirrorCmd = rawPath[anchor.mirrorCmdIdx];
+      if (mirrorCmd && mirrorCmd[0] === 'C') {
+        const aX = anchor.anchorLocalX;
+        const aY = anchor.anchorLocalY;
+        // Mirror = anchor + (anchor - newHandle)
+        const mirX = 2 * aX - newHandleX;
+        const mirY = 2 * aY - newHandleY;
+        newPath = newPath.map((cmd, i) => {
+          if (i !== anchor.mirrorCmdIdx) return cmd;
+          const nc = [...cmd] as [string, ...number[]];
+          nc[anchor.mirrorXOff!] = mirX;
+          nc[anchor.mirrorYOff!] = mirY;
+          return nc;
+        });
+      }
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any).set({ path: newPath });
 
@@ -1772,7 +1918,7 @@ export function useFabricCanvas(
       `Q ${cx - 50},${cy - 80} ${cx},${cy}`,
       `Q ${cx + 50},${cy + 80} ${cx + 100},${cy}`,
     ].join(' ');
-    const obj = new Path(pathStr, { stroke: '#7B2FFF', strokeWidth: 3, fill: 'transparent', strokeLineCap: 'round' });
+    const obj = new Path(pathStr, { stroke: '#00F5FF', strokeWidth: 3, fill: 'transparent', strokeLineCap: 'round' });
     tagObj(obj, 'path');
     c.add(obj); c.setActiveObject(obj); c.renderAll();
     activateVectorEdit(obj);
@@ -2016,7 +2162,7 @@ export function useFabricCanvas(
     // Vector paths
     addBezierCurve, addSplinePath,
     // Pen tool
-    activatePenTool, cancelPenTool, closePenPath,
+    activatePenTool, activateBezierPen, activateSplinePen, cancelPenTool, closePenPath,
     // Brush engine
     activateBrush, deactivateBrush,
     // Eyedropper

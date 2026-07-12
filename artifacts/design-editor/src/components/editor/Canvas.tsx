@@ -371,7 +371,7 @@ export default function CanvasWorkspace({
                   <line key={`arm-${i}`}
                     x1={a.screenX} y1={a.screenY}
                     x2={a.pairScreenX!} y2={a.pairScreenY!}
-                    stroke="rgba(123,47,255,0.6)" strokeWidth="1.2" strokeDasharray="4 2"
+                    stroke="rgba(0,245,255,0.6)" strokeWidth="1.2" strokeDasharray="4 2"
                     pointerEvents="none"
                   />
                 ))}
@@ -401,7 +401,7 @@ export default function CanvasWorkspace({
                         <rect
                           x={anchor.screenX - 5} y={anchor.screenY - 5}
                           width={10} height={10}
-                          fill="#7B2FFF" stroke="white" strokeWidth={1.5}
+                          fill="#00F5FF" stroke="white" strokeWidth={1.5}
                           transform={`rotate(45 ${anchor.screenX} ${anchor.screenY})`}
                         />
                       </>
@@ -410,13 +410,13 @@ export default function CanvasWorkspace({
                         {/* Selection ring */}
                         {isSelected && (
                           <circle cx={anchor.screenX} cy={anchor.screenY} r={14}
-                            fill="none" stroke="#7B2FFF" strokeWidth={2} opacity={0.8} strokeDasharray="4 2" />
+                            fill="none" stroke="#00F5FF" strokeWidth={2} opacity={0.8} strokeDasharray="4 2" />
                         )}
                         <circle cx={anchor.screenX} cy={anchor.screenY} r={11}
-                          fill={isSelected ? 'rgba(123,47,255,0.18)' : 'rgba(0,245,255,0.1)'}
-                          stroke={isSelected ? '#7B2FFF' : 'rgba(0,245,255,0.4)'} strokeWidth={1.5} />
+                          fill={isSelected ? 'rgba(0,245,255,0.18)' : 'rgba(0,245,255,0.1)'}
+                          stroke={isSelected ? '#00F5FF' : 'rgba(0,245,255,0.4)'} strokeWidth={1.5} />
                         <circle cx={anchor.screenX} cy={anchor.screenY} r={5}
-                          fill={isSelected ? '#7B2FFF' : '#00F5FF'} stroke="white" strokeWidth={1.5} />
+                          fill="#00F5FF" stroke="white" strokeWidth={1.5} />
                       </>
                     )}
                   </g>

@@ -15,7 +15,7 @@ interface VectorNodePanelProps {
 
 type EditMode = 'handle' | 'nudge';
 
-const ACCENT = '#7B2FFF';
+const ACCENT = '#00F5FF';
 const CYAN = '#00F5FF';
 
 export default function VectorNodePanel({
@@ -166,7 +166,7 @@ export default function VectorNodePanel({
         {/* Node navigator */}
         <div
           className="flex items-center gap-1 rounded-xl px-2 py-1"
-          style={{ background: 'rgba(123,47,255,0.1)', border: `1px solid ${ACCENT}33` }}
+          style={{ background: 'rgba(0,245,255,0.08)', border: `1px solid ${ACCENT}33` }}
         >
           <button
             onClick={prevAnchor}

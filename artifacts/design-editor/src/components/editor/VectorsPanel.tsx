@@ -63,12 +63,14 @@ export default function VectorsPanel({ controller, onPenStart }: VectorsPanelPro
   };
 
   const addBezier = () => {
-    controller.addBezierCurve();
+    onPenStart();
+    controller.activateBezierPen();
     close();
   };
 
   const addSpline = () => {
-    controller.addSplinePath();
+    onPenStart();
+    controller.activateSplinePen();
     close();
   };
 
@@ -135,16 +137,16 @@ export default function VectorsPanel({ controller, onPenStart }: VectorsPanelPro
               <ToolCard
                 icon={<GitBranch size={18} />}
                 label="Bézier Curve"
-                desc="S-curve cubic bézier path with editable control handles"
+                desc="Draw smooth cubic Bézier curves — click to place anchor points"
                 onClick={addBezier}
-                accent="#7B2FFF"
+                accent="#00F5FF"
               />
               <ToolCard
                 icon={<Spline size={18} />}
                 label="Spline Path"
-                desc="Smooth continuous quadratic spline through multiple points"
+                desc="Draw Catmull-Rom spline — points auto-connect with smooth curves"
                 onClick={addSpline}
-                accent="#7B2FFF"
+                accent="#00F5FF"
               />
             </div>
           </div>

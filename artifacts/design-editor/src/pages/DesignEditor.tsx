@@ -282,8 +282,12 @@ export default function DesignEditor() {
     if (!obj || obj.type !== 'rect') return;
     const scaleX = (obj.scaleX ?? 1) || 1;
     const scaleY = (obj.scaleY ?? 1) || 1;
+    // Set rx/ry in unscaled local space; mark dirty explicitly so Fabric 6
+    // re-draws the rounded corners on the very first slider interaction
+    // (without dirty=true the cached texture is reused and the change is invisible).
     obj.set({ rx: v / scaleX, ry: v / scaleY });
-    controller.getCanvas()?.renderAll();
+    obj.dirty = true;
+    controller.getCanvas()?.requestRenderAll();
     controller.commitChange();
   }, [controller]);
 
@@ -575,12 +579,12 @@ export default function DesignEditor() {
         {state.activePanel === 'radius-tool' && hasSelection && selectedType === 'rect' && !brushActive && !penActive && !vectorEditActive && (
           <div
             className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
-            style={{ background: '#11141A', borderTop: '1px solid rgba(167,139,250,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
+            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.3)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
           >
             <div className="flex items-center gap-3">
-              <SquareRoundCorner size={14} style={{ color: '#a78bfa', flexShrink: 0 }} />
-              <span className="text-xs font-semibold tracking-wider shrink-0" style={{ color: '#a78bfa' }}>RADIUS</span>
-              <span className="text-[10px] font-medium tabular-nums shrink-0" style={{ color: '#a78bfa', minWidth: '24px', textAlign: 'right' }}>
+              <SquareRoundCorner size={14} style={{ color: '#00F5FF', flexShrink: 0 }} />
+              <span className="text-xs font-semibold tracking-wider shrink-0" style={{ color: '#00F5FF' }}>RADIUS</span>
+              <span className="text-[10px] font-medium tabular-nums shrink-0" style={{ color: '#00F5FF', minWidth: '24px', textAlign: 'right' }}>
                 {quickCornerRadius}
               </span>
               <Slider
@@ -592,7 +596,7 @@ export default function DesignEditor() {
               <button
                 onClick={() => dispatch({ type: 'CLOSE_PANEL' })}
                 className="text-[10px] px-2 py-1 rounded-lg shrink-0"
-                style={{ background: 'rgba(167,139,250,0.1)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}
+                style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
               >
                 Done
               </button>

@@ -74,10 +74,6 @@ export default function BottomToolbar({
     ? { borderTop: '1px solid rgba(255,107,107,0.4)' }
     : brushActive
     ? { borderTop: '1px solid rgba(0,245,255,0.6)' }
-    : vectorEditActive
-    ? { borderTop: '1px solid rgba(123,47,255,0.6)' }
-    : panActive
-    ? { borderTop: '1px solid rgba(251,191,36,0.5)' }
     : { borderTop: '1px solid rgba(0,245,255,0.15)' };
 
   /* ── Vector Edit Mode ── */
@@ -87,8 +83,8 @@ export default function BottomToolbar({
         className="flex-shrink-0 flex items-center justify-center gap-2 px-4"
         style={{ minHeight: '40px', paddingBottom: 'max(8px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       >
-        <Spline size={14} style={{ color: '#7B2FFF', filter: 'drop-shadow(0 0 4px #7B2FFF80)' }} />
-        <span className="text-[11px] font-medium tracking-wide" style={{ color: '#7B2FFF' }}>Vector Node Editor</span>
+        <Spline size={14} style={{ color: '#00F5FF', filter: 'drop-shadow(0 0 4px #00F5FF80)' }} />
+        <span className="text-[11px] font-medium tracking-wide" style={{ color: '#00F5FF' }}>Vector Node Editor</span>
       </div>
     );
   }
@@ -223,7 +219,7 @@ export default function BottomToolbar({
         dispatch({ type: 'SET_TOOL', payload: next });
         if (next !== 'pan') dispatch({ type: 'CLOSE_PANEL' });
       },
-      accent: '#fbbf24',
+      accent: '#00F5FF',
     },
     {
       id: 'zoom-tool',
@@ -255,7 +251,7 @@ export default function BottomToolbar({
       label: 'Radius',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'radius-tool' }),
       disabled: !hasSelection || !isRect,
-      accent: '#a78bfa',
+      accent: '#00F5FF',
     },
     {
       id: 'shapeModifiers',

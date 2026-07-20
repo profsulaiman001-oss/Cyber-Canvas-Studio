@@ -257,6 +257,9 @@ export default function DesignEditor() {
       const scaleX = (obj.scaleX ?? 1) || 1;
       const scaleY = (obj.scaleY ?? 1) || 1;
       setQuickCornerRadius(Math.round(rx * scaleX));
+      // Recompute max from the object's *current* scaled dimensions so the
+      // Slider always reflects the live geometry — important when the panel
+      // is (re-)opened after the object has been resized.
       setQuickCornerRadiusMax(Math.max(4, Math.min(
         Math.round(obj.getScaledWidth() / 2),
         Math.round(obj.getScaledHeight() / 2),
@@ -265,8 +268,10 @@ export default function DesignEditor() {
     } else {
       setQuickCornerRadius(0);
     }
+  // Include activePanel so re-opening the radius tray always re-syncs the
+  // max from live object dimensions (fixes the stale-max / two-step bug).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controller.selectedObject]);
+  }, [controller.selectedObject, state.activePanel]);
 
   const handleFillOpacityChange = useCallback((v: number) => {
     setQuickFillOpacity(v);
@@ -277,19 +282,39 @@ export default function DesignEditor() {
   }, [controller]);
 
   const handleCornerRadiusChange = useCallback((v: number) => {
-    setQuickCornerRadius(v);
     const obj = controller.selectedObject;
     if (!obj || obj.type !== 'rect') return;
     const scaleX = (obj.scaleX ?? 1) || 1;
     const scaleY = (obj.scaleY ?? 1) || 1;
-    // Set rx/ry in unscaled local space; mark dirty explicitly so Fabric 6
-    // re-draws the rounded corners on the very first slider interaction
-    // (without dirty=true the cached texture is reused and the change is invisible).
-    obj.set({ rx: v / scaleX, ry: v / scaleY });
+    // Recompute the true geometric max from the live object dimensions so that
+    // even if the Slider's `max` prop was stale (and emitted a clamped value),
+    // we detect the user is at 100% of the rail and apply the real maximum.
+    // Formula: max screen-space radius = min(scaledW, scaledH) / 2
+    const liveMax = Math.max(4, Math.min(
+      Math.round(obj.getScaledWidth() / 2),
+      Math.round(obj.getScaledHeight() / 2),
+    ));
+    // If the incoming v equals the slider's (potentially stale) max, treat it
+    // as a request for full rounding and promote it to the live max.
+    const resolvedV = (quickCornerRadiusMax > 0 && v === quickCornerRadiusMax) ? liveMax : Math.min(v, liveMax);
+    setQuickCornerRadius(resolvedV);
+    // Keep slider max in sync with live geometry for subsequent drags.
+    if (liveMax !== quickCornerRadiusMax) setQuickCornerRadiusMax(liveMax);
+    // Convert screen-space radius to local (unscaled) space for Fabric, and
+    // hard-cap at obj.width/2 & obj.height/2 — the values Fabric itself clamps
+    // to — so the shape always fully rounds on the first interaction.
+    const localW = (obj as import('fabric').FabricObject & { width?: number }).width ?? 0;
+    const localH = (obj as import('fabric').FabricObject & { height?: number }).height ?? 0;
+    const rx = Math.min(resolvedV / scaleX, localW / 2);
+    const ry = Math.min(resolvedV / scaleY, localH / 2);
+    // Mark dirty explicitly so Fabric 6 re-draws rounded corners immediately
+    // on the very first slider interaction (without dirty=true the cached
+    // texture is reused and the change is invisible).
+    obj.set({ rx, ry });
     obj.dirty = true;
     controller.getCanvas()?.requestRenderAll();
     controller.commitChange();
-  }, [controller]);
+  }, [controller, quickCornerRadiusMax]);
 
   /* ── Image toolbar actions ── */
   const importImagesRef = useRef<HTMLInputElement>(null);

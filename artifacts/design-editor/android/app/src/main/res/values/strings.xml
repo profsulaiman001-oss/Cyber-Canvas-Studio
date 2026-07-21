@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Graphic Design Studio</string>
+    <string name="title_activity_main">Graphic Design Studio</string>
+    <string name="package_name">com.pylab.graphicdesign</string>
+    <string name="custom_url_scheme">com.pylab.graphicdesign</string>
+</resources>

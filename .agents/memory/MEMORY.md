@@ -1,3 +1,4 @@
+- [Capacitor Android setup](capacitor-android.md) — offline APK build lives in artifacts/design-editor/; CAPACITOR_BUILD=true for relative-path builds; Node 24 required
 - [useFabricCanvas architecture](fabric-hook.md) — hook exports: penLiveHandle, selectedVectorAnchorIdx/setSelectedVectorAnchorIdx, addVectorNodeAfter, deleteSelectedVectorNode, nudgeSelectedVectorNode (new); plus all prior exports
 - [Bezier pen engine](bezier-pen.md) — mouse:down records position (no commit); mouse:move while down computes live cpOut/cpIn handles; mouse:up commits PenPoint{x,y,cpOut?,cpIn?}; path uses C commands when handles exist
 - [Decoupled fill/stroke opacity](decoupled-opacity.md) — obj.opacity never used for UI controls; fill opacity → withAlpha(fill,frac); stroke opacity → withAlpha(stroke,frac) in stroke color string; utilities exported from useFabricCanvas.ts: extractColorAlpha, withAlpha, opaqueColor

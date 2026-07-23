@@ -1,0 +1,31 @@
+name: Live Update to App
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: latest
+
+      - name: Install dependencies
+        run: pnpm --filter @workspace/design-editor install --frozen-lockfile
+
+      - name: Build Web App (Capacitor target)
+        run: pnpm --filter @workspace/design-editor run build:cap
+
+      - name: Upload bundle to Capgo
+        run: npx @capgo/cli@latest bundle upload --apikey ${{ secrets.CAPGO_TOKEN }} --path artifacts/design-editor/dist/public

@@ -14,6 +14,13 @@ const config: CapacitorConfig = {
     // Allow the app to run fully offline; no cleartext traffic needed.
     allowMixedContent: false,
   },
+  plugins: {
+    CapacitorUpdater: {
+      // Manual update mode: the app controls when to download and apply
+      // updates, allowing us to prompt the user before reloading.
+      autoUpdate: false,
+    },
+  },
 };
 
 export default config;

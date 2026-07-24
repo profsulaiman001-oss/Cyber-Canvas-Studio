@@ -89,5 +89,14 @@ export function useProjects() {
     await saveAll(projects.filter((p) => p.id !== id));
   }, []);
 
-  return { listProjects, saveProject, loadProject, deleteProject };
+  const renameProject = useCallback(async (id: string, newName: string): Promise<void> => {
+    const projects = await getAll();
+    const idx = projects.findIndex((p) => p.id === id);
+    if (idx >= 0) {
+      projects[idx] = { ...projects[idx], name: newName, updatedAt: Date.now() };
+      await saveAll(projects);
+    }
+  }, []);
+
+  return { listProjects, saveProject, loadProject, deleteProject, renameProject };
 }

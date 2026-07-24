@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Undo2, Redo2, LayoutTemplate, Menu, Grid3x3, Magnet, AlignCenter, Palette, Settings2, Copy, ClipboardPaste } from 'lucide-react';
+import { Undo2, Redo2, LayoutTemplate, Menu, Grid3x3, Magnet, AlignCenter, Palette, Settings2, Copy, ClipboardPaste, Home } from 'lucide-react';
 import { useEditor } from '@/store/editorStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +11,10 @@ interface TopBarProps {
   onRedo: () => void;
   onCopy: () => void;
   onPaste: () => void;
+  onGoHome?: () => void;
 }
 
-export default function TopBar({ onUndo, onRedo, onCopy, onPaste }: TopBarProps) {
+export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onGoHome }: TopBarProps) {
   const { state, dispatch } = useEditor();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(state.projectName);
@@ -51,8 +52,18 @@ export default function TopBar({ onUndo, onRedo, onCopy, onPaste }: TopBarProps)
       style={{ height: '52px', background: '#11141A', borderBottom: '1px solid rgba(0,245,255,0.1)' }}
       data-testid="top-bar"
     >
-      {/* ── Fixed left: hamburger menu ── */}
-      <div className="flex items-center px-1 shrink-0">
+      {/* ── Fixed left: home + hamburger menu ── */}
+      <div className="flex items-center px-1 shrink-0 gap-0.5">
+        {onGoHome && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onGoHome} data-testid="button-go-home">
+                <Home size={15} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Home</TooltipContent>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"

@@ -22,6 +22,26 @@ async function saveAll(projects: Project[]): Promise<void> {
   await localforage.setItem(PROJECTS_KEY, projects);
 }
 
+/** Load a single project by ID without requiring the hook. */
+export async function loadProjectById(id: string): Promise<Project | null> {
+  const projects = await getAll();
+  return projects.find((p) => p.id === id) ?? null;
+}
+
+/** Duplicate a project — saves a copy with "(Copy)" suffix and a new ID. */
+export async function duplicateProject(project: Project): Promise<Project> {
+  const projects = await getAll();
+  const copy: Project = {
+    ...project,
+    id: `proj_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    name: `${project.name} (Copy)`,
+    updatedAt: Date.now(),
+  };
+  projects.unshift(copy);
+  await saveAll(projects);
+  return copy;
+}
+
 export function useProjects() {
   const listProjects = useCallback(async (): Promise<Project[]> => {
     return getAll();

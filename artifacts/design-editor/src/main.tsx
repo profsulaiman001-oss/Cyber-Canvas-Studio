@@ -23,7 +23,8 @@ async function checkForOtaUpdate() {
     // `url: 'AUTO'` resolves through the Capgo cloud using the appId from
     // capacitor.config.  If the device is offline or no update exists the
     // call throws and we swallow it silently below.
-    const version = await CapacitorUpdater.download({ url: 'AUTO' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const version = await CapacitorUpdater.download({ url: 'AUTO', version: '' } as any);
 
     if (version?.id) {
       const confirmed = window.confirm(

@@ -8,10 +8,20 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Input } from '@/components/ui/input';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
-import { Download } from 'lucide-react';
+import { Download, Share2 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 
 interface ExportDialogProps {
   controller: CanvasController;
+}
+
+function downloadViaLink(dataUrl: string, filename: string) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 export default function ExportDialog({ controller }: ExportDialogProps) {
@@ -22,22 +32,49 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
   const [quality, setQuality] = useState(95);
   const [scalePreset, setScalePreset] = useState('2');
   const [customScale, setCustomScale] = useState('2');
+  const [exporting, setExporting] = useState(false);
 
   const multiplier = scalePreset === 'custom' ? parseFloat(customScale) || 1 : parseFloat(scalePreset);
 
-  const handleExport = () => {
-    // controller.exportCanvas now handles the viewport preservation and edge cropping internally!
+  const handleExport = async () => {
     const dataUrl = controller.exportCanvas(format, quality / 100, multiplier);
     if (!dataUrl) return;
+
     const ext = format === 'jpeg' ? 'jpg' : 'png';
     const filename = `${state.projectName || 'untitled'}_design.${ext}`;
 
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setExporting(true);
+    try {
+      if (Capacitor.isNativePlatform()) {
+        // ── Native mobile: write to cache then share ──
+        try {
+          const { Filesystem, Directory } = await import('@capacitor/filesystem');
+          const { Share } = await import('@capacitor/share');
+
+          const base64Data = dataUrl.split(',')[1];
+          const result = await Filesystem.writeFile({
+            path: filename,
+            data: base64Data,
+            directory: Directory.Cache,
+          });
+
+          await Share.share({
+            title: state.projectName || 'Design',
+            text: 'Exported from Cyber Studio',
+            files: [result.uri],
+            dialogTitle: 'Save or share your design',
+          });
+        } catch (nativeErr) {
+          console.warn('Native share failed, falling back to download', nativeErr);
+          downloadViaLink(dataUrl, filename);
+        }
+      } else {
+        // ── Web: standard anchor download ──
+        downloadViaLink(dataUrl, filename);
+      }
+    } finally {
+      setExporting(false);
+    }
 
     dispatch({ type: 'CLOSE_PANEL' });
   };
@@ -45,6 +82,7 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
   const canvasSize = state.canvasSize || { width: 1080, height: 1080 };
   const exportW = Math.round(canvasSize.width * multiplier);
   const exportH = Math.round(canvasSize.height * multiplier);
+  const isNative = Capacitor.isNativePlatform();
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
@@ -127,9 +165,14 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
         </div>
 
         <DialogFooter>
-          <Button onClick={handleExport} className="w-full gap-2" data-testid="button-export">
-            <Download size={14} />
-            Download {format.toUpperCase()}
+          <Button
+            onClick={handleExport}
+            disabled={exporting}
+            className="w-full gap-2"
+            data-testid="button-export"
+          >
+            {isNative ? <Share2 size={14} /> : <Download size={14} />}
+            {exporting ? 'Exporting…' : isNative ? `Share ${format.toUpperCase()}` : `Download ${format.toUpperCase()}`}
           </Button>
         </DialogFooter>
       </DialogContent>

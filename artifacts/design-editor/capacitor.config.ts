@@ -16,11 +16,10 @@ const config: CapacitorConfig = {
   },
   plugins: {
     CapacitorUpdater: {
-      // Auto-update mode: Capgo silently downloads the latest bundle in the
-      // background and applies it on the next app restart.  The app only
-      // needs to call notifyAppReady() on startup to confirm the current
-      // bundle is healthy and prevent an automatic rollback.
-      autoUpdate: true,
+      // Manual / custom-UI mode: the app downloads and applies updates itself
+      // so it can show a branded prompt before reloading.  notifyAppReady()
+      // is still required on every start to clear any pending rollback flag.
+      autoUpdate: false,
     },
   },
 };

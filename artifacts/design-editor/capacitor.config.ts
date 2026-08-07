@@ -1,10 +1,10 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.cyber.canvas.studio.cyber',
-  appName: 'Cyber Studio',
+  appId: 'com.cybercanvasstudio.app',
+  appName: 'Cyber Canvas Studio',
   // Points at the Vite build output directory (relative to this file)
-  webDir: 'dist/public',
+  webDir: 'dist',
   server: {
     // 'https' scheme ensures the Android WebView treats the local assets as a
     // secure origin, which is required for Service Workers and IndexedDB.

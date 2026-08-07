@@ -19,7 +19,7 @@ run = "pnpm --filter @workspace/design-editor run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/design-editor", "run", "build" ]
-publicDir = "artifacts/design-editor/dist/public"
+publicDir = "artifacts/design-editor/dist"
 serve = "static"
 
 [[services.production.rewrites]]

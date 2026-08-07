@@ -124,7 +124,7 @@ export default defineConfig({
   },
   root: path.resolve(import.meta.dirname),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
     // Ensure all assets are inlined or placed relative to index.html
     // so the Capacitor WebView can resolve them without a server.

@@ -676,6 +676,8 @@ export default function DesignEditor({ onGoHome }: DesignEditorProps = {}) {
           </div>
         )}
 
+        <StrokePanel controller={controller} />
+
         <BottomToolbar
           hasSelection={hasSelection}
           penActive={penActive}
@@ -740,7 +742,6 @@ export default function DesignEditor({ onGoHome }: DesignEditorProps = {}) {
       <TextPanel controller={controller} />
       <ShapeModifiersPanel controller={controller} />
       <AdjustPanel controller={controller} />
-      <StrokePanel controller={controller} />
       <ShadowsPanel controller={controller} />
       <ThreeDPanel controller={controller} />
       <VectorsPanel controller={controller} onPenStart={handleVectorsPenStart} />

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { FlipHorizontal, FlipVertical, RotateCcw } from 'lucide-react';
 import { FabricImage, FabricObject } from 'fabric';
 
-type HandleId = 'tl' | 'tr' | 'bl' | 'br' | 'ml' | 'mr';
+type HandleId = 'tl' | 'tm' | 'tr' | 'ml' | 'mr' | 'bl' | 'bm' | 'br';
 type CropMode = 'image' | 'fill' | 'raster';
 type ARPreset = { label: string; value: [number, number] | null };
 
@@ -51,9 +51,13 @@ export default function CropModal({
   const [bottom, setBottom] = useState(0);
   const [aspectRatio, setAspectRatio] = useState<[number, number] | null>(null);
   const [circular, setCircular] = useState(false);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragHandle   = useRef<HandleId | null>(null);
+  const dragPointerId = useRef<number | null>(null);
+  const dragFrame = useRef<number | null>(null);
+  const pendingPointer = useRef<{ x: number; y: number } | null>(null);
   const dragStart    = useRef({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0 });
 
   /* ── Load source image into preview ───────────────────────────────────── */
@@ -114,6 +118,15 @@ export default function CropModal({
     }
   }, [open, mode, fabricObj, file, dataUrl, sourceW, sourceH]);
 
+  /* Keep the preview sized to the space left by the modal chrome on mobile. */
+  useEffect(() => {
+    if (!open) return;
+    const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    return () => window.removeEventListener('resize', updateViewport);
+  }, [open]);
+
   /* ── Center-crop to an aspect ratio ──────────────────────────────────── */
   const snapToAR = useCallback((ar: [number, number] | null) => {
     setAspectRatio(ar);
@@ -141,20 +154,18 @@ export default function CropModal({
   }, [circular, snapToAR]);
 
   /* ── Drag handles ────────────────────────────────────────────────────── */
-  const startDrag = useCallback((h: HandleId, e: React.MouseEvent | React.TouchEvent) => {
+  const startDrag = useCallback((h: HandleId, e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault(); e.stopPropagation();
     dragHandle.current = h;
-    const cx = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const cy = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    dragStart.current = { x: cx, y: cy, left, top, right, bottom };
+    dragPointerId.current = e.pointerId;
+    dragStart.current = { x: e.clientX, y: e.clientY, left, top, right, bottom };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
   }, [left, top, right, bottom]);
 
   useEffect(() => {
     if (!open) return;
-    const onMove = (e: MouseEvent | TouchEvent) => {
+    const applyDrag = (cx: number, cy: number) => {
       if (!dragHandle.current || !containerRef.current) return;
-      const cx = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const cy = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
       const cw = containerRef.current.clientWidth  || 1;
       const ch = containerRef.current.clientHeight || 1;
       const px = ((cx - dragStart.current.x) / cw) * 100;
@@ -166,12 +177,14 @@ export default function CropModal({
 
       let nl = ds.left, nt = ds.top, nr = ds.right, nb = ds.bottom;
 
-      if      (h === 'tl') { nl = clamp(ds.left   + px, 0, 100 - ds.right  - MIN); nt = clamp(ds.top    + py, 0, 100 - ds.bottom - MIN); }
-      else if (h === 'tr') { nr = clamp(ds.right   - px, 0, 100 - ds.left   - MIN); nt = clamp(ds.top    + py, 0, 100 - ds.bottom - MIN); }
-      else if (h === 'bl') { nl = clamp(ds.left   + px, 0, 100 - ds.right  - MIN); nb = clamp(ds.bottom - py, 0, 100 - ds.top    - MIN); }
-      else if (h === 'br') { nr = clamp(ds.right  - px, 0, 100 - ds.left   - MIN); nb = clamp(ds.bottom - py, 0, 100 - ds.top    - MIN); }
-      else if (h === 'ml') { nl = clamp(ds.left   + px, 0, 100 - ds.right  - MIN); }
-      else if (h === 'mr') { nr = clamp(ds.right  - px, 0, 100 - ds.left   - MIN); }
+      if      (h === 'tl') { nl = clamp(ds.left + px, 0, 100 - ds.right - MIN); nt = clamp(ds.top + py, 0, 100 - ds.bottom - MIN); }
+      else if (h === 'tm') { nt = clamp(ds.top + py, 0, 100 - ds.bottom - MIN); }
+      else if (h === 'tr') { nr = clamp(ds.right - px, 0, 100 - ds.left - MIN); nt = clamp(ds.top + py, 0, 100 - ds.bottom - MIN); }
+      else if (h === 'ml') { nl = clamp(ds.left + px, 0, 100 - ds.right - MIN); }
+      else if (h === 'mr') { nr = clamp(ds.right - px, 0, 100 - ds.left - MIN); }
+      else if (h === 'bl') { nl = clamp(ds.left + px, 0, 100 - ds.right - MIN); nb = clamp(ds.bottom - py, 0, 100 - ds.top - MIN); }
+      else if (h === 'bm') { nb = clamp(ds.bottom - py, 0, 100 - ds.top - MIN); }
+      else if (h === 'br') { nr = clamp(ds.right - px, 0, 100 - ds.left - MIN); nb = clamp(ds.bottom - py, 0, 100 - ds.top - MIN); }
 
       if (aspectRatio !== null) {
         const [arW, arH] = aspectRatio;
@@ -181,7 +194,13 @@ export default function CropModal({
         const newCropHFrac = newCropHpx / (naturalH || 1);
         const totalShrinkH = Math.max(0, 1 - newCropHFrac);
 
-        if (h === 'ml' || h === 'mr') {
+        if (h === 'tm' || h === 'bm') {
+          const cropHpx = ((100 - nt - nb) / 100) * (naturalH || 1);
+          const newCropWFrac = (cropHpx * targetAR) / (naturalW || 1);
+          const half = Math.max(0, (1 - newCropWFrac) * 50);
+          nl = clamp(half, 0, 100 - MIN);
+          nr = clamp(half, 0, 100 - MIN);
+        } else if (h === 'ml' || h === 'mr') {
           const half = (totalShrinkH / 2) * 100;
           nt = clamp(half, 0, 100 - MIN);
           nb = clamp(half, 0, 100 - MIN);
@@ -194,16 +213,41 @@ export default function CropModal({
 
       setLeft(nl); setTop(nt); setRight(nr); setBottom(nb);
     };
-    const onUp = () => { dragHandle.current = null; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend',  onUp);
+    const flushDrag = () => {
+      dragFrame.current = null;
+      const point = pendingPointer.current;
+      pendingPointer.current = null;
+      if (point) applyDrag(point.x, point.y);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragHandle.current || e.pointerId !== dragPointerId.current) return;
+      e.preventDefault();
+      pendingPointer.current = { x: e.clientX, y: e.clientY };
+      if (dragFrame.current === null) {
+        dragFrame.current = window.requestAnimationFrame(flushDrag);
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== dragPointerId.current) return;
+      if (dragFrame.current !== null) {
+        window.cancelAnimationFrame(dragFrame.current);
+        flushDrag();
+      } else {
+        applyDrag(e.clientX, e.clientY);
+      }
+      dragHandle.current = null;
+      dragPointerId.current = null;
+      pendingPointer.current = null;
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup',   onUp);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend',  onUp);
+      if (dragFrame.current !== null) window.cancelAnimationFrame(dragFrame.current);
+      dragFrame.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, [open, naturalW, naturalH, aspectRatio]);
 
@@ -288,6 +332,18 @@ export default function CropModal({
   const outW   = Math.max(1, Math.round((100 - left - right)  / 100 * naturalW));
   const outH   = Math.max(1, Math.round((100 - top  - bottom) / 100 * naturalH));
   const vMid   = top + (100 - top - bottom) / 2;
+  const hMid   = left + (100 - left - right) / 2;
+  const viewportW = viewport.width || (typeof window !== 'undefined' ? window.innerWidth : 480);
+  const viewportH = viewport.height || (typeof window !== 'undefined' ? window.innerHeight : 800);
+  const previewMaxW = Math.max(240, Math.min(480, viewportW - 48));
+  const previewMaxH = Math.max(160, Math.min(380, Math.floor(viewportH * 0.42)));
+  const previewScale = Math.min(
+    1,
+    previewMaxW / Math.max(1, naturalW),
+    previewMaxH / Math.max(1, naturalH),
+  );
+  const previewDisplayW = Math.max(1, Math.round(naturalW * previewScale));
+  const previewDisplayH = Math.max(1, Math.round(naturalH * previewScale));
 
   /* clip-path for the bright crop overlay — uses CSS inset() for clean rectangle crop
      or ellipse() for circle crop. Both run on a single full-size img tag so there is
@@ -297,18 +353,22 @@ export default function CropModal({
     : `inset(${top}% ${right}% ${bottom}% ${left}%)`;
 
   const HANDLE_BASE: React.CSSProperties = {
-    position: 'absolute', width: 18, height: 18,
-    borderRadius: 3, background: '#00F5FF', border: '2.5px solid white',
-    touchAction: 'none', zIndex: 10,
+    position: 'absolute', width: 44, height: 44,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    border: 0, padding: 0, borderRadius: 8, background: 'transparent',
+    touchAction: 'none', userSelect: 'none', WebkitTapHighlightColor: 'transparent',
+    zIndex: 10,
   };
 
   const handles: { id: HandleId; style: React.CSSProperties }[] = [
     { id: 'tl', style: { left: `${left}%`,  top: `${top}%`,    transform: 'translate(-50%,-50%)', cursor: 'nwse-resize' } },
+    { id: 'tm', style: { left: `${hMid}%`,  top: `${top}%`,    transform: 'translate(-50%,-50%)', cursor: 'ns-resize' } },
     { id: 'tr', style: { right: `${right}%`, top: `${top}%`,   transform: 'translate(50%,-50%)',  cursor: 'nesw-resize' } },
     { id: 'bl', style: { left: `${left}%`,  bottom: `${bottom}%`, transform: 'translate(-50%,50%)', cursor: 'nesw-resize' } },
+    { id: 'bm', style: { left: `${hMid}%`,  bottom: `${bottom}%`, transform: 'translate(-50%,50%)', cursor: 'ns-resize' } },
     { id: 'br', style: { right: `${right}%`, bottom: `${bottom}%`, transform: 'translate(50%,50%)',  cursor: 'nwse-resize' } },
-    { id: 'ml', style: { left: `${left}%`,  top: `${vMid}%`,   transform: 'translate(-50%,-50%)', cursor: 'ew-resize', width: 14, height: 24, borderRadius: 4 } },
-    { id: 'mr', style: { right: `${right}%`, top: `${vMid}%`,  transform: 'translate(50%,-50%)',  cursor: 'ew-resize', width: 14, height: 24, borderRadius: 4 } },
+    { id: 'ml', style: { left: `${left}%`,  top: `${vMid}%`,   transform: 'translate(-50%,-50%)', cursor: 'ew-resize' } },
+    { id: 'mr', style: { right: `${right}%`, top: `${vMid}%`,  transform: 'translate(50%,-50%)',  cursor: 'ew-resize' } },
   ];
 
   const title = mode === 'image' ? 'Crop Image' : mode === 'fill' ? 'Crop Before Fill' : 'Crop Selection';
@@ -317,8 +377,16 @@ export default function CropModal({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
-        className="mx-auto rounded-2xl"
-        style={{ background: '#11141A', border: '1px solid rgba(0,245,255,0.15)', maxWidth: 'min(92vw,520px)', width: '100%' }}
+        className="mx-auto max-h-[90dvh] overflow-y-auto rounded-2xl p-4 sm:p-6"
+        style={{
+          background: '#11141A',
+          border: '1px solid rgba(0,245,255,0.15)',
+          maxWidth: 'min(92vw,520px)',
+          width: 'calc(100vw - 24px)',
+          maxHeight: '90dvh',
+          overflowY: 'auto',
+          boxSizing: 'border-box',
+        }}
       >
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">{title}</DialogTitle>
@@ -384,8 +452,10 @@ export default function CropModal({
             ref={containerRef}
             className="relative overflow-hidden rounded-lg select-none w-full"
             style={{
-              maxHeight: 380,
-              aspectRatio: `${naturalW} / ${naturalH}`,
+              width: hasSrc ? previewDisplayW : '100%',
+              height: hasSrc ? previewDisplayH : previewMaxH,
+              maxWidth: '100%',
+              margin: '0 auto',
               background: '#0B0C10',
               border: '1px solid rgba(0,245,255,0.2)',
             }}
@@ -422,14 +492,26 @@ export default function CropModal({
                   ))}
                 </div>
 
-                {/* 6 drag handles */}
+                {/* 8 drag handles; the 44px transparent hit areas are intentionally larger than the visible knobs for touch. */}
                 {handles.map(({ id, style }) => (
                   <div
                     key={id}
                     style={{ ...HANDLE_BASE, ...style }}
-                    onMouseDown={(e) => startDrag(id, e)}
-                    onTouchStart={(e) => startDrag(id, e)}
-                  />
+                    onPointerDown={(e) => startDrag(id, e)}
+                    aria-label={`Move ${id} crop handle`}
+                    role="slider"
+                    tabIndex={-1}
+                  >
+                    <span style={{
+                      width: id === 'ml' || id === 'mr' ? 12 : id === 'tm' || id === 'bm' ? 24 : 18,
+                      height: id === 'ml' || id === 'mr' ? 24 : id === 'tm' || id === 'bm' ? 12 : 18,
+                      borderRadius: 3,
+                      background: '#00F5FF',
+                      border: '2.5px solid white',
+                      boxShadow: '0 0 8px rgba(0,245,255,0.45)',
+                      pointerEvents: 'none',
+                    }} />
+                  </div>
                 ))}
               </>
             )}

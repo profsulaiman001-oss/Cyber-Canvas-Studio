@@ -10,7 +10,7 @@ export type ActivePanel =
   | 'opacity-tool' | 'radius-tool'
   | null;
 
-export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush' | 'zoom';
+export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush' | 'zoom' | '3d';
 
 export interface CanvasBgConfig {
   type: 'solid' | 'transparent' | 'gradient';

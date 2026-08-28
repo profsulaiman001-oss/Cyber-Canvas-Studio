@@ -137,12 +137,13 @@ function SliderRow({
 }
 
 function ColorField({
-  value, autoShade, onChange, onReset,
+  value, autoShade, onChange, onReset, disabled = false,
 }: {
   value: string;
   autoShade: boolean;
   onChange: (v: string) => void;
   onReset: () => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -151,6 +152,7 @@ function ColorField({
         <button
           className="flex min-w-0 flex-1 items-center justify-between rounded-lg px-2 py-1.5 transition-all duration-300 ease-in-out hover:bg-white/5"
           onClick={() => setOpen((o) => !o)}
+          disabled={disabled}
         >
           <Label className="text-[11px] text-muted-foreground pointer-events-none">Depth Color</Label>
           <div className="flex items-center gap-2">
@@ -161,6 +163,7 @@ function ColorField({
         {!autoShade && (
           <button
             onClick={onReset}
+            disabled={disabled}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-primary transition-all duration-300 ease-in-out hover:bg-primary/10"
             title="Use an automatically derived shade"
           >
@@ -169,7 +172,7 @@ function ColorField({
           </button>
         )}
       </div>
-      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${open ? 'max-h-72 opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
+      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${open && !disabled ? 'max-h-72 opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
         <ColorPicker value={value} onChange={onChange} />
       </div>
     </div>
@@ -195,7 +198,17 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
   ), [obj]);
 
   const syncFromObj = useCallback(() => {
-    if (!obj) return;
+    if (!obj) {
+      setEnabled(false);
+      setSteps(8);
+      setDarkenIntensity(40);
+      setAutoShade(true);
+      setDepthColor('#777777');
+      setAngle(225);
+      setBevel(false);
+      setBevelTaper(20);
+      return;
+    }
     const depth = (obj as FabricObject & Record<string, unknown>)._depth3d as Depth3dConfig | undefined;
     if (depth) {
       const nextIntensity = depth.darkenIntensity ?? 40;
@@ -249,7 +262,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
     controller.commitChange();
   }, [obj, controller]);
 
-  if (!obj || state.activePanel !== 'threeD') return null;
+  if (state.activePanel !== 'threeD') return null;
 
   const updateDepth = (changes: Partial<{
     enabled: boolean;
@@ -350,9 +363,10 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
             autoShade={autoShade}
             onChange={handleColorChange}
             onReset={resetAutoShade}
+            disabled={!obj}
           />
           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>{autoShade ? 'Auto shade from main fill' : 'Manual depth color override'}</span>
+            <span>{obj ? (autoShade ? 'Auto shade from main fill' : 'Manual depth color override') : 'Select an object to edit 3D depth'}</span>
             <span className="font-mono text-primary">{darkenIntensity}% darker</span>
           </div>
           <SliderRow
@@ -362,7 +376,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
             max={100}
             unit="%"
             onChange={handleIntensityChange}
-            disabled={!autoShade}
+            disabled={!obj || !autoShade}
           />
 
           <SliderRow
@@ -372,6 +386,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
             max={360}
             unit="°"
             onChange={(value) => { setAngle(value); updateDepth({ angle: value }); }}
+            disabled={!obj}
           />
           <div className="flex items-center gap-3">
             <span className="text-[10px] text-muted-foreground">Direction</span>
@@ -391,6 +406,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
               <Switch
                 checked={bevel}
                 onCheckedChange={(value) => { setBevel(value); updateDepth({ bevel: value }); }}
+                disabled={!obj}
                 data-testid="switch-bevel"
               />
             </div>
@@ -401,7 +417,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
               max={50}
               unit="%"
               onChange={(value) => { setBevelTaper(value); updateDepth({ bevelTaper: value }); }}
-              disabled={!bevel}
+              disabled={!obj || !bevel}
             />
           </div>
         </div>
@@ -417,7 +433,12 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
       >
         <Box size={14} className="shrink-0 text-primary" />
         <span className="shrink-0 text-[10px] font-semibold tracking-wide text-primary">3D DEPTH</span>
-        <Switch checked={enabled} onCheckedChange={handleEnabledChange} aria-label="Toggle 3D Depth Effect" />
+        <Switch
+          checked={enabled}
+          onCheckedChange={handleEnabledChange}
+          disabled={!obj}
+          aria-label="Toggle 3D Depth Effect"
+        />
         <span className="shrink-0 text-[10px] text-muted-foreground">Steps</span>
         <Slider
           min={1}
@@ -425,7 +446,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
           step={1}
           value={[steps]}
           onValueChange={([value]) => handleStepsChange(value)}
-          disabled={!enabled}
+          disabled={!obj || !enabled}
           className="min-w-0 flex-1"
         />
         <span className="w-6 shrink-0 text-right text-[10px] font-mono text-primary">{steps}</span>

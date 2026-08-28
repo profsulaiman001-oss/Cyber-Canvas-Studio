@@ -299,8 +299,10 @@ export default function BottomToolbar({
       id: 'threeD',
       icon: <Box size={22} />,
       label: '3D',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'threeD' }),
-      disabled: !hasSelection,
+      action: () => {
+        dispatch({ type: 'SET_TOOL', payload: '3d' });
+        dispatch({ type: 'TOGGLE_PANEL', payload: 'threeD' });
+      },
     },
     {
       id: 'colorStudio',

@@ -34,41 +34,52 @@ interface LayersPanelProps {
 function LayerThumb({
   type,
   fill,
+  stroke,
+  opacity,
+  imgSrc,
   thumbnailSrc,
 }: {
   type: string;
   fill?: string;
+  stroke?: string;
+  opacity?: number;
+  imgSrc?: string;
   thumbnailSrc?: string;
 }) {
   // The rendered thumbnail is preferred because it includes Fabric gradients,
   // patterns, strokes, opacity, filters, and image textures.
-  if (thumbnailSrc) {
+  if (thumbnailSrc || imgSrc) {
     return (
       <div
-        className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border"
+        className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10"
         style={{
-          background: 'repeating-conic-gradient(#242832 0% 25%, #1b1e25 0% 50%) 50% / 10px 10px',
+          background: 'repeating-conic-gradient(#151922 0% 25%, #10131a 0% 50%) 50% / 12px 12px',
         }}
       >
         <img
-          src={thumbnailSrc}
+          src={thumbnailSrc || imgSrc}
           alt=""
           draggable={false}
-          className="h-full w-full object-contain p-1"
+          className="h-full w-full object-contain p-1.5"
+          style={{ opacity: thumbnailSrc ? 1 : opacity ?? 1 }}
         />
       </div>
     );
   }
 
-  const color = fill || '#6b7280';
+  // A string fill is the most accurate fallback for objects whose thumbnail
+  // is temporarily unavailable. Use stroke before grey so outlined vectors
+  // retain their actual current color.
+  const color = fill || stroke || '#9CA3AF';
+  const thumbStyle = { background: color, opacity: opacity ?? 1 };
 
   if (type === 'circle') {
     return (
       <div
-        className="h-16 w-16 flex-shrink-0 rounded-lg border border-border p-3"
-        style={{ background: '#1a1d24' }}
+        className="h-[84px] w-[84px] flex-shrink-0 rounded-xl border border-white/10 p-4"
+        style={{ background: '#11141A' }}
       >
-        <div className="h-full w-full rounded-full" style={{ background: color }} />
+        <div className="h-full w-full rounded-full" style={thumbStyle} />
       </div>
     );
   }
@@ -76,8 +87,8 @@ function LayerThumb({
   if (type === 'triangle') {
     return (
       <div
-        className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg border border-border"
-        style={{ background: '#1a1d24' }}
+        className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center rounded-xl border border-white/10"
+        style={{ background: '#11141A' }}
       >
         <div
           style={{
@@ -85,7 +96,8 @@ function LayerThumb({
             height: 0,
             borderLeft: '17px solid transparent',
             borderRight: '17px solid transparent',
-            borderBottom: `30px solid ${color}`,
+            borderBottom: `38px solid ${color}`,
+            opacity: opacity ?? 1,
           }}
         />
       </div>
@@ -95,10 +107,10 @@ function LayerThumb({
   if (type === 'i-text' || type === 'text' || type === 'textbox') {
     return (
       <div
-        className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg border border-border"
-        style={{ background: '#1a1d24' }}
+        className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center rounded-xl border border-white/10"
+        style={{ background: '#11141A' }}
       >
-        <span style={{ fontWeight: 700, fontSize: 27, color, lineHeight: 1 }}>T</span>
+        <span style={{ fontWeight: 700, fontSize: 31, color, lineHeight: 1, opacity: opacity ?? 1 }}>T</span>
       </div>
     );
   }
@@ -106,17 +118,17 @@ function LayerThumb({
   if (type === 'line' || type === 'path') {
     return (
       <div
-        className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg border border-border"
-        style={{ background: '#1a1d24' }}
+        className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center rounded-xl border border-white/10"
+        style={{ background: '#11141A' }}
       >
-        <div style={{ width: 38, height: 4, background: color, borderRadius: 4 }} />
+        <div style={{ width: 48, height: 5, background: color, borderRadius: 4, opacity: opacity ?? 1 }} />
       </div>
     );
   }
 
   return (
-    <div className="h-16 w-16 flex-shrink-0 rounded-lg border border-border p-2" style={{ background: '#1a1d24' }}>
-      <div className="h-full w-full rounded-md" style={{ background: color }} />
+    <div className="h-[84px] w-[84px] flex-shrink-0 rounded-xl border border-white/10 p-3" style={{ background: '#11141A' }}>
+      <div className="h-full w-full rounded-lg" style={thumbStyle} />
     </div>
   );
 }
@@ -212,7 +224,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <SheetTitle className="text-sm font-semibold text-foreground">Layers</SheetTitle>
-                <p className="mt-1 text-xs text-muted-foreground">Drag to reorder · Select layers to group</p>
+          <p className="mt-1 text-xs text-muted-foreground">Drag to reorder · Check layers to group</p>
               </div>
               {selectedIds.length > 0 && (
                 <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
@@ -260,7 +272,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                     onDrop={() => handleDrop(idx)}
                     onDragEnd={handleDragEnd}
                     onClick={() => handleCardClick(obj)}
-                    className="mb-3 grid min-h-[116px] grid-cols-[24px_1fr] gap-3 rounded-xl border p-3 transition-colors"
+                     className="mb-3 grid min-h-[154px] grid-cols-[28px_1fr] gap-4 rounded-2xl border p-4 transition-colors"
                     style={{
                       background: isSelected ? 'rgba(0,245,255,0.1)' : 'rgba(255,255,255,0.025)',
                       borderColor: isSelected ? 'rgba(0,245,255,0.6)' : 'rgba(255,255,255,0.08)',
@@ -271,39 +283,39 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                     data-testid={`layer-item-${obj.id}`}
                   >
                     <div className="flex flex-col items-center justify-between py-1">
-                      <GripVertical size={18} className="cursor-grab text-muted-foreground" />
+                       <GripVertical size={20} className="cursor-grab text-muted-foreground" />
                       <Checkbox
                         checked={isSelected}
                         onCheckedChange={(checked) => handleToggleSelected(obj.id, checked === true)}
                         onClick={(e) => e.stopPropagation()}
                         aria-label={`Select ${obj.name}`}
-                        className="h-5 w-5"
+                         className="h-6 w-6"
                         data-testid={`layer-select-${obj.id}`}
                       />
                     </div>
 
-                    <div className="flex min-w-0 flex-col gap-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <LayerThumb type={obj.type} fill={obj.fill} thumbnailSrc={obj.thumbnailSrc} />
+                    <div className="flex min-w-0 flex-col gap-4">
+                       <div className="flex min-w-0 items-center gap-4">
+                         <LayerThumb type={obj.type} fill={obj.fill} stroke={obj.stroke} opacity={obj.opacity} imgSrc={obj.imgSrc} thumbnailSrc={obj.thumbnailSrc} />
                         <div className="min-w-0 flex-1">
                           <p
-                            className="truncate text-sm font-semibold text-foreground"
+                             className="truncate text-[15px] font-semibold text-foreground"
                             title={obj.name}
                             style={{ color: obj.visible ? undefined : '#6b7280' }}
                           >
                             {obj.name}
                           </p>
-                          <p className="mt-1 truncate text-[10px] uppercase tracking-wider text-muted-foreground">
+                           <p className="mt-1 truncate text-[11px] uppercase tracking-wider text-muted-foreground">
                             {obj.type === 'textbox' || obj.type === 'i-text' ? 'Text' : obj.type}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-end gap-1.5 border-t border-white/5 pt-2" onClick={(e) => e.stopPropagation()}>
+                       <div className="flex items-center justify-end gap-2 border-t border-white/5 pt-3" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-9 w-9 rounded-lg"
+                           className="h-11 w-11 rounded-xl"
                           onClick={() => handleToggleVisibility(obj)}
                           aria-label={obj.visible ? `Hide ${obj.name}` : `Show ${obj.name}`}
                           data-testid={`layer-visibility-${obj.id}`}
@@ -313,7 +325,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-9 w-9 rounded-lg"
+                           className="h-11 w-11 rounded-xl"
                           onClick={() => handleToggleLock(obj)}
                           aria-label={obj.selectable ? `Lock ${obj.name}` : `Unlock ${obj.name}`}
                           data-testid={`layer-lock-${obj.id}`}
@@ -323,7 +335,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-9 w-9 rounded-lg"
+                           className="h-11 w-11 rounded-xl"
                           onClick={() => handleEdit(obj)}
                           aria-label={`Edit ${obj.name}`}
                           data-testid={`layer-edit-${obj.id}`}
@@ -333,7 +345,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-9 w-9 rounded-lg text-destructive hover:text-destructive"
+                           className="h-11 w-11 rounded-xl text-destructive hover:text-destructive"
                           onClick={() => setPendingDelete(obj)}
                           aria-label={`Delete ${obj.name}`}
                           data-testid={`layer-delete-${obj.id}`}

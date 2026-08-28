@@ -9,6 +9,7 @@ import {
   Textbox,
   FabricImage,
   Path,
+  Group,
   Shadow,
   Point,
   FabricObject,
@@ -80,6 +81,8 @@ export interface ObjectMeta {
   visible: boolean;
   selectable: boolean;
   fill?: string;
+  stroke?: string;
+  opacity: number;
   imgSrc?: string;
   thumbnailSrc?: string;
 }
@@ -157,12 +160,13 @@ function objId(obj: FabricObject): string {
   return (obj as FabricObject & { _uid: string })._uid;
 }
 
-/* Render the actual Fabric object into a small transparent preview. Unlike a
- * CSS color swatch, this preserves gradients, patterns, strokes, opacity,
- * image filters, and the current image texture. */
+/* Render the actual Fabric object into a transparent preview. Unlike a CSS
+ * swatch, this preserves gradients, patterns, strokes, opacity, filters, and
+ * image textures. Keep the background transparent: the panel supplies its own
+ * dark preview surface instead of baking a grey checkerboard into the image. */
 function renderLayerThumbnail(obj: FabricObject): string | undefined {
   try {
-    const size = 72;
+    const size = 96;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
@@ -171,7 +175,7 @@ function renderLayerThumbnail(obj: FabricObject): string | undefined {
 
     const scaledW = Math.max(1, obj.getScaledWidth());
     const scaledH = Math.max(1, obj.getScaledHeight());
-    const fit = Math.min((size - 10) / scaledW, (size - 10) / scaledH);
+    const fit = Math.min((size - 14) / scaledW, (size - 14) / scaledH);
     const scaleX = fit * Math.max(0.001, Math.abs(obj.scaleX ?? 1)) * (obj.flipX ? -1 : 1);
     const scaleY = fit * Math.max(0.001, Math.abs(obj.scaleY ?? 1)) * (obj.flipY ? -1 : 1);
 
@@ -179,7 +183,7 @@ function renderLayerThumbnail(obj: FabricObject): string | undefined {
     ctx.translate(size / 2, size / 2);
     ctx.rotate(((obj.angle ?? 0) * Math.PI) / 180);
     ctx.scale(scaleX, scaleY);
-    ctx.globalAlpha = obj.opacity ?? 1;
+    ctx.globalAlpha = Math.max(0, Math.min(1, obj.opacity ?? 1));
 
     const render = (obj as FabricObject & {
       _render?: (renderCtx: CanvasRenderingContext2D) => void;
@@ -194,6 +198,38 @@ function renderLayerThumbnail(obj: FabricObject): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function visualSignature(obj: FabricObject): string {
+  const o = obj as FabricObject & Record<string, unknown>;
+  let fill = String(o.fill ?? '');
+  try { fill = JSON.stringify(o.fill); } catch { /* use String fallback */ }
+  let imageSource = '';
+  if (obj.type === 'image') {
+    try {
+      const getElement = o.getElement as (() => HTMLImageElement) | undefined;
+      const element = getElement?.();
+      imageSource = element?.currentSrc || element?.src || '';
+    } catch { /* image may not be decoded yet */ }
+  }
+  return [
+    objId(obj),
+    obj.type,
+    fill,
+    String(o.stroke ?? ''),
+    String(o.strokeWidth ?? ''),
+    String(o.opacity ?? 1),
+    String(o.text ?? ''),
+    String(o._textureKey ?? ''),
+    imageSource,
+    String(o.width ?? ''),
+    String(o.height ?? ''),
+    String(o.scaleX ?? ''),
+    String(o.scaleY ?? ''),
+    String(o.angle ?? ''),
+    String(o.flipX ?? ''),
+    String(o.flipY ?? ''),
+  ].join('|');
 }
 
 function tagObj(obj: FabricObject, nameKey: string) {
@@ -374,6 +410,7 @@ export function useFabricCanvas(
   const designWidth = useRef(options.width);
   const designHeight = useRef(options.height);
   const [objects, setObjects] = useState<ObjectMeta[]>([]);
+  const lastVisualSignatureRef = useRef('');
   const [selectedObject, setSelectedObject] = useState<FabricObject | null>(null);
   const [zoom, setZoom] = useState(1);
   const [dragInfo, setDragInfo] = useState<DragInfo | null>(null);
@@ -427,11 +464,13 @@ export function useFabricCanvas(
     if (!c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const objs = c.getObjects().filter((o) => !(o as any)._isPenAux && !(o as any)._isAuxLayer);
+    lastVisualSignatureRef.current = objs.map(visualSignature).join('||');
     setObjects(
       [...objs].reverse().map((obj) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const o = obj as any;
         const fill = typeof obj.fill === 'string' ? obj.fill : undefined;
+        const stroke = typeof obj.stroke === 'string' ? obj.stroke : undefined;
         const labelByType: Record<string, string> = {
           rect: 'Rectangle',
           circle: 'Circle',
@@ -478,6 +517,8 @@ export function useFabricCanvas(
           visible: obj.visible !== false,
           selectable: obj.selectable !== false,
           fill,
+          stroke,
+          opacity: obj.opacity ?? 1,
           imgSrc,
           thumbnailSrc: renderLayerThumbnail(obj),
         };
@@ -771,8 +812,17 @@ export function useFabricCanvas(
       if (t) setDragInfo({ w: Math.round(t.getScaledWidth()), h: Math.round(t.getScaledHeight()), angle: Math.round(t.angle ?? 0), clientX: (e.e as MouseEvent).clientX ?? 0, clientY: (e.e as MouseEvent).clientY ?? 0 });
     });
 
-    /* ─── After:render – inner shadow + 3D extrusion ─── */
+    /* ─── After:render – thumbnail refresh + inner shadow + 3D extrusion ─── */
     c.on('after:render', ({ ctx }) => {
+      const visualSignatureNow = c.getObjects()
+        .filter((obj) => !(obj as any)._isPenAux && !(obj as any)._isAuxLayer)
+        .map(visualSignature)
+        .join('||');
+      // Some panels mutate Fabric properties directly. The render is the
+      // common signal for those changes; refresh only when visual state really
+      // changed so pointer renders do not rebuild every thumbnail.
+      if (visualSignatureNow !== lastVisualSignatureRef.current) syncObjects();
+
       const vp = c.viewportTransform;
       if (!vp) return;
       c.getObjects().forEach((obj) => {
@@ -2226,13 +2276,13 @@ export function useFabricCanvas(
     const selected = c.getActiveObjects();
     if (selected.length < 2) return;
 
-    const active = c.getActiveObject();
-    const selection = active instanceof ActiveSelection
-      ? active
-      : new ActiveSelection(selected, { canvas: c });
-    if (active !== selection) c.setActiveObject(selection);
-
-    const group = selection.toGroup();
+    // Fabric 7 no longer exposes ActiveSelection.toGroup(). Constructing a
+    // Group explicitly also keeps the conversion compatible with loaded
+    // projects and preserves the children as real editable objects.
+    c.discardActiveObject();
+    const group = new Group(selected);
+    c.remove(...selected);
+    c.add(group);
     tagObj(group, 'group');
     c.setActiveObject(group);
     c.requestRenderAll();
@@ -2247,11 +2297,16 @@ export function useFabricCanvas(
     const active = c.getActiveObject();
     if (!active || active.type !== 'group') return;
 
-    const group = active as FabricObject & {
-      toActiveSelection?: () => ActiveSelection;
-    };
-    if (!group.toActiveSelection) return;
-    const selection = group.toActiveSelection();
+    // Fabric 7 removed Group.toActiveSelection(). Remove the children from
+    // the group first so their canvas-space transforms are restored, then
+    // reinsert them and recreate the visible multi-selection.
+    const group = active as unknown as Group;
+    const children = group.getObjects().slice();
+    if (children.length === 0) return;
+    group.remove(...children);
+    c.remove(active);
+    c.add(...children);
+    const selection = new ActiveSelection(children, { canvas: c });
     c.setActiveObject(selection);
     c.requestRenderAll();
     const ids = selection.getObjects().map(objId);

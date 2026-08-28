@@ -489,6 +489,7 @@ export default function DesignEditor() {
       {/* ── Toolbar wrapper ── */}
       <div className="relative flex-shrink-0">
         <ShadowsPanel controller={controller} />
+        <ThreeDPanel controller={controller} />
 
         {/* Brush Color Picker overlay */}
         {brushActive && brushColorPickerOpen && (
@@ -696,7 +697,6 @@ export default function DesignEditor() {
       <TextPanel controller={controller} />
       <ShapeModifiersPanel controller={controller} />
       <AdjustPanel controller={controller} />
-      <ThreeDPanel controller={controller} />
       <VectorsPanel controller={controller} onPenStart={handleVectorsPenStart} />
     </div>
   );

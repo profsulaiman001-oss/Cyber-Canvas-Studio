@@ -184,6 +184,12 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
   const obj = controller.selectedObject;
   const [expanded, setExpanded] = useState(false);
 
+  console.debug('[ThreeDPanel] Rendering 3D Panel', {
+    activeTool: state.activeTool,
+    activePanel: state.activePanel,
+    selectedObject: obj?.type ?? null,
+  });
+
   const [enabled, setEnabled] = useState(false);
   const [steps, setSteps] = useState(8);
   const [depthColor, setDepthColor] = useState('#777777');
@@ -336,7 +342,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
 
   return (
     <div
-      className="absolute bottom-full left-1/2 z-50 mb-2 w-[min(620px,calc(100vw-24px))] -translate-x-1/2"
+      className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(620px,calc(100vw-24px))] -translate-x-1/2"
       data-testid="threed-panel"
     >
       <div

@@ -81,41 +81,91 @@ interface GradientOrigin {
   y: number;
 }
 
-function cssColorToRgba(cssColor: string): [number, number, number, number] {
-  const rgb = _cssColorToRgb(cssColor) ?? [0, 0, 0];
-  return [rgb[0], rgb[1], rgb[2], extractColorAlpha(cssColor)];
+interface ParsedGradientStop {
+  offset: number;
+  red: number;
+  green: number;
+  blue: number;
+  alpha: number;
 }
 
-function colorAtGradientPosition(
-  stops: { offset: number; color: string }[],
-  position: number,
-): [number, number, number, number] {
-  const sorted = stops
-    .map((stop) => ({ offset: Math.max(0, Math.min(1, stop.offset)), color: stop.color }))
-    .sort((a, b) => a.offset - b.offset);
-  if (!sorted.length) return [0, 0, 0, 1];
-  if (position <= sorted[0].offset) return cssColorToRgba(sorted[0].color);
-  if (position >= sorted[sorted.length - 1].offset) {
-    return cssColorToRgba(sorted[sorted.length - 1].color);
-  }
-
-  for (let index = 0; index < sorted.length - 1; index += 1) {
-    const first = sorted[index];
-    const second = sorted[index + 1];
-    if (position >= first.offset && position <= second.offset) {
-      const span = second.offset - first.offset;
-      const ratio = span === 0 ? 0 : (position - first.offset) / span;
-      const a = cssColorToRgba(first.color);
-      const b = cssColorToRgba(second.color);
+function cssColorToRgba(cssColor: string): [number, number, number, number] {
+  const trimmed = cssColor.trim();
+  const hex = trimmed.match(/^#([0-9a-f]{3,8})$/i);
+  if (hex) {
+    const value = hex[1];
+    const expanded = value.length === 3 || value.length === 4
+      ? value.split('').map((part) => part + part).join('')
+      : value;
+    if (expanded.length === 6 || expanded.length === 8) {
       return [
-        Math.round(a[0] + (b[0] - a[0]) * ratio),
-        Math.round(a[1] + (b[1] - a[1]) * ratio),
-        Math.round(a[2] + (b[2] - a[2]) * ratio),
-        a[3] + (b[3] - a[3]) * ratio,
+        parseInt(expanded.slice(0, 2), 16),
+        parseInt(expanded.slice(2, 4), 16),
+        parseInt(expanded.slice(4, 6), 16),
+        expanded.length === 8 ? parseInt(expanded.slice(6, 8), 16) / 255 : 1,
       ];
     }
   }
-  return cssColorToRgba(sorted[sorted.length - 1].color);
+  const rgbMatch = trimmed.match(
+    /rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/i,
+  );
+  if (rgbMatch) {
+    return [
+      Math.max(0, Math.min(255, Math.round(parseFloat(rgbMatch[1])))),
+      Math.max(0, Math.min(255, Math.round(parseFloat(rgbMatch[2])))),
+      Math.max(0, Math.min(255, Math.round(parseFloat(rgbMatch[3])))),
+      rgbMatch[4] === undefined ? 1 : Math.max(0, Math.min(1, parseFloat(rgbMatch[4]))),
+    ];
+  }
+  const rgb = _cssColorToRgb(trimmed) ?? [0, 0, 0];
+  return [rgb[0], rgb[1], rgb[2], extractColorAlpha(trimmed)];
+}
+
+function prepareGradientStops(stops: { offset: number; color: string }[]): ParsedGradientStop[] {
+  return stops
+    .map((stop) => {
+      const [red, green, blue, alpha] = cssColorToRgba(stop.color);
+      return {
+        offset: Math.max(0, Math.min(1, stop.offset)),
+        red,
+        green,
+        blue,
+        alpha,
+      };
+    })
+    .sort((a, b) => a.offset - b.offset);
+}
+
+function colorAtGradientPosition(
+  stops: ParsedGradientStop[],
+  position: number,
+): [number, number, number, number] {
+  if (!stops.length) return [0, 0, 0, 1];
+  if (position <= stops[0].offset) {
+    const first = stops[0];
+    return [first.red, first.green, first.blue, first.alpha];
+  }
+  if (position >= stops[stops.length - 1].offset) {
+    const last = stops[stops.length - 1];
+    return [last.red, last.green, last.blue, last.alpha];
+  }
+
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const first = stops[index];
+    const second = stops[index + 1];
+    if (position >= first.offset && position <= second.offset) {
+      const span = second.offset - first.offset;
+      const ratio = span === 0 ? 0 : (position - first.offset) / span;
+      return [
+        Math.round(first.red + (second.red - first.red) * ratio),
+        Math.round(first.green + (second.green - first.green) * ratio),
+        Math.round(first.blue + (second.blue - first.blue) * ratio),
+        first.alpha + (second.alpha - first.alpha) * ratio,
+      ];
+    }
+  }
+  const last = stops[stops.length - 1];
+  return [last.red, last.green, last.blue, last.alpha];
 }
 
 /**
@@ -130,7 +180,7 @@ function createAngularGradientCanvas(
   angleDeg: number,
   origin: GradientOrigin,
 ): HTMLCanvasElement {
-  const maxDimension = 768;
+  const maxDimension = 384;
   const scale = Math.min(1, maxDimension / Math.max(width, height));
   const renderWidth = Math.max(2, Math.round(width * scale));
   const renderHeight = Math.max(2, Math.round(height * scale));
@@ -144,12 +194,13 @@ function createAngularGradientCanvas(
   const originX = Math.max(0, Math.min(1, origin.x)) * renderWidth;
   const originY = Math.max(0, Math.min(1, origin.y)) * renderHeight;
   const normalizedAngle = ((angleDeg % 360) + 360) % 360;
+  const parsedStops = prepareGradientStops(stops);
 
   for (let y = 0; y < renderHeight; y += 1) {
     for (let x = 0; x < renderWidth; x += 1) {
       const theta = (Math.atan2(y - originY, x - originX) * 180) / Math.PI;
       const position = (((theta - normalizedAngle) % 360) + 360) % 360 / 360;
-      const [red, green, blue, alpha] = colorAtGradientPosition(stops, position);
+      const [red, green, blue, alpha] = colorAtGradientPosition(parsedStops, position);
       const pixel = (y * renderWidth + x) * 4;
       image.data[pixel] = red;
       image.data[pixel + 1] = green;
@@ -1411,7 +1462,8 @@ export function useFabricCanvas(
     const safeStops = stops.map((stop) => ({
       offset: Math.max(0, Math.min(1, stop.offset)),
       color: stop.color,
-    }));
+    })).filter((stop) => Number.isFinite(stop.offset) && typeof stop.color === 'string' && stop.color.length > 0);
+    if (safeStops.length < 2) return;
     const safeOrigin = {
       x: Math.max(0, Math.min(1, origin.x)),
       y: Math.max(0, Math.min(1, origin.y)),
@@ -1425,63 +1477,69 @@ export function useFabricCanvas(
     // the object.  So gradient pixel coords must use top-left (0,0) → (w,h).
     // ──────────────────────────────────────────────────────────────────────────
 
-    if (type === 'angular') {
-      const angularCanvas = createAngularGradientCanvas(w, h, safeStops, safeAngle, safeOrigin);
-      const renderScale = angularCanvas.width > 0 ? w / angularCanvas.width : 1;
-      const renderScaleY = angularCanvas.height > 0 ? h / angularCanvas.height : 1;
-      const pat = new Pattern({
-        source: angularCanvas,
-        repeat: 'no-repeat',
-        patternTransform: [renderScale, 0, 0, renderScaleY, 0, 0],
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      obj.set('fill', pat as any);
-    } else {
-      let coords: Record<string, number>;
-      if (type === 'radial') {
-      // Center at (w/2, h/2), inner radius 0, outer radius fills the shape
-        const r2 = radialRadius ?? Math.max(w, h) / 2;
-        const cx = safeOrigin.x * w;
-        const cy = safeOrigin.y * h;
-        coords = { x1: cx, y1: cy, r1: 0, x2: cx, y2: cy, r2 };
+    try {
+      if (type === 'angular') {
+        const angularCanvas = createAngularGradientCanvas(w, h, safeStops, safeAngle, safeOrigin);
+        const renderScale = angularCanvas.width > 0 ? w / angularCanvas.width : 1;
+        const renderScaleY = angularCanvas.height > 0 ? h / angularCanvas.height : 1;
+        const pat = new Pattern({
+          source: angularCanvas,
+          repeat: 'no-repeat',
+          patternTransform: [renderScale, 0, 0, renderScaleY, 0, 0],
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        obj.set('fill', pat as any);
       } else {
-        // Linear: vector from one edge to the opposite, through the center
-        // Default 0° = left→right; positive angle rotates clockwise
-        const rad = (safeAngle * Math.PI) / 180;
-        const cx = w / 2;
-        const cy = h / 2;
-        // Half-length: reach to the bounding box edge along the gradient direction
-        const halfLen = Math.abs(cx * Math.cos(rad)) + Math.abs(cy * Math.sin(rad));
-        coords = {
-          x1: cx - halfLen * Math.cos(rad),
-          y1: cy - halfLen * Math.sin(rad),
-          x2: cx + halfLen * Math.cos(rad),
-          y2: cy + halfLen * Math.sin(rad),
-        };
+        let coords: Record<string, number>;
+        if (type === 'radial') {
+          // Center at (w/2, h/2), inner radius 0, outer radius fills the shape
+          const r2 = Math.max(1, radialRadius ?? Math.max(w, h) / 2);
+          const cx = safeOrigin.x * w;
+          const cy = safeOrigin.y * h;
+          coords = { x1: cx, y1: cy, r1: 0, x2: cx, y2: cy, r2 };
+        } else {
+          // Linear: vector from one edge to the opposite, through the center
+          // Default 0° = left→right; positive angle rotates clockwise
+          const rad = (safeAngle * Math.PI) / 180;
+          const cx = w / 2;
+          const cy = h / 2;
+          // Half-length: reach to the bounding box edge along the gradient direction
+          const halfLen = Math.abs(cx * Math.cos(rad)) + Math.abs(cy * Math.sin(rad));
+          coords = {
+            x1: cx - halfLen * Math.cos(rad),
+            y1: cy - halfLen * Math.sin(rad),
+            x2: cx + halfLen * Math.cos(rad),
+            y2: cy + halfLen * Math.sin(rad),
+          };
+        }
+
+        const grad = new Gradient({
+          type: type === 'radial' ? 'radial' : 'linear',
+          coords,
+          colorStops: safeStops.map((stop) => ({ ...stop })),
+          gradientUnits: 'pixels',
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        obj.set('fill', grad as any);
       }
 
-      const grad = new Gradient({
-        type: type === 'radial' ? 'radial' : 'linear',
-        coords,
-        colorStops: safeStops,
-        gradientUnits: 'pixels',
-      });
+      // Keep the editable source configuration alongside the Fabric fill. This is
+      // also used to restore the Angular controls when the panel is reopened.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      obj.set('fill', grad as any);
+      (obj as any)._gradientConfig = {
+        type,
+        stops: safeStops.map((stop) => ({ ...stop })),
+        radialRadius: radialRadius ?? null,
+        angleDeg: safeAngle,
+        origin: { ...safeOrigin },
+      };
+      c.requestRenderAll();
+    } catch {
+      // A malformed stop or unsupported Fabric fill must not take down the
+      // editor. Leave the previous fill intact and keep the canvas responsive.
+      return;
     }
-    // Keep the editable source configuration alongside the Fabric fill. This is
-    // also used to restore the Angular controls when the panel is reopened.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (obj as any)._gradientConfig = {
-      type,
-      stops: safeStops.map((stop) => ({ ...stop })),
-      radialRadius: radialRadius ?? null,
-      angleDeg: safeAngle,
-      origin: { ...safeOrigin },
-    };
-    c.requestRenderAll();
-    syncObjects();
-  }, [syncObjects]);
+  }, []);
 
   /* ─── Decoupled Fill Opacity (encodes alpha into fill color, never touches obj.opacity) ─── */
   const applyFillOpacity = useCallback((obj: FabricObject | null, fraction: number) => {

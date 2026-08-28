@@ -418,14 +418,19 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
     origin: { x: number; y: number },
   ) => {
     if (!obj) return;
-    if (mode === 'solid') {
-      obj.set('fill', color);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (obj as any)._gradientConfig;
-      controller.getCanvas()?.renderAll();
-      controller.syncObjects();
-    } else {
-      controller.applyGradientFill(obj, mode, ss, rr, angle, origin);
+    try {
+      if (mode === 'solid') {
+        obj.set('fill', color);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (obj as any)._gradientConfig;
+        controller.getCanvas()?.renderAll();
+        controller.syncObjects();
+      } else {
+        controller.applyGradientFill(obj, mode, ss, rr, angle, origin);
+      }
+    } catch {
+      // Keep a malformed color or a Fabric renderer edge case from locking the
+      // modal. The last valid fill remains on the object.
     }
   }, [obj, controller]);
 

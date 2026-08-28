@@ -1,7 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useFabricCanvas } from '@/hooks/useFabricCanvas';
 import { useEditor } from '@/store/editorStore';
-import { consumePendingSession } from '@/lib/editorSession';
 import { loadStoredFonts } from '@/components/editor/FontUploader';
 import CanvasWorkspace from '@/components/editor/Canvas';
 import TopBar from '@/components/editor/TopBar';
@@ -35,11 +34,7 @@ let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 /* Pixel multiplier used when rasterising any non-image canvas object for crop */
 const RASTER_MULT = 2;
 
-interface DesignEditorProps {
-  onGoHome?: () => void;
-}
-
-export default function DesignEditor({ onGoHome }: DesignEditorProps = {}) {
+export default function DesignEditor() {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { state, dispatch } = useEditor();
@@ -48,47 +43,6 @@ export default function DesignEditor({ onGoHome }: DesignEditorProps = {}) {
 
   const [vpX, setVpX] = useState(0);
   const [vpY, setVpY] = useState(0);
-
-  /* ── Session loading from HomeScreen ── */
-  const pendingSessionRef = useRef(consumePendingSession());
-  const sessionApplied = useRef(false);
-
-  useEffect(() => {
-    const session = pendingSessionRef.current;
-    if (!session || sessionApplied.current) return;
-    // Defer 150ms to ensure useFabricCanvas has initialized the canvas
-    const timer = setTimeout(async () => {
-      const canvas = controller.getCanvas();
-      if (!canvas) return;
-      sessionApplied.current = true;
-
-      // Apply canvas size
-      if (session.canvasWidth && session.canvasHeight) {
-        controller.setCanvasSize(session.canvasWidth, session.canvasHeight);
-        dispatch({ type: 'SET_CANVAS_SIZE', payload: { width: session.canvasWidth, height: session.canvasHeight } });
-      }
-
-      dispatch({ type: 'SET_PROJECT_NAME', payload: session.projectName });
-
-      if (session.canvasJSON) {
-        // Existing project — load its JSON
-        await controller.loadFromJSON(session.canvasJSON);
-      } else {
-        // New project — start with a clean white canvas
-        canvas.clear();
-        canvas.backgroundColor = '#ffffff';
-        canvas.renderAll();
-      }
-
-      if (session.projectId) {
-        setCurrentProjectId(session.projectId);
-      }
-
-      dispatch({ type: 'SET_DIRTY', payload: false });
-    }, 150);
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
 
@@ -488,7 +442,6 @@ export default function DesignEditor({ onGoHome }: DesignEditorProps = {}) {
         onRedo={controller.redo}
         onCopy={controller.copySelected}
         onPaste={controller.pasteSelected}
-        onGoHome={onGoHome}
       />
 
       <CanvasWorkspace
@@ -535,6 +488,7 @@ export default function DesignEditor({ onGoHome }: DesignEditorProps = {}) {
 
       {/* ── Toolbar wrapper ── */}
       <div className="relative flex-shrink-0">
+        <ShadowsPanel controller={controller} />
 
         {/* Brush Color Picker overlay */}
         {brushActive && brushColorPickerOpen && (
@@ -742,7 +696,6 @@ export default function DesignEditor({ onGoHome }: DesignEditorProps = {}) {
       <TextPanel controller={controller} />
       <ShapeModifiersPanel controller={controller} />
       <AdjustPanel controller={controller} />
-      <ShadowsPanel controller={controller} />
       <ThreeDPanel controller={controller} />
       <VectorsPanel controller={controller} onPenStart={handleVectorsPenStart} />
     </div>

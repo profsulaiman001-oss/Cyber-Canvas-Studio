@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { Separator } from '@/components/ui/separator';
-import { Pipette, FlipHorizontal2, Trash2, Plus } from 'lucide-react';
+import { Pipette, FlipHorizontal2, Trash2, Plus, Move, RotateCw } from 'lucide-react';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import ColorPicker from './ColorPicker';
@@ -170,6 +170,159 @@ function GradientBar({
   );
 }
 
+/* ─── Large live gradient preview with draggable origin + direction handles ─── */
+function GradientPreview({
+  mode,
+  stops,
+  angle,
+  origin,
+  onAngleChange,
+  onOriginChange,
+}: {
+  mode: 'linear' | 'radial' | 'angular';
+  stops: Stop[];
+  angle: number;
+  origin: { x: number; y: number };
+  onAngleChange: (angle: number) => void;
+  onOriginChange: (origin: { x: number; y: number }) => void;
+}) {
+  const previewRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<'angle' | 'origin' | null>(null);
+  const sortedStops = useMemo(() => [...stops].sort((a, b) => a.offset - b.offset), [stops]);
+  const stopCss = sortedStops.map((stop) => `${stop.color} ${(stop.offset * 100).toFixed(1)}%`).join(', ');
+  const cssAngle = (angle + 90) % 360;
+  const background = mode === 'angular'
+    ? `conic-gradient(from ${cssAngle}deg at ${(origin.x * 100).toFixed(1)}% ${(origin.y * 100).toFixed(1)}%, ${stopCss})`
+    : mode === 'radial'
+      ? `radial-gradient(circle at ${(origin.x * 100).toFixed(1)}% ${(origin.y * 100).toFixed(1)}%, ${stopCss})`
+      : `linear-gradient(${cssAngle}deg, ${stopCss})`;
+  const radians = (angle * Math.PI) / 180;
+  const handleLength = 42;
+  const angleHandleStyle = {
+    left: `calc(${origin.x * 100}% + ${Math.cos(radians) * handleLength}px)`,
+    top: `calc(${origin.y * 100}% + ${Math.sin(radians) * handleLength}px)`,
+  };
+
+  const updateFromPointer = useCallback((clientX: number, clientY: number) => {
+    const rect = previewRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    if (dragRef.current === 'origin') {
+      onOriginChange({
+        x: Math.max(0.08, Math.min(0.92, (clientX - rect.left) / rect.width)),
+        y: Math.max(0.08, Math.min(0.92, (clientY - rect.top) / rect.height)),
+      });
+      return;
+    }
+    if (dragRef.current === 'angle') {
+      const ox = rect.left + origin.x * rect.width;
+      const oy = rect.top + origin.y * rect.height;
+      const nextAngle = (Math.atan2(clientY - oy, clientX - ox) * 180) / Math.PI;
+      onAngleChange((nextAngle + 360) % 360);
+    }
+  }, [onAngleChange, onOriginChange, origin.x, origin.y]);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      if (dragRef.current) updateFromPointer(event.clientX, event.clientY);
+    };
+    const onPointerUp = () => { dragRef.current = null; };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [updateFromPointer]);
+
+  const startDrag = (kind: 'angle' | 'origin') => (event: React.PointerEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragRef.current = kind;
+  };
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[11px] text-primary uppercase tracking-wider font-semibold">Live Preview</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Drag the handles to reshape the gradient</p>
+        </div>
+        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+          {mode === 'angular' ? <RotateCw size={11} /> : <Move size={11} />}
+          {mode === 'angular' ? 'Sweep' : 'Direction'}
+        </span>
+      </div>
+      <div
+        ref={previewRef}
+        className="relative w-full overflow-hidden rounded-2xl"
+        style={{
+          height: 178,
+          background,
+          border: '1px solid rgba(255,255,255,0.16)',
+          boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.15), 0 12px 30px rgba(0,0,0,0.18)',
+          touchAction: 'none',
+        }}
+        onPointerDown={(event) => updateFromPointer(event.clientX, event.clientY)}
+      >
+        <div
+          aria-hidden="true"
+          className="absolute pointer-events-none"
+          style={{
+            left: `${origin.x * 100}%`,
+            top: `${origin.y * 100}%`,
+            width: handleLength,
+            height: 2,
+            background: 'rgba(255,255,255,0.82)',
+            transformOrigin: '0 50%',
+            transform: `rotate(${angle}deg)`,
+            boxShadow: '0 0 8px rgba(0,0,0,0.45)',
+          }}
+        />
+        <button
+          type="button"
+          aria-label="Drag to change gradient direction"
+          className="absolute z-10 rounded-full"
+          style={{
+            ...angleHandleStyle,
+            width: 18,
+            height: 18,
+            transform: 'translate(-50%, -50%)',
+            background: '#11141A',
+            border: '2px solid #fff',
+            boxShadow: '0 0 0 3px rgba(0,245,255,0.5), 0 2px 8px rgba(0,0,0,0.4)',
+            cursor: 'crosshair',
+            touchAction: 'none',
+          }}
+          onPointerDown={startDrag('angle')}
+        />
+        <button
+          type="button"
+          aria-label="Drag to change gradient origin"
+          className="absolute z-10 rounded-full flex items-center justify-center"
+          style={{
+            left: `${origin.x * 100}%`,
+            top: `${origin.y * 100}%`,
+            width: 24,
+            height: 24,
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(17,20,26,0.88)',
+            border: '2px solid #00F5FF',
+            boxShadow: '0 0 12px rgba(0,245,255,0.55)',
+            cursor: 'move',
+            touchAction: 'none',
+          }}
+          onPointerDown={startDrag('origin')}
+        >
+          <span className="block w-1.5 h-1.5 rounded-full bg-white" />
+        </button>
+        <span className="absolute bottom-2 left-2 rounded-md px-2 py-1 text-[10px] font-medium text-white/80 bg-black/25 backdrop-blur-sm">
+          {Math.round(angle)}°
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Recent-color history swatches ─── */
 function ColorHistory({ history, onPick }: { history: string[]; onPick: (c: string) => void }) {
   if (!history.length) return null;
@@ -197,7 +350,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
   const isOpen = state.activePanel === 'colorStudio';
   const obj = controller.selectedObject;
 
-  const [fillMode, setFillMode] = useState<'solid' | 'linear' | 'radial'>('solid');
+  const [fillMode, setFillMode] = useState<'solid' | 'linear' | 'radial' | 'angular'>('solid');
   const [solidColor, setSolidColor] = useState('#00F5FF');
   const [stops, setStops] = useState<Stop[]>([
     { offset: 0, color: '#00F5FF' },
@@ -205,6 +358,8 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
   ]);
   const [selectedStop, setSelectedStop] = useState(0);
   const [radialRadius, setRadialRadius] = useState(200);
+  const [gradientAngle, setGradientAngle] = useState(0);
+  const [gradientOrigin, setGradientOrigin] = useState({ x: 0.5, y: 0.5 });
   const [colorHistory, setColorHistory] = useState<string[]>(readColorHistory);
 
   const pushHistory = useCallback((color: string) => {
@@ -219,6 +374,25 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
     if (!isOpen || !obj) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fill = obj.fill as any;
+    const storedGradient = obj as typeof obj & {
+      _gradientConfig?: {
+        type?: 'linear' | 'radial' | 'angular';
+        stops?: Stop[];
+        radialRadius?: number | null;
+        angleDeg?: number;
+        origin?: { x: number; y: number };
+      };
+    };
+    const config = storedGradient._gradientConfig;
+    if (config?.type) {
+      const gradientType = config.type;
+      setFillMode(gradientType);
+      if (config.stops?.length) setStops(config.stops.map((stop) => ({ ...stop })));
+      if (typeof config.radialRadius === 'number') setRadialRadius(config.radialRadius);
+      if (typeof config.angleDeg === 'number') setGradientAngle(config.angleDeg);
+      if (config.origin) setGradientOrigin({ ...config.origin });
+      return;
+    }
     if (typeof fill === 'string') {
       setFillMode('solid');
       setSolidColor(fill);
@@ -236,46 +410,50 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
   }, [isOpen, obj]);
 
   const pushFill = useCallback((
-    mode: 'solid' | 'linear' | 'radial',
+    mode: 'solid' | 'linear' | 'radial' | 'angular',
     color: string,
     ss: Stop[],
     rr: number,
+    angle: number,
+    origin: { x: number; y: number },
   ) => {
     if (!obj) return;
     if (mode === 'solid') {
       obj.set('fill', color);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (obj as any)._gradientConfig;
       controller.getCanvas()?.renderAll();
       controller.syncObjects();
     } else {
-      controller.applyGradientFill(obj, mode, ss, rr);
+      controller.applyGradientFill(obj, mode, ss, rr, angle, origin);
     }
   }, [obj, controller]);
 
   const handleSolidChange = useCallback((color: string) => {
     setSolidColor(color);
-    pushFill('solid', color, stops, radialRadius);
+    pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
     pushHistory(color);
-  }, [pushFill, stops, radialRadius, pushHistory]);
+  }, [pushFill, stops, radialRadius, gradientAngle, gradientOrigin, pushHistory]);
 
   const handleHistoryPick = useCallback((color: string) => {
     setSolidColor(color);
     setFillMode('solid');
-    pushFill('solid', color, stops, radialRadius);
+    pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
     pushHistory(color);
-  }, [pushFill, stops, radialRadius, pushHistory]);
+  }, [pushFill, stops, radialRadius, gradientAngle, gradientOrigin, pushHistory]);
 
   const handleStopColorChange = useCallback((color: string) => {
     const ns = stops.map((s, i) => i === selectedStop ? { ...s, color } : s);
     setStops(ns);
-    pushFill(fillMode as 'linear' | 'radial', solidColor, ns, radialRadius);
+    pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
     pushHistory(color);
-  }, [stops, selectedStop, fillMode, solidColor, radialRadius, pushFill, pushHistory]);
+  }, [stops, selectedStop, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill, pushHistory]);
 
   const handleMoveStop = useCallback((idx: number, offset: number) => {
     const ns = stops.map((s, i) => i === idx ? { ...s, offset } : s);
     setStops(ns);
-    pushFill(fillMode as 'linear' | 'radial', solidColor, ns, radialRadius);
-  }, [stops, fillMode, solidColor, radialRadius, pushFill]);
+    pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
+  }, [stops, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill]);
 
   const handleAddStop = useCallback((offset: number) => {
     const color = lerpStopColor(stops, offset);
@@ -283,35 +461,45 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
     const newIdx = ns.findIndex((s) => s.offset === offset && s.color === color);
     setStops(ns);
     setSelectedStop(newIdx >= 0 ? newIdx : 0);
-    pushFill(fillMode as 'linear' | 'radial', solidColor, ns, radialRadius);
-  }, [stops, fillMode, solidColor, radialRadius, pushFill]);
+    pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
+  }, [stops, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill]);
 
   const handleDeleteStop = useCallback(() => {
     if (stops.length <= 2) return;
     const ns = stops.filter((_, i) => i !== selectedStop);
     setStops(ns);
     setSelectedStop(Math.min(selectedStop, ns.length - 1));
-    pushFill(fillMode as 'linear' | 'radial', solidColor, ns, radialRadius);
-  }, [stops, selectedStop, fillMode, solidColor, radialRadius, pushFill]);
+    pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
+  }, [stops, selectedStop, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill]);
 
   const handleFlip = useCallback(() => {
     const ns = stops.map((s) => ({ ...s, offset: 1 - s.offset })).sort((a, b) => a.offset - b.offset);
     setStops(ns);
-    pushFill(fillMode as 'linear' | 'radial', solidColor, ns, radialRadius);
-  }, [stops, fillMode, solidColor, radialRadius, pushFill]);
+    pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
+  }, [stops, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill]);
 
-  const handleModeChange = useCallback((mode: 'solid' | 'linear' | 'radial') => {
+  const handleModeChange = useCallback((mode: 'solid' | 'linear' | 'radial' | 'angular') => {
     setFillMode(mode);
-    pushFill(mode, solidColor, stops, radialRadius);
-  }, [solidColor, stops, radialRadius, pushFill]);
+    pushFill(mode, solidColor, stops, radialRadius, gradientAngle, gradientOrigin);
+  }, [solidColor, stops, radialRadius, gradientAngle, gradientOrigin, pushFill]);
 
   const handleRadiusChange = useCallback((r: number) => {
     setRadialRadius(r);
-    if (fillMode === 'radial') pushFill('radial', solidColor, stops, r);
-  }, [fillMode, solidColor, stops, pushFill]);
+    if (fillMode === 'radial') pushFill('radial', solidColor, stops, r, gradientAngle, gradientOrigin);
+  }, [fillMode, solidColor, stops, gradientAngle, gradientOrigin, pushFill]);
+
+  const handleAngleChange = useCallback((angle: number) => {
+    setGradientAngle(angle);
+    if (fillMode !== 'solid') pushFill(fillMode, solidColor, stops, radialRadius, angle, gradientOrigin);
+  }, [fillMode, solidColor, stops, radialRadius, gradientOrigin, pushFill]);
+
+  const handleOriginChange = useCallback((origin: { x: number; y: number }) => {
+    setGradientOrigin(origin);
+    if (fillMode !== 'solid') pushFill(fillMode, solidColor, stops, radialRadius, gradientAngle, origin);
+  }, [fillMode, solidColor, stops, radialRadius, gradientAngle, pushFill]);
 
   const currentStopColor = stops[selectedStop]?.color ?? '#00F5FF';
-  const isGradient = fillMode === 'linear' || fillMode === 'radial';
+  const isGradient = fillMode !== 'solid';
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
@@ -344,7 +532,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
 
           {/* Fill mode tabs */}
           <div className="flex gap-1.5">
-            {(['solid', 'linear', 'radial'] as const).map((mode) => (
+            {(['solid', 'linear', 'radial', 'angular'] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => handleModeChange(mode)}
@@ -417,6 +605,39 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
               </p>
               <ColorPicker value={currentStopColor} onChange={handleStopColorChange} />
               <ColorHistory history={colorHistory} onPick={handleStopColorChange} />
+
+              <GradientPreview
+                mode={fillMode}
+                stops={stops}
+                angle={gradientAngle}
+                origin={gradientOrigin}
+                onAngleChange={handleAngleChange}
+                onOriginChange={handleOriginChange}
+              />
+
+              {fillMode === 'angular' && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Sweep start</span>
+                      <span className="text-xs text-primary font-medium">{Math.round(gradientAngle)}°</span>
+                    </div>
+                    <Slider
+                      min={0}
+                      max={360}
+                      step={1}
+                      value={[gradientAngle]}
+                      onValueChange={([value]) => handleAngleChange(value)}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>0°</span>
+                      <span>360°</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {fillMode === 'radial' && (
                 <>

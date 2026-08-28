@@ -74,6 +74,93 @@ export function opaqueColor(cssColor: string): string {
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
 }
 
+export type GradientFillType = 'linear' | 'radial' | 'angular';
+
+interface GradientOrigin {
+  x: number;
+  y: number;
+}
+
+function cssColorToRgba(cssColor: string): [number, number, number, number] {
+  const rgb = _cssColorToRgb(cssColor) ?? [0, 0, 0];
+  return [rgb[0], rgb[1], rgb[2], extractColorAlpha(cssColor)];
+}
+
+function colorAtGradientPosition(
+  stops: { offset: number; color: string }[],
+  position: number,
+): [number, number, number, number] {
+  const sorted = stops
+    .map((stop) => ({ offset: Math.max(0, Math.min(1, stop.offset)), color: stop.color }))
+    .sort((a, b) => a.offset - b.offset);
+  if (!sorted.length) return [0, 0, 0, 1];
+  if (position <= sorted[0].offset) return cssColorToRgba(sorted[0].color);
+  if (position >= sorted[sorted.length - 1].offset) {
+    return cssColorToRgba(sorted[sorted.length - 1].color);
+  }
+
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const first = sorted[index];
+    const second = sorted[index + 1];
+    if (position >= first.offset && position <= second.offset) {
+      const span = second.offset - first.offset;
+      const ratio = span === 0 ? 0 : (position - first.offset) / span;
+      const a = cssColorToRgba(first.color);
+      const b = cssColorToRgba(second.color);
+      return [
+        Math.round(a[0] + (b[0] - a[0]) * ratio),
+        Math.round(a[1] + (b[1] - a[1]) * ratio),
+        Math.round(a[2] + (b[2] - a[2]) * ratio),
+        a[3] + (b[3] - a[3]) * ratio,
+      ];
+    }
+  }
+  return cssColorToRgba(sorted[sorted.length - 1].color);
+}
+
+/**
+ * Fabric has native linear and radial gradients, but no conical gradient.
+ * Render the sweep into a small reusable canvas and scale it to the object.
+ * This keeps Angular gradients editable without replacing Fabric's object model.
+ */
+function createAngularGradientCanvas(
+  width: number,
+  height: number,
+  stops: { offset: number; color: string }[],
+  angleDeg: number,
+  origin: GradientOrigin,
+): HTMLCanvasElement {
+  const maxDimension = 768;
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
+  const renderWidth = Math.max(2, Math.round(width * scale));
+  const renderHeight = Math.max(2, Math.round(height * scale));
+  const gradientCanvas = document.createElement('canvas');
+  gradientCanvas.width = renderWidth;
+  gradientCanvas.height = renderHeight;
+  const context = gradientCanvas.getContext('2d');
+  if (!context) return gradientCanvas;
+
+  const image = context.createImageData(renderWidth, renderHeight);
+  const originX = Math.max(0, Math.min(1, origin.x)) * renderWidth;
+  const originY = Math.max(0, Math.min(1, origin.y)) * renderHeight;
+  const normalizedAngle = ((angleDeg % 360) + 360) % 360;
+
+  for (let y = 0; y < renderHeight; y += 1) {
+    for (let x = 0; x < renderWidth; x += 1) {
+      const theta = (Math.atan2(y - originY, x - originX) * 180) / Math.PI;
+      const position = (((theta - normalizedAngle) % 360) + 360) % 360 / 360;
+      const [red, green, blue, alpha] = colorAtGradientPosition(stops, position);
+      const pixel = (y * renderWidth + x) * 4;
+      image.data[pixel] = red;
+      image.data[pixel + 1] = green;
+      image.data[pixel + 2] = blue;
+      image.data[pixel + 3] = Math.round(alpha * 255);
+    }
+  }
+  context.putImageData(image, 0, 0);
+  return gradientCanvas;
+}
+
 export interface ObjectMeta {
   id: string;
   name: string;
@@ -139,7 +226,7 @@ export interface VectorAnchor {
 }
 
 const MAX_UNDO = 50;
-const EXTRA_PROPS = ['_uid', '_name', '_innerShadow', '_textureKey', '_depth3d', '_glow'];
+const EXTRA_PROPS = ['_uid', '_name', '_innerShadow', '_textureKey', '_depth3d', '_glow', '_gradientConfig'];
 let objectSeq: Record<string, number> = {};
 
 function nextName(type: string): string {
@@ -1311,15 +1398,25 @@ export function useFabricCanvas(
   /* ─── Gradient Fill (radialRadius is optional pixels; defaults to Math.max(w,h)/2) ─── */
   const applyGradientFill = useCallback((
     obj: FabricObject | null,
-    type: 'linear' | 'radial',
+    type: GradientFillType,
     stops: { offset: number; color: string }[],
     radialRadius?: number,
     angleDeg?: number,
+    origin: GradientOrigin = { x: 0.5, y: 0.5 },
   ) => {
     if (!obj) return;
     const c = canvasRef.current; if (!c) return;
-    const w = obj.width ?? 100;
-    const h = obj.height ?? 100;
+    const w = Math.max(1, obj.width ?? 100);
+    const h = Math.max(1, obj.height ?? 100);
+    const safeStops = stops.map((stop) => ({
+      offset: Math.max(0, Math.min(1, stop.offset)),
+      color: stop.color,
+    }));
+    const safeOrigin = {
+      x: Math.max(0, Math.min(1, origin.x)),
+      y: Math.max(0, Math.min(1, origin.y)),
+    };
+    const safeAngle = ((angleDeg ?? 0) % 360 + 360) % 360;
 
     // ─── Coordinate system note ────────────────────────────────────────────────
     // Fabric's _applyPatternGradientTransform always applies:
@@ -1328,37 +1425,63 @@ export function useFabricCanvas(
     // the object.  So gradient pixel coords must use top-left (0,0) → (w,h).
     // ──────────────────────────────────────────────────────────────────────────
 
-    let coords: Record<string, number>;
-    if (type === 'radial') {
-      // Center at (w/2, h/2), inner radius 0, outer radius fills the shape
-      const r2 = radialRadius ?? Math.max(w, h) / 2;
-      coords = { x1: w / 2, y1: h / 2, r1: 0, x2: w / 2, y2: h / 2, r2 };
+    if (type === 'angular') {
+      const angularCanvas = createAngularGradientCanvas(w, h, safeStops, safeAngle, safeOrigin);
+      const renderScale = angularCanvas.width > 0 ? w / angularCanvas.width : 1;
+      const renderScaleY = angularCanvas.height > 0 ? h / angularCanvas.height : 1;
+      const pat = new Pattern({
+        source: angularCanvas,
+        repeat: 'no-repeat',
+        patternTransform: [renderScale, 0, 0, renderScaleY, 0, 0],
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      obj.set('fill', pat as any);
     } else {
-      // Linear: vector from one edge to the opposite, through the center
-      // Default 0° = left→right; positive angle rotates clockwise
-      const rad = ((angleDeg ?? 0) * Math.PI) / 180;
-      const cx = w / 2;
-      const cy = h / 2;
-      // Half-length: reach to the bounding box edge along the gradient direction
-      const halfLen = Math.abs(cx * Math.cos(rad)) + Math.abs(cy * Math.sin(rad));
-      coords = {
-        x1: cx - halfLen * Math.cos(rad),
-        y1: cy - halfLen * Math.sin(rad),
-        x2: cx + halfLen * Math.cos(rad),
-        y2: cy + halfLen * Math.sin(rad),
-      };
-    }
+      let coords: Record<string, number>;
+      if (type === 'radial') {
+      // Center at (w/2, h/2), inner radius 0, outer radius fills the shape
+        const r2 = radialRadius ?? Math.max(w, h) / 2;
+        const cx = safeOrigin.x * w;
+        const cy = safeOrigin.y * h;
+        coords = { x1: cx, y1: cy, r1: 0, x2: cx, y2: cy, r2 };
+      } else {
+        // Linear: vector from one edge to the opposite, through the center
+        // Default 0° = left→right; positive angle rotates clockwise
+        const rad = (safeAngle * Math.PI) / 180;
+        const cx = w / 2;
+        const cy = h / 2;
+        // Half-length: reach to the bounding box edge along the gradient direction
+        const halfLen = Math.abs(cx * Math.cos(rad)) + Math.abs(cy * Math.sin(rad));
+        coords = {
+          x1: cx - halfLen * Math.cos(rad),
+          y1: cy - halfLen * Math.sin(rad),
+          x2: cx + halfLen * Math.cos(rad),
+          y2: cy + halfLen * Math.sin(rad),
+        };
+      }
 
-    const grad = new Gradient({
-      type: type === 'radial' ? 'radial' : 'linear',
-      coords,
-      colorStops: stops,
-      gradientUnits: 'pixels',
-    });
+      const grad = new Gradient({
+        type: type === 'radial' ? 'radial' : 'linear',
+        coords,
+        colorStops: safeStops,
+        gradientUnits: 'pixels',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      obj.set('fill', grad as any);
+    }
+    // Keep the editable source configuration alongside the Fabric fill. This is
+    // also used to restore the Angular controls when the panel is reopened.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    obj.set('fill', grad as any);
+    (obj as any)._gradientConfig = {
+      type,
+      stops: safeStops.map((stop) => ({ ...stop })),
+      radialRadius: radialRadius ?? null,
+      angleDeg: safeAngle,
+      origin: { ...safeOrigin },
+    };
     c.requestRenderAll();
-  }, []);
+    syncObjects();
+  }, [syncObjects]);
 
   /* ─── Decoupled Fill Opacity (encodes alpha into fill color, never touches obj.opacity) ─── */
   const applyFillOpacity = useCallback((obj: FabricObject | null, fraction: number) => {

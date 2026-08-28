@@ -1426,7 +1426,7 @@ export function useFabricCanvas(
   );
 
   /* ─── True 3D Extrusion ─── */
-  const apply3DDepth = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; steps: number; color: string; angle: number; bevel?: boolean; bevelTaper?: number } | null) => {
+  const apply3DDepth = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; steps: number; color: string; angle: number; bevel?: boolean; bevelTaper?: number; darkenIntensity?: number; autoShade?: boolean } | null) => {
     if (!obj) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any)._depth3d = cfg;

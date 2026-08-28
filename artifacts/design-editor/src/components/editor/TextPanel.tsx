@@ -147,11 +147,8 @@ export default function TextPanel({ controller }: TextPanelProps) {
       fill: '#1A1A1A',
     });
 
-    const seq = Date.now();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (newText as any)._uid = `textbox-${seq}`;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (newText as any)._name = `Text ${seq % 10000}`;
+    (newText as any)._name = addContent.trim() || 'New Text';
 
     canvas.add(newText);
     canvas.setActiveObject(newText);

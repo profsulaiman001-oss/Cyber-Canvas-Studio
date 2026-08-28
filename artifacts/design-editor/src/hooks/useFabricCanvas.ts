@@ -81,6 +81,7 @@ export interface ObjectMeta {
   selectable: boolean;
   fill?: string;
   imgSrc?: string;
+  thumbnailSrc?: string;
 }
 
 export interface CanvasBgConfig {
@@ -154,6 +155,45 @@ function objId(obj: FabricObject): string {
     (obj as FabricObject & { _uid: string })._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   }
   return (obj as FabricObject & { _uid: string })._uid;
+}
+
+/* Render the actual Fabric object into a small transparent preview. Unlike a
+ * CSS color swatch, this preserves gradients, patterns, strokes, opacity,
+ * image filters, and the current image texture. */
+function renderLayerThumbnail(obj: FabricObject): string | undefined {
+  try {
+    const size = 72;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+
+    const scaledW = Math.max(1, obj.getScaledWidth());
+    const scaledH = Math.max(1, obj.getScaledHeight());
+    const fit = Math.min((size - 10) / scaledW, (size - 10) / scaledH);
+    const scaleX = fit * Math.max(0.001, Math.abs(obj.scaleX ?? 1)) * (obj.flipX ? -1 : 1);
+    const scaleY = fit * Math.max(0.001, Math.abs(obj.scaleY ?? 1)) * (obj.flipY ? -1 : 1);
+
+    ctx.save();
+    ctx.translate(size / 2, size / 2);
+    ctx.rotate(((obj.angle ?? 0) * Math.PI) / 180);
+    ctx.scale(scaleX, scaleY);
+    ctx.globalAlpha = obj.opacity ?? 1;
+
+    const render = (obj as FabricObject & {
+      _render?: (renderCtx: CanvasRenderingContext2D) => void;
+    })._render;
+    if (!render) {
+      ctx.restore();
+      return undefined;
+    }
+    render.call(obj, ctx);
+    ctx.restore();
+    return canvas.toDataURL('image/png');
+  } catch {
+    return undefined;
+  }
 }
 
 function tagObj(obj: FabricObject, nameKey: string) {
@@ -392,6 +432,21 @@ export function useFabricCanvas(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const o = obj as any;
         const fill = typeof obj.fill === 'string' ? obj.fill : undefined;
+        const labelByType: Record<string, string> = {
+          rect: 'Rectangle',
+          circle: 'Circle',
+          triangle: 'Triangle',
+          line: 'Line',
+          path: 'Path',
+          image: 'Image',
+          group: 'Group',
+          'i-text': 'Text',
+          text: 'Text',
+          textbox: 'Text',
+        };
+        const isText = obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox';
+        const textLabel = typeof o.text === 'string' && o.text.length > 0 ? o.text : 'Text';
+        const typeLabel = labelByType[obj.type] || String(o._name || obj.type || 'Object').replace(/\s+\d+$/, '');
         // Generate a stable base64 thumbnail so it never shows a broken-image icon
         let imgSrc: string | undefined;
         if (obj.type === 'image') {
@@ -418,12 +473,13 @@ export function useFabricCanvas(
         }
         return {
           id: objId(obj),
-          name: o._name || obj.type || 'Object',
+          name: isText ? textLabel : typeLabel,
           type: obj.type || 'object',
           visible: obj.visible !== false,
           selectable: obj.selectable !== false,
           fill,
           imgSrc,
+          thumbnailSrc: renderLayerThumbnail(obj),
         };
       })
     );
@@ -2151,6 +2207,60 @@ export function useFabricCanvas(
     if (obj) { c.setActiveObject(obj); c.renderAll(); }
   }, []);
 
+  const selectObjectsByIds = useCallback((ids: string[]) => {
+    const c = canvasRef.current; if (!c) return;
+    const selected = ids
+      .map((id) => c.getObjects().find((obj) => objId(obj) === id))
+      .filter((obj): obj is FabricObject => Boolean(obj));
+    c.discardActiveObject();
+    if (selected.length === 1) {
+      c.setActiveObject(selected[0]);
+    } else if (selected.length > 1) {
+      c.setActiveObject(new ActiveSelection(selected, { canvas: c }));
+    }
+    c.requestRenderAll();
+  }, []);
+
+  const groupSelected = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const selected = c.getActiveObjects();
+    if (selected.length < 2) return;
+
+    const active = c.getActiveObject();
+    const selection = active instanceof ActiveSelection
+      ? active
+      : new ActiveSelection(selected, { canvas: c });
+    if (active !== selection) c.setActiveObject(selection);
+
+    const group = selection.toGroup();
+    tagObj(group, 'group');
+    c.setActiveObject(group);
+    c.requestRenderAll();
+    options.onSelectionChange([objId(group)]);
+    setSelectedObject(group);
+    pushUndo();
+    syncObjects();
+  }, [options, pushUndo, syncObjects]);
+
+  const ungroupSelected = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const active = c.getActiveObject();
+    if (!active || active.type !== 'group') return;
+
+    const group = active as FabricObject & {
+      toActiveSelection?: () => ActiveSelection;
+    };
+    if (!group.toActiveSelection) return;
+    const selection = group.toActiveSelection();
+    c.setActiveObject(selection);
+    c.requestRenderAll();
+    const ids = selection.getObjects().map(objId);
+    options.onSelectionChange(ids);
+    setSelectedObject(selection);
+    pushUndo();
+    syncObjects();
+  }, [options, pushUndo, syncObjects]);
+
   const getCanvas = () => canvasRef.current;
 
   return {
@@ -2178,7 +2288,8 @@ export function useFabricCanvas(
     applyMaskFromSelection, releaseMask,
     // Object ops
     deleteSelected, duplicateSelected, copySelected, pasteSelected, bringForward, sendBackward,
-    toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById,
+    toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
+    groupSelected, ungroupSelected,
     moveObjectToIndex,
     // Image transforms
     flipHorizontal, flipVertical, rotate90,

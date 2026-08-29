@@ -81,6 +81,27 @@ interface GradientOrigin {
   y: number;
 }
 
+function loadLocalImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Could not read local image'));
+    reader.onload = () => {
+      const src = typeof reader.result === 'string' ? reader.result : '';
+      if (!src) {
+        reject(new Error('Local image data is empty'));
+        return;
+      }
+      const image = new Image();
+      // Data URLs from FileReader are local and same-origin. Leaving
+      // crossOrigin unset avoids browsers rejecting the decoded image.
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Could not decode local image'));
+      image.src = src;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 interface ParsedGradientStop {
   offset: number;
   red: number;
@@ -1599,7 +1620,6 @@ export function useFabricCanvas(
 
     let patternSource: HTMLImageElement | HTMLCanvasElement;
     let imgW: number, imgH: number;
-    let objUrl: string | null = null;
 
     try {
       if (source instanceof HTMLCanvasElement) {
@@ -1608,12 +1628,11 @@ export function useFabricCanvas(
         imgW = source.width || 1;
         imgH = source.height || 1;
       } else {
-        // Load at full native resolution — no intermediate canvas so no quality loss.
-        objUrl = URL.createObjectURL(source);
-        const fabImg = await FabricImage.fromURL(objUrl);
-        patternSource = fabImg.getElement() as HTMLImageElement;
-        imgW = (patternSource as HTMLImageElement).naturalWidth || patternSource.width || 1;
-        imgH = (patternSource as HTMLImageElement).naturalHeight || patternSource.height || 1;
+        // Read the File locally as a data URL. This deliberately avoids
+        // fetch(), external URLs, and cross-origin image loading.
+        patternSource = await loadLocalImage(source);
+        imgW = patternSource.naturalWidth || patternSource.width || 1;
+        imgH = patternSource.naturalHeight || patternSource.height || 1;
       }
 
       // ── Correct patternTransform for Fabric v7 ────────────────────────────────
@@ -1638,9 +1657,10 @@ export function useFabricCanvas(
       obj.set('fill', pat as any);
       c.requestRenderAll();
       pushUndo();
-    } finally {
-      // Safe to revoke — HTMLImageElement keeps its decoded data after load.
-      if (objUrl) URL.revokeObjectURL(objUrl);
+    } catch {
+      // A local file that cannot be read or decoded must not leave the editor
+      // in a pending fill state or replace the previous valid fill.
+      return;
     }
   }, [pushUndo]);
 

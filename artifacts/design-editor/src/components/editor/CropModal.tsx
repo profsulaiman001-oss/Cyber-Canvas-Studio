@@ -17,6 +17,27 @@ const AR_PRESETS: ARPreset[] = [
   { label: '9:16', value: [9, 16] },
 ];
 
+function readLocalImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Could not read local image'));
+    reader.onload = () => {
+      const src = typeof reader.result === 'string' ? reader.result : '';
+      if (!src) {
+        reject(new Error('Local image data is empty'));
+        return;
+      }
+      const img = new Image();
+      // Do not set crossOrigin for data URLs. A local data URL is already
+      // same-origin and setting this can make browsers reject the image.
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Could not decode local image'));
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export interface CropModalProps {
   open: boolean;
   onClose: () => void;
@@ -68,7 +89,16 @@ export default function CropModal({
   const dragPointerId = useRef<number | null>(null);
   const dragFrame = useRef<number | null>(null);
   const pendingPointer = useRef<{ x: number; y: number } | null>(null);
-  const dragStart    = useRef({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0 });
+  const dragStart = useRef({
+    startX: 0,
+    startY: 0,
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    initialWidth: 100,
+    initialHeight: 100,
+  });
   const basePreviewSrc = useRef('');
   const baseNaturalSize = useRef({ width: 1, height: 1 });
   const transformRequestRef = useRef(0);
@@ -178,9 +208,9 @@ export default function CropModal({
     }
 
     if (mode === 'fill' && file) {
-      let objUrl: string | null = null;
-      const img = new Image();
-      img.onload = () => {
+      let cancelled = false;
+      readLocalImage(file).then((img) => {
+        if (cancelled) return;
         const nw = img.naturalWidth || 1;
         const nh = img.naturalHeight || 1;
         setNaturalW(nw); setNaturalH(nh);
@@ -192,11 +222,13 @@ export default function CropModal({
         basePreviewSrc.current = source;
         baseNaturalSize.current = { width: nw, height: nh };
         setPreviewSrc(source);
-        if (objUrl) URL.revokeObjectURL(objUrl);
-      };
-      img.onerror = () => { if (objUrl) URL.revokeObjectURL(objUrl); };
-      objUrl = URL.createObjectURL(file);
-      img.src = objUrl;
+      }).catch(() => {
+        if (!cancelled) {
+          basePreviewSrc.current = '';
+          setPreviewSrc('');
+        }
+      });
+      return () => { cancelled = true; };
     }
   }, [open, mode, fabricObj, file, dataUrl, sourceW, sourceH]);
 
@@ -267,7 +299,16 @@ export default function CropModal({
     e.preventDefault(); e.stopPropagation();
     dragHandle.current = h;
     dragPointerId.current = e.pointerId;
-    dragStart.current = { x: e.clientX, y: e.clientY, left, top, right, bottom };
+    dragStart.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      left,
+      top,
+      right,
+      bottom,
+      initialWidth: Math.max(1, 100 - left - right),
+      initialHeight: Math.max(1, 100 - top - bottom),
+    };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   }, [left, top, right, bottom]);
 
@@ -277,9 +318,9 @@ export default function CropModal({
       if (!dragHandle.current || !containerRef.current) return;
       const cw = containerRef.current.clientWidth  || 1;
       const ch = containerRef.current.clientHeight || 1;
-      const px = ((cx - dragStart.current.x) / cw) * 100;
-      const py = ((cy - dragStart.current.y) / ch) * 100;
       const ds = dragStart.current;
+      const px = ((cx - ds.startX) / cw) * 100;
+      const py = ((cy - ds.startY) / ch) * 100;
       const MIN = 5;
       const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
       const h = dragHandle.current;
@@ -306,39 +347,54 @@ export default function CropModal({
          // Work in percentage coordinates, but account for the source aspect
          // ratio so the resulting rectangle remains the selected pixel ratio.
          const [arW, arH] = aspectRatio;
-         const ratio = (arW / arH) * (naturalH || 1) / (naturalW || 1);
-         const startW = 100 - ds.left - ds.right;
-         const startH = 100 - ds.top - ds.bottom;
-         const minW = Math.max(1, Math.min(5, 100 * ratio));
-         const minH = Math.max(1, Math.min(5, 100 / ratio));
-         const fit = (requestedW: number, maxW: number) => {
-           const maxByHeight = maxW;
-           return clamp(Math.max(minW, requestedW), minW, Math.max(minW, maxByHeight));
-         };
+          const ratio = Number.isFinite(arW / arH)
+            ? Math.max(0.0001, (arW / arH) * (naturalH || 1) / (naturalW || 1))
+            : 1;
+          const startW = ds.initialWidth;
+          const startH = ds.initialHeight;
 
          if (h === 'tl' || h === 'tr' || h === 'bl' || h === 'br') {
-           const anchorX = h.includes('l') ? ds.left + startW : ds.left;
-           const anchorY = h.includes('t') ? ds.top + startH : ds.top;
-           const pointerX = h.includes('l') ? anchorX - px : anchorX + px;
-           const pointerY = h.includes('t') ? anchorY - py : anchorY + py;
-           const candidateW = Math.max(0, Math.abs(pointerX - anchorX));
-           const candidateH = Math.max(0, Math.abs(pointerY - anchorY));
-           let maxW = h.includes('l') ? anchorX : 100 - anchorX;
-           const maxH = h.includes('t') ? anchorY : 100 - anchorY;
-           maxW = Math.min(maxW, maxH * ratio);
-           const width = fit(Math.max(candidateW, candidateH * ratio), maxW);
+            const isLeft = h.includes('l');
+            const isTop = h.includes('t');
+            const pointerX = ds.left + px;
+            const pointerY = ds.top + py;
+            const anchorX = isLeft ? ds.left + startW : ds.left;
+            const anchorY = isTop ? ds.top + startH : ds.top;
+            // Measure from the fixed opposite corner to the current pointer.
+            // Using only |delta| here makes the box collapse as soon as a
+            // handle moves, because the initial crop size is discarded.
+            const requestedW = isLeft ? anchorX - pointerX : pointerX - anchorX;
+            const requestedH = isTop ? anchorY - pointerY : pointerY - anchorY;
+            const maxW = Math.max(1, Math.min(
+              isLeft ? anchorX : 100 - anchorX,
+              (isTop ? anchorY : 100 - anchorY) * ratio,
+            ));
+            const minW = Math.min(maxW, Math.max(1, Math.min(5, 100 * ratio)));
+            const widthFromX = Math.max(0, requestedW);
+            const widthFromY = Math.max(0, requestedH * ratio);
+            // Whichever pointer axis moved farther from its starting size
+            // drives the resize. This keeps a horizontal-only or vertical-only
+            // corner drag continuous instead of letting the unchanged axis
+            // force the crop back to its original dimensions.
+            const width = clamp(
+              Math.max(minW, Math.abs(widthFromX - startW) >= Math.abs(widthFromY - startW) ? widthFromX : widthFromY),
+              minW,
+              maxW,
+            );
            const height = width / ratio;
-           nl = h.includes('l') ? anchorX - width : anchorX;
-           nt = h.includes('t') ? anchorY - height : anchorY;
+            nl = isLeft ? anchorX - width : anchorX;
+            nt = isTop ? anchorY - height : anchorY;
            nr = 100 - nl - width;
            nb = 100 - nt - height;
          } else if (h === 'tm' || h === 'bm') {
            const fixedBottom = h === 'tm';
            const anchorY = fixedBottom ? ds.top + startH : ds.top;
-           const pointerY = fixedBottom ? anchorY - py : anchorY + py;
-           const maxH = fixedBottom ? anchorY : 100 - anchorY;
-           const height = clamp(Math.max(minH, Math.abs(pointerY - anchorY)), minH, maxH);
-           const width = Math.min(100, height * ratio);
+            const pointerY = ds.top + py;
+            const maxH = Math.max(1, Math.min(fixedBottom ? anchorY : 100 - anchorY, 100 / ratio));
+            const minH = Math.min(maxH, Math.max(1, Math.min(5, 100 / ratio)));
+            const requestedH = fixedBottom ? anchorY - pointerY : pointerY - anchorY;
+            const height = clamp(Math.max(minH, requestedH), minH, maxH);
+            const width = height * ratio;
            const center = ds.left + startW / 2;
            nl = clamp(center - width / 2, 0, 100 - width);
            nr = 100 - nl - width;
@@ -347,9 +403,11 @@ export default function CropModal({
          } else if (h === 'ml' || h === 'mr') {
            const fixedRight = h === 'ml';
            const anchorX = fixedRight ? ds.left + startW : ds.left;
-           const pointerX = fixedRight ? anchorX - px : anchorX + px;
-           const maxW = fixedRight ? anchorX : 100 - anchorX;
-           const width = fit(Math.abs(pointerX - anchorX), maxW);
+            const pointerX = ds.left + px;
+            const maxW = Math.max(1, Math.min(fixedRight ? anchorX : 100 - anchorX, 100 * ratio));
+            const minW = Math.min(maxW, Math.max(1, Math.min(5, 100 * ratio)));
+            const requestedW = fixedRight ? anchorX - pointerX : pointerX - anchorX;
+            const width = clamp(Math.max(minW, requestedW), minW, maxW);
            const height = Math.min(100, width / ratio);
            const center = ds.top + startH / 2;
            nt = clamp(center - height / 2, 0, 100 - height);
@@ -449,16 +507,11 @@ export default function CropModal({
     }
 
     if (mode === 'fill' && file) {
-      const objUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
+      readLocalImage(file).then((img) => {
         const cv = renderCrop(img, img.naturalWidth, img.naturalHeight);
-        URL.revokeObjectURL(objUrl);
         onApplyFill?.(cv, circular);
         onClose();
-      };
-      img.onerror = () => URL.revokeObjectURL(objUrl);
-      img.src = objUrl;
+      }).catch(() => onClose());
       return;
     }
 
@@ -488,18 +541,13 @@ export default function CropModal({
 
   const handleSkip = useCallback(() => {
     if (mode === 'fill' && file) {
-      const objUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
+      readLocalImage(file).then((img) => {
         const cv = document.createElement('canvas');
         cv.width = img.naturalWidth; cv.height = img.naturalHeight;
         cv.getContext('2d')?.drawImage(img, 0, 0);
-        URL.revokeObjectURL(objUrl);
         onApplyFill?.(cv, false);
         onClose();
-      };
-      img.onerror = () => URL.revokeObjectURL(objUrl);
-      img.src = objUrl;
+      }).catch(() => onClose());
     } else {
       onClose();
     }

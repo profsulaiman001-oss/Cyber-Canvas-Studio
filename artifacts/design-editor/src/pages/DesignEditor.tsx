@@ -248,7 +248,7 @@ export default function DesignEditor() {
 
   const zoomPercent = Math.round(controller.zoom * 100);
 
-  /* ── Quick-tray: fill opacity + corner radius ── */
+  /* ── Quick-tray: object opacity + corner radius ── */
   const [quickFillOpacity, setQuickFillOpacity] = useState(100);
   const [quickCornerRadius, setQuickCornerRadius] = useState(0);
   const [quickCornerRadiusMax, setQuickCornerRadiusMax] = useState(50);
@@ -256,7 +256,9 @@ export default function DesignEditor() {
   useEffect(() => {
     const obj = controller.selectedObject;
     if (!obj) { setQuickFillOpacity(100); setQuickCornerRadius(0); return; }
-    setQuickFillOpacity(Math.round(controller.getFillOpacity(obj) * 100));
+    // The toolbar opacity control is object-wide. Reading obj.opacity works
+    // for images, text, groups, paths, and standard vector shapes alike.
+    setQuickFillOpacity(Math.round((obj.opacity ?? 1) * 100));
     if (obj.type === 'rect') {
       const rx = (obj as import('fabric').FabricObject & { rx?: number }).rx ?? 0;
       const scaleX = (obj.scaleX ?? 1) || 1;
@@ -282,7 +284,13 @@ export default function DesignEditor() {
     setQuickFillOpacity(v);
     const obj = controller.selectedObject;
     if (!obj) return;
-    controller.applyFillOpacity(obj, v / 100);
+    const opacityValue = Math.max(0, Math.min(1, v / 100));
+    // Apply opacity directly to the selected Fabric object. This must not be
+    // fill-only because images and non-shape objects may have no string fill
+    // or gradient color stops to modify.
+    obj.set('opacity', opacityValue);
+    obj.setCoords();
+    controller.getCanvas()?.requestRenderAll();
     controller.commitChange();
   }, [controller]);
 

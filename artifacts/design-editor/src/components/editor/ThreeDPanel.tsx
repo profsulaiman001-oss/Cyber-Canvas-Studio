@@ -184,12 +184,6 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
   const obj = controller.selectedObject;
   const [expanded, setExpanded] = useState(false);
 
-  console.debug('[ThreeDPanel] Rendering 3D Panel', {
-    activeTool: state.activeTool,
-    activePanel: state.activePanel,
-    selectedObject: obj?.type ?? null,
-  });
-
   const [enabled, setEnabled] = useState(false);
   const [steps, setSteps] = useState(8);
   const [depthColor, setDepthColor] = useState('#777777');

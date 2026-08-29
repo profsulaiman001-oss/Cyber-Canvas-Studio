@@ -289,7 +289,7 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
 
       {/* Compact floating bar */}
       <div
-        className="flex items-center gap-2 rounded-2xl px-3 py-2.5 transition-all duration-300 ease-in-out"
+        className="flex items-center gap-1.5 rounded-2xl px-3 py-2.5 transition-all duration-300 ease-in-out"
         style={{
           background: '#11141A',
           border: '1px solid rgba(0,245,255,0.3)',
@@ -303,14 +303,14 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
               <button
                 key={mode}
                 onClick={() => setMode(mode)}
-                className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition-all duration-300 ease-in-out"
+                className="rounded-lg px-2 py-1 text-xs font-semibold transition-all duration-300 ease-in-out"
                 style={{
                   color: selected ? '#00F5FF' : 'rgba(255,255,255,0.45)',
                   background: selected ? 'rgba(0,245,255,0.14)' : 'transparent',
                   boxShadow: selected ? '0 0 8px rgba(0,245,255,0.12)' : 'none',
                 }}
               >
-                {mode === 'drop' ? 'Drop Shadow' : 'Inner Shadow'}
+                {mode === 'drop' ? 'Drop' : 'Inner'}
               </button>
             );
           })}
@@ -318,8 +318,8 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
 
         <Switch checked={activeEnabled} onCheckedChange={setActiveEnabled} aria-label={`Toggle ${activeLabel}`} />
 
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-[10px] text-muted-foreground shrink-0">Blur</span>
+        <div className="flex items-center gap-1.5 min-w-[70px] flex-1">
+          <span className="hidden sm:inline text-[10px] text-muted-foreground shrink-0">Blur</span>
           <Slider
             min={0}
             max={blurMax}

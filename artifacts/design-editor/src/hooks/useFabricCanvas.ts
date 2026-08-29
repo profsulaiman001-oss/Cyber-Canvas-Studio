@@ -1707,6 +1707,7 @@ export function useFabricCanvas(
     designLeft: number,
     designTop: number,
     mult: number,
+    sizing?: { scaleX?: number; scaleY?: number },
   ) => {
     const c = canvasRef.current; if (!c) return;
     const dataUrl = canvas.toDataURL('image/png');
@@ -1716,8 +1717,8 @@ export function useFabricCanvas(
       top: designTop,
       // mult is the pixel multiplier used when rasterising, so 1/mult maps
       // back from raster pixels → design units with no quality loss.
-      scaleX: 1 / mult,
-      scaleY: 1 / mult,
+      scaleX: sizing?.scaleX ?? 1 / mult,
+      scaleY: sizing?.scaleY ?? 1 / mult,
     });
     c.add(fabImg);
     c.setActiveObject(fabImg);

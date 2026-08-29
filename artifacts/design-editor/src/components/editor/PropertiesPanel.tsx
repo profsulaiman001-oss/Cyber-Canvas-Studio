@@ -9,10 +9,12 @@ import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject } from 'fabric';
-import CropDialog from './CropDialog';
 import ColorPicker from './ColorPicker';
 
-interface PropertiesPanelProps { controller: CanvasController }
+interface PropertiesPanelProps {
+  controller: CanvasController;
+  onCrop?: () => void;
+}
 
 const TEXTURES = ['none', 'noise', 'lines', 'dots', 'crosshatch', 'grid'];
 
@@ -74,7 +76,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-semibold text-primary uppercase tracking-wider pt-1">{children}</p>;
 }
 
-export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
+export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'properties';
   const obj = controller.selectedObject;
@@ -99,7 +101,6 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
   const [glowIntensity, setGlowIntensity] = useState(20);
 
   const [texture, setTexture] = useState('none');
-  const [cropOpen, setCropOpen] = useState(false);
 
   const fillImageRef = useRef<HTMLInputElement>(null);
 
@@ -294,18 +295,15 @@ export default function PropertiesPanel({ controller }: PropertiesPanelProps) {
             <>
               <Separator />
               <SectionLabel>Image</SectionLabel>
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={() => setCropOpen(true)}>
-                ✂ Crop Image
+            </>
+          )}
+
+          {onCrop && (
+            <>
+              {!isImage && <Separator />}
+              <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={onCrop}>
+                ✂ {isImage ? 'Crop Image' : 'Crop Selection'}
               </Button>
-              <CropDialog
-                open={cropOpen}
-                onClose={() => setCropOpen(false)}
-                obj={obj}
-                onApply={(cx, cy, cw, ch) => controller.cropImage(obj!, cx, cy, cw, ch)}
-                onFlipH={() => controller.flipHorizontal()}
-                onFlipV={() => controller.flipVertical()}
-                onRotate90={() => controller.rotate90()}
-              />
             </>
           )}
 

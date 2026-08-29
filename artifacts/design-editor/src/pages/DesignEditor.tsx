@@ -58,8 +58,13 @@ export default function DesignEditor() {
   const [rasterSrcW,    setRasterSrcW]    = useState(1);
   const [rasterSrcH,    setRasterSrcH]    = useState(1);
   const rasterObjRef     = useRef<import('fabric').FabricObject | null>(null);
+  // Keep the original object's visual center and source-to-design scale so a
+  // cropped raster replacement remains aligned for shapes, paths, groups, and
+  // text.
   const rasterDesignLeft = useRef(0);
   const rasterDesignTop  = useRef(0);
+  const rasterScaleX     = useRef(1 / RASTER_MULT);
+  const rasterScaleY     = useRef(1 / RASTER_MULT);
 
   const handleSelectionChange = useCallback(
     (ids: string[]) => { dispatch({ type: 'SET_SELECTED', payload: ids }); },
@@ -343,46 +348,51 @@ export default function DesignEditor() {
   /* ── Universal crop handler ── */
   const handleCropImage = useCallback(() => {
     const obj = controller.selectedObject;
-    const canvas = controller.getCanvas();
-    if (!obj || !canvas) return;
+    if (!obj) return;
 
     if (obj.type === 'image') {
       // Fabric-native crop via cropX/cropY
+      const image = obj as import('fabric').FabricImage;
+      const element = image.getElement?.() as HTMLImageElement | undefined;
+      const sourceW = element?.naturalWidth || element?.width || obj.width || 1;
+      const sourceH = element?.naturalHeight || element?.height || obj.height || 1;
+      rasterObjRef.current = obj;
+      rasterDesignLeft.current = obj.left ?? 0;
+      rasterDesignTop.current = obj.top ?? 0;
+      rasterScaleX.current = (obj.getScaledWidth() || sourceW) / sourceW;
+      rasterScaleY.current = (obj.getScaledHeight() || sourceH) / sourceH;
       setCropMode('image');
       setCropOpen(true);
       return;
     }
 
-    // Any other object (vector, text, group…) → rasterise and crop
-    const zoom = canvas.getZoom();
-    const bbox = obj.getBoundingRect(); // canvas viewport pixels
-
-    // Export the selection region at RASTER_MULT× quality
+    // Any other object (vector, text, group…) → render the object itself.
+    // Fabric's object renderer handles gradients, patterns, clip paths,
+    // grouped children, text, pen paths, and custom shapes without bringing
+    // the canvas background or viewport transform into the crop source.
     try {
-      const fullUrl = canvas.toDataURL({ format: 'png', multiplier: RASTER_MULT } as Parameters<typeof canvas.toDataURL>[0]);
-      const img = new Image();
-      img.onload = () => {
-        const sx = Math.round(bbox.left  * RASTER_MULT);
-        const sy = Math.round(bbox.top   * RASTER_MULT);
-        const sw = Math.round(bbox.width * RASTER_MULT);
-        const sh = Math.round(bbox.height * RASTER_MULT);
-        const offscreen = document.createElement('canvas');
-        offscreen.width  = Math.max(1, sw);
-        offscreen.height = Math.max(1, sh);
-        offscreen.getContext('2d')?.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-        // Store design-unit top-left for repositioning the raster crop result
-        rasterObjRef.current     = obj;
-        rasterDesignLeft.current = bbox.left / zoom;
-        rasterDesignTop.current  = bbox.top  / zoom;
-        setRasterDataUrl(offscreen.toDataURL('image/png'));
-        setRasterSrcW(offscreen.width);
-        setRasterSrcH(offscreen.height);
-        setCropMode('raster');
-        setCropOpen(true);
-      };
-      img.src = fullUrl;
+      const renderObject = (obj as import('fabric').FabricObject & {
+        toCanvasElement?: (options?: Record<string, unknown>) => HTMLCanvasElement;
+      }).toCanvasElement;
+      if (!renderObject) throw new Error('Object renderer unavailable');
+      const offscreen = renderObject.call(obj, {
+        multiplier: RASTER_MULT,
+        enableRetinaScaling: false,
+      });
+      if (!offscreen?.width || !offscreen.height) throw new Error('Object renderer returned an empty canvas');
+
+      rasterObjRef.current     = obj;
+      rasterDesignLeft.current = obj.left ?? 0;
+      rasterDesignTop.current  = obj.top ?? 0;
+      rasterScaleX.current     = (obj.getScaledWidth() || offscreen.width / RASTER_MULT) / offscreen.width;
+      rasterScaleY.current     = (obj.getScaledHeight() || offscreen.height / RASTER_MULT) / offscreen.height;
+      setRasterDataUrl(offscreen.toDataURL('image/png'));
+      setRasterSrcW(offscreen.width);
+      setRasterSrcH(offscreen.height);
+      setCropMode('raster');
+      setCropOpen(true);
     } catch {
-      toast({ title: 'Cannot rasterise selection', description: 'Try with an image object instead', variant: 'destructive' });
+      toast({ title: 'Cannot prepare selection', description: 'This object could not be rendered for cropping', variant: 'destructive' });
     }
   }, [controller, toast]);
 
@@ -403,7 +413,14 @@ export default function DesignEditor() {
     pendingFillTargetRef.current = null;
   }, [controller]);
 
-  const handleApplyRaster = useCallback(async (canvas: HTMLCanvasElement, circular: boolean) => {
+  const handleApplyRaster = useCallback(async (
+    canvas: HTMLCanvasElement,
+    circular: boolean,
+    cropX = 0,
+    cropY = 0,
+    cropW = canvas.width,
+    cropH = canvas.height,
+  ) => {
     const obj = rasterObjRef.current;
     const fabricCanvas = controller.getCanvas();
     if (!obj || !fabricCanvas) return;
@@ -419,11 +436,30 @@ export default function DesignEditor() {
       ctx2d.drawImage(canvas, 0, 0);
       canvas = tmp;
     }
-    // Remove original, add the raster crop at the same design-unit position
+
+    // Move the replacement by the crop's center offset. The source is in
+    // raster pixels, while the refs store the original object's center in
+    // Fabric design units. Transformed previews already contain their flip
+    // or rotation, so the replacement itself starts at angle zero.
+    const offsetX = (cropX + cropW / 2 - rasterSrcW / 2) * rasterScaleX.current;
+    const offsetY = (cropY + cropH / 2 - rasterSrcH / 2) * rasterScaleY.current;
+    const replacementLeft = rasterDesignLeft.current + offsetX;
+    const replacementTop = rasterDesignTop.current + offsetY;
+
+    // Remove original, add the raster crop at the adjusted design position
     fabricCanvas.remove(obj);
-    await controller.addRasterLayer(canvas, rasterDesignLeft.current, rasterDesignTop.current, RASTER_MULT);
+    await controller.addRasterLayer(
+      canvas,
+      replacementLeft,
+      replacementTop,
+      RASTER_MULT,
+      {
+        scaleX: rasterScaleX.current,
+        scaleY: rasterScaleY.current,
+      },
+    );
     rasterObjRef.current = null;
-  }, [controller]);
+  }, [controller, rasterSrcW, rasterSrcH]);
 
   const closeCrop = useCallback(() => {
     setCropOpen(false);
@@ -671,14 +707,14 @@ export default function DesignEditor() {
         onApplyImage={handleApplyImage}
         onApplyFill={handleApplyFill}
         onApplyRaster={handleApplyRaster}
-        onFlipH={() => controller.flipHorizontal()}
-        onFlipV={() => controller.flipVertical()}
-        onRotate90={() => controller.rotate90()}
+         onFlipH={cropMode === 'fill' ? undefined : () => controller.flipHorizontal()}
+         onFlipV={cropMode === 'fill' ? undefined : () => controller.flipVertical()}
+         onRotate90={cropMode === 'fill' ? undefined : () => controller.rotate90()}
       />
 
       {/* Panels & Dialogs */}
       <LayersPanel controller={controller} />
-      <PropertiesPanel controller={controller} />
+      <PropertiesPanel controller={controller} onCrop={handleCropImage} />
       <ColorStudioPanel
         controller={controller}
         eyedropperActive={controller.eyedropperActive}

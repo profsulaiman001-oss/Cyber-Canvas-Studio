@@ -28,7 +28,14 @@ export interface CropModalProps {
   sourceH?: number;
   onApplyImage?: (cropX: number, cropY: number, cropW: number, cropH: number, circular: boolean) => void;
   onApplyFill?: (canvas: HTMLCanvasElement, circular: boolean) => void;
-  onApplyRaster?: (canvas: HTMLCanvasElement, circular: boolean) => void;
+  onApplyRaster?: (
+    canvas: HTMLCanvasElement,
+    circular: boolean,
+    cropX: number,
+    cropY: number,
+    cropW: number,
+    cropH: number,
+  ) => void;
   onFlipH?: () => void;
   onFlipV?: () => void;
   onRotate90?: () => void;
@@ -64,6 +71,7 @@ export default function CropModal({
   const dragStart    = useRef({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0 });
   const basePreviewSrc = useRef('');
   const baseNaturalSize = useRef({ width: 1, height: 1 });
+  const transformRequestRef = useRef(0);
 
   const renderTransformedPreview = useCallback((
     nextFlipX: boolean,
@@ -78,7 +86,9 @@ export default function CropModal({
     const outputW = rotated ? height : width;
     const outputH = rotated ? width : height;
     const img = new Image();
+    const requestId = ++transformRequestRef.current;
     img.onload = () => {
+      if (requestId !== transformRequestRef.current) return;
       const cv = document.createElement('canvas');
       cv.width = Math.max(1, Math.round(outputW));
       cv.height = Math.max(1, Math.round(outputH));
@@ -123,8 +133,12 @@ export default function CropModal({
     if (!open) { setPreviewSrc(''); return; }
     setLeft(0); setTop(0); setRight(0); setBottom(0);
     setAspectRatio(null); setCircular(false);
+    setFlipX(false); setFlipY(false); setRotation(0);
+    transformRequestRef.current += 1;
 
     if (mode === 'raster') {
+      basePreviewSrc.current = dataUrl || '';
+      baseNaturalSize.current = { width: sourceW || 1, height: sourceH || 1 };
       setPreviewSrc(dataUrl || '');
       setNaturalW(sourceW || 1);
       setNaturalH(sourceH || 1);
@@ -135,22 +149,31 @@ export default function CropModal({
       const img = fabricObj as FabricImage;
       const imgEl = img.getElement?.() as HTMLImageElement | undefined;
       if (!imgEl) return;
+      const nw = imgEl.naturalWidth || imgEl.width || 1;
+      const nh = imgEl.naturalHeight || imgEl.height || 1;
       try {
-        const nw = imgEl.naturalWidth || imgEl.width || 1;
-        const nh = imgEl.naturalHeight || imgEl.height || 1;
         setNaturalW(nw); setNaturalH(nh);
-        const MAX = 800;
-        const s = Math.min(1, MAX / Math.max(nw, nh));
         const cv = document.createElement('canvas');
-        cv.width = Math.max(1, Math.round(nw * s));
-        cv.height = Math.max(1, Math.round(nh * s));
+        // Keep the source at native resolution. The preview is constrained by
+        // CSS, while transformed/cropped output must not be based on a small
+        // thumbnail.
+        cv.width = Math.max(1, Math.round(nw));
+        cv.height = Math.max(1, Math.round(nh));
         cv.getContext('2d')?.drawImage(imgEl, 0, 0, cv.width, cv.height);
-        setPreviewSrc(cv.toDataURL('image/jpeg', 0.88));
+        const source = cv.toDataURL('image/png');
+        basePreviewSrc.current = source;
+        baseNaturalSize.current = { width: nw, height: nh };
+        setPreviewSrc(source);
         const cX = (img as FabricImage & { cropX?: number }).cropX ?? 0;
         const cY = (img as FabricImage & { cropY?: number }).cropY ?? 0;
         setLeft(Math.round((cX / nw) * 100));
         setTop(Math.round((cY / nh) * 100));
-      } catch { setPreviewSrc((imgEl as HTMLImageElement).src || ''); }
+      } catch {
+        const source = (imgEl as HTMLImageElement).src || '';
+        basePreviewSrc.current = source;
+        baseNaturalSize.current = { width: nw, height: nh };
+        setPreviewSrc(source);
+      }
       return;
     }
 
@@ -161,13 +184,14 @@ export default function CropModal({
         const nw = img.naturalWidth || 1;
         const nh = img.naturalHeight || 1;
         setNaturalW(nw); setNaturalH(nh);
-        const MAX = 800;
-        const s = Math.min(1, MAX / Math.max(nw, nh));
         const cv = document.createElement('canvas');
-        cv.width = Math.max(1, Math.round(nw * s));
-        cv.height = Math.max(1, Math.round(nh * s));
+        cv.width = Math.max(1, Math.round(nw));
+        cv.height = Math.max(1, Math.round(nh));
         cv.getContext('2d')?.drawImage(img, 0, 0, cv.width, cv.height);
-        setPreviewSrc(cv.toDataURL('image/jpeg', 0.88));
+        const source = cv.toDataURL('image/png');
+        basePreviewSrc.current = source;
+        baseNaturalSize.current = { width: nw, height: nh };
+        setPreviewSrc(source);
         if (objUrl) URL.revokeObjectURL(objUrl);
       };
       img.onerror = () => { if (objUrl) URL.revokeObjectURL(objUrl); };
@@ -175,6 +199,33 @@ export default function CropModal({
       img.src = objUrl;
     }
   }, [open, mode, fabricObj, file, dataUrl, sourceW, sourceH]);
+
+  const handleTransform = useCallback((kind: 'flipX' | 'flipY' | 'rotate') => {
+    const nextFlipX = kind === 'flipX' ? !flipX : flipX;
+    const nextFlipY = kind === 'flipY' ? !flipY : flipY;
+    const nextRotation = kind === 'rotate' ? (rotation + 90) % 360 : rotation;
+
+    // Keep the selected content under the same visual focus when the source
+    // is mirrored. A quarter-turn also swaps the source dimensions and maps
+    // the crop rectangle into the new coordinate system.
+    if (kind === 'flipX') {
+      setLeft(right);
+      setRight(left);
+    } else if (kind === 'flipY') {
+      setTop(bottom);
+      setBottom(top);
+    } else {
+      rotateCropClockwise(naturalW, naturalH, left, top, right, bottom);
+    }
+
+    setFlipX(nextFlipX);
+    setFlipY(nextFlipY);
+    setRotation(nextRotation);
+    renderTransformedPreview(nextFlipX, nextFlipY, nextRotation);
+  }, [
+    flipX, flipY, rotation, left, top, right, bottom, naturalW, naturalH,
+    rotateCropClockwise, renderTransformedPreview,
+  ]);
 
   /* Keep the preview sized to the space left by the modal chrome on mobile. */
   useEffect(() => {
@@ -244,30 +295,69 @@ export default function CropModal({
       else if (h === 'bm') { nb = clamp(ds.bottom - py, 0, 100 - ds.top - MIN); }
       else if (h === 'br') { nr = clamp(ds.right - px, 0, 100 - ds.left - MIN); nb = clamp(ds.bottom - py, 0, 100 - ds.top - MIN); }
 
-      if (aspectRatio !== null) {
-        const [arW, arH] = aspectRatio;
-        const targetAR = arW / arH;
-        const cropWpx = ((100 - nl - nr) / 100) * (naturalW || 1);
-        const newCropHpx = cropWpx / targetAR;
-        const newCropHFrac = newCropHpx / (naturalH || 1);
-        const totalShrinkH = Math.max(0, 1 - newCropHFrac);
+       if (h === 'move') {
+         const cropW = 100 - ds.left - ds.right;
+         const cropH = 100 - ds.top - ds.bottom;
+         nl = clamp(ds.left + px, 0, 100 - cropW);
+         nt = clamp(ds.top + py, 0, 100 - cropH);
+         nr = 100 - cropW - nl;
+         nb = 100 - cropH - nt;
+       } else if (aspectRatio !== null) {
+         // Work in percentage coordinates, but account for the source aspect
+         // ratio so the resulting rectangle remains the selected pixel ratio.
+         const [arW, arH] = aspectRatio;
+         const ratio = (arW / arH) * (naturalH || 1) / (naturalW || 1);
+         const startW = 100 - ds.left - ds.right;
+         const startH = 100 - ds.top - ds.bottom;
+         const minW = Math.max(1, Math.min(5, 100 * ratio));
+         const minH = Math.max(1, Math.min(5, 100 / ratio));
+         const fit = (requestedW: number, maxW: number) => {
+           const maxByHeight = maxW;
+           return clamp(Math.max(minW, requestedW), minW, Math.max(minW, maxByHeight));
+         };
 
-        if (h === 'tm' || h === 'bm') {
-          const cropHpx = ((100 - nt - nb) / 100) * (naturalH || 1);
-          const newCropWFrac = (cropHpx * targetAR) / (naturalW || 1);
-          const half = Math.max(0, (1 - newCropWFrac) * 50);
-          nl = clamp(half, 0, 100 - MIN);
-          nr = clamp(half, 0, 100 - MIN);
-        } else if (h === 'ml' || h === 'mr') {
-          const half = (totalShrinkH / 2) * 100;
-          nt = clamp(half, 0, 100 - MIN);
-          nb = clamp(half, 0, 100 - MIN);
-        } else if (h === 'tl' || h === 'tr') {
-          nt = clamp(totalShrinkH * 100 - nb, 0, 100 - nb - MIN);
-        } else {
-          nb = clamp(totalShrinkH * 100 - nt, 0, 100 - nt - MIN);
-        }
-      }
+         if (h === 'tl' || h === 'tr' || h === 'bl' || h === 'br') {
+           const anchorX = h.includes('l') ? ds.left + startW : ds.left;
+           const anchorY = h.includes('t') ? ds.top + startH : ds.top;
+           const pointerX = h.includes('l') ? anchorX - px : anchorX + px;
+           const pointerY = h.includes('t') ? anchorY - py : anchorY + py;
+           const candidateW = Math.max(0, Math.abs(pointerX - anchorX));
+           const candidateH = Math.max(0, Math.abs(pointerY - anchorY));
+           let maxW = h.includes('l') ? anchorX : 100 - anchorX;
+           const maxH = h.includes('t') ? anchorY : 100 - anchorY;
+           maxW = Math.min(maxW, maxH * ratio);
+           const width = fit(Math.max(candidateW, candidateH * ratio), maxW);
+           const height = width / ratio;
+           nl = h.includes('l') ? anchorX - width : anchorX;
+           nt = h.includes('t') ? anchorY - height : anchorY;
+           nr = 100 - nl - width;
+           nb = 100 - nt - height;
+         } else if (h === 'tm' || h === 'bm') {
+           const fixedBottom = h === 'tm';
+           const anchorY = fixedBottom ? ds.top + startH : ds.top;
+           const pointerY = fixedBottom ? anchorY - py : anchorY + py;
+           const maxH = fixedBottom ? anchorY : 100 - anchorY;
+           const height = clamp(Math.max(minH, Math.abs(pointerY - anchorY)), minH, maxH);
+           const width = Math.min(100, height * ratio);
+           const center = ds.left + startW / 2;
+           nl = clamp(center - width / 2, 0, 100 - width);
+           nr = 100 - nl - width;
+           nt = fixedBottom ? anchorY - height : anchorY;
+           nb = 100 - nt - height;
+         } else if (h === 'ml' || h === 'mr') {
+           const fixedRight = h === 'ml';
+           const anchorX = fixedRight ? ds.left + startW : ds.left;
+           const pointerX = fixedRight ? anchorX - px : anchorX + px;
+           const maxW = fixedRight ? anchorX : 100 - anchorX;
+           const width = fit(Math.abs(pointerX - anchorX), maxW);
+           const height = Math.min(100, width / ratio);
+           const center = ds.top + startH / 2;
+           nt = clamp(center - height / 2, 0, 100 - height);
+           nb = 100 - nt - height;
+           nl = fixedRight ? anchorX - width : anchorX;
+           nr = 100 - nl - width;
+         }
+       }
 
       setLeft(nl); setTop(nt); setRight(nr); setBottom(nb);
     };
@@ -328,6 +418,26 @@ export default function CropModal({
       return cv;
     };
 
+    if (mode === 'image' && fabricObj && (flipX || flipY || rotation !== 0)) {
+      // Native Fabric cropX/cropY cannot express a crop made in the rotated
+      // coordinate system. Return the transformed pixels instead so the
+      // preview and the committed result are identical.
+      const img = new Image();
+      img.onload = () => {
+        const cv = renderCrop(img, naturalW, naturalH);
+        onApplyRaster?.(
+          cv, circular,
+          Math.round(left / 100 * naturalW),
+          Math.round(top / 100 * naturalH),
+          Math.max(1, Math.round((100 - left - right) / 100 * naturalW)),
+          Math.max(1, Math.round((100 - top - bottom) / 100 * naturalH)),
+        );
+        onClose();
+      };
+      img.src = previewSrc;
+      return;
+    }
+
     if (mode === 'image' && fabricObj) {
       const cropX = Math.round(left  / 100 * naturalW);
       const cropY = Math.round(top   / 100 * naturalH);
@@ -352,19 +462,29 @@ export default function CropModal({
       return;
     }
 
-    if (mode === 'raster' && dataUrl) {
+    if (mode === 'raster' && previewSrc) {
       const img = new Image();
       img.onload = () => {
-        const cv = renderCrop(img, img.naturalWidth, img.naturalHeight);
-        onApplyRaster?.(cv, circular);
+        const cv = renderCrop(img, naturalW, naturalH);
+        onApplyRaster?.(
+          cv, circular,
+          Math.round(left / 100 * naturalW),
+          Math.round(top / 100 * naturalH),
+          Math.max(1, Math.round((100 - left - right) / 100 * naturalW)),
+          Math.max(1, Math.round((100 - top - bottom) / 100 * naturalH)),
+        );
         onClose();
       };
-      img.src = dataUrl;
+      img.src = previewSrc;
       return;
     }
 
     onClose();
-  }, [mode, fabricObj, file, dataUrl, left, top, right, bottom, naturalW, naturalH, circular, onApplyImage, onApplyFill, onApplyRaster, onClose]);
+  }, [
+    mode, fabricObj, file, dataUrl, previewSrc, left, top, right, bottom,
+    naturalW, naturalH, circular, flipX, flipY, rotation,
+    onApplyImage, onApplyFill, onApplyRaster, onClose,
+  ]);
 
   const handleSkip = useCallback(() => {
     if (mode === 'fill' && file) {
@@ -452,17 +572,17 @@ export default function CropModal({
 
         <div className="space-y-3 py-1">
 
-          {/* ── Transform buttons (image mode only) ── */}
-          {mode === 'image' && (
+          {/* ── Transform buttons ── */}
+          {mode !== 'fill' && (
             <div className="flex gap-2">
               {([
-                { icon: <FlipHorizontal size={15} />, label: 'Flip H', fn: onFlipH },
-                { icon: <FlipVertical   size={15} />, label: 'Flip V', fn: onFlipV },
-                { icon: <RotateCcw      size={15} />, label: 'Rotate', fn: onRotate90 },
+                { icon: <FlipHorizontal size={15} />, label: 'Flip H', fn: () => { handleTransform('flipX'); onFlipH?.(); } },
+                { icon: <FlipVertical   size={15} />, label: 'Flip V', fn: () => { handleTransform('flipY'); onFlipV?.(); } },
+                { icon: <RotateCcw      size={15} />, label: 'Rotate', fn: () => { handleTransform('rotate'); onRotate90?.(); } },
               ] as const).map(({ icon, label, fn }) => (
                 <button
                   key={label}
-                  onClick={fn}
+                   onClick={fn}
                   className="flex-1 flex flex-col items-center gap-1 py-2 rounded-xl border border-border hover:border-primary/50 transition-colors"
                   style={{ background: 'rgba(0,245,255,0.03)' }}
                 >
@@ -549,6 +669,26 @@ export default function CropModal({
                     <div key={`h${i}`} style={{ position: 'absolute', left: 0, right: 0, top: `${(i / 3) * 100}%`, height: 1, background: 'rgba(0,245,255,0.3)' }} />
                   ))}
                 </div>
+
+                {/* The crop frame itself is a move target. Handles remain above
+                    it, while this transparent surface accepts drag/touch from
+                    anywhere inside the selected rectangle. */}
+                <div
+                  onPointerDown={(e) => startDrag('move', e)}
+                  style={{
+                    position: 'absolute',
+                    left: `${left}%`, top: `${top}%`,
+                    width: `${100 - left - right}%`,
+                    height: `${100 - top - bottom}%`,
+                    cursor: 'move',
+                    touchAction: 'none',
+                    userSelect: 'none',
+                    zIndex: 5,
+                  }}
+                  aria-label="Move crop selection"
+                  role="button"
+                  tabIndex={-1}
+                />
 
                 {/* 8 drag handles; the 44px transparent hit areas are intentionally larger than the visible knobs for touch. */}
                 {handles.map(({ id, style }) => (

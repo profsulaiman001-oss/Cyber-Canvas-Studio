@@ -356,7 +356,13 @@ export default function DesignEditor() {
   /* ── Universal crop handler ── */
   const handleCropImage = useCallback(() => {
     const obj = controller.selectedObject;
-    if (!obj) return;
+    if (!obj) {
+      toast({
+        title: 'Select an object first',
+        description: 'Choose an image, shape, vector, or text object to crop.',
+      });
+      return;
+    }
 
     if (obj.type === 'image') {
       // Fabric-native crop via cropX/cropY

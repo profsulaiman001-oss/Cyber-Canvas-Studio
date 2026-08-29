@@ -464,17 +464,17 @@ export default function BottomToolbar({
             </button>
           )}
 
-          {hasSelection && selectedIsImage && (
-            <button
-              onClick={onCropImage}
-              className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-              style={{ color: '#6b7280' }}
-              title="Crop image"
-            >
-              <Crop size={22} />
-              <span className="text-[10px] font-medium leading-none whitespace-nowrap">Crop</span>
-            </button>
-          )}
+          {/* Crop supports images plus rasterized shapes, vectors, text, and groups.
+              Keep it visible even when there is no active selection. */}
+          <button
+            onClick={() => onCropImage?.()}
+            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
+            style={{ color: '#6b7280' }}
+            title="Crop selected object"
+          >
+            <Crop size={22} />
+            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Crop</span>
+          </button>
         </div>
       </div>
     </div>

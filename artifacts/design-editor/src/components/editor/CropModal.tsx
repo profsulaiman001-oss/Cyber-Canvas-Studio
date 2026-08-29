@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { FlipHorizontal, FlipVertical, RotateCcw } from 'lucide-react';
 import { FabricImage, FabricObject } from 'fabric';
 
-type HandleId = 'tl' | 'tm' | 'tr' | 'ml' | 'mr' | 'bl' | 'bm' | 'br';
+type HandleId = 'tl' | 'tm' | 'tr' | 'ml' | 'mr' | 'bl' | 'bm' | 'br' | 'move';
 type CropMode = 'image' | 'fill' | 'raster';
 type ARPreset = { label: string; value: [number, number] | null };
 
@@ -52,6 +52,9 @@ export default function CropModal({
   const [aspectRatio, setAspectRatio] = useState<[number, number] | null>(null);
   const [circular, setCircular] = useState(false);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [flipX, setFlipX] = useState(false);
+  const [flipY, setFlipY] = useState(false);
+  const [rotation, setRotation] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragHandle   = useRef<HandleId | null>(null);
@@ -59,6 +62,61 @@ export default function CropModal({
   const dragFrame = useRef<number | null>(null);
   const pendingPointer = useRef<{ x: number; y: number } | null>(null);
   const dragStart    = useRef({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0 });
+  const basePreviewSrc = useRef('');
+  const baseNaturalSize = useRef({ width: 1, height: 1 });
+
+  const renderTransformedPreview = useCallback((
+    nextFlipX: boolean,
+    nextFlipY: boolean,
+    nextRotation: number,
+  ) => {
+    const source = basePreviewSrc.current;
+    if (!source) return;
+    const { width, height } = baseNaturalSize.current;
+    const radians = (nextRotation * Math.PI) / 180;
+    const rotated = nextRotation % 180 !== 0;
+    const outputW = rotated ? height : width;
+    const outputH = rotated ? width : height;
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(outputW));
+      cv.height = Math.max(1, Math.round(outputH));
+      const ctx = cv.getContext('2d');
+      if (!ctx) return;
+      ctx.translate(cv.width / 2, cv.height / 2);
+      ctx.rotate(radians);
+      ctx.scale(nextFlipX ? -1 : 1, nextFlipY ? -1 : 1);
+      ctx.drawImage(img, -width / 2, -height / 2, width, height);
+      setPreviewSrc(cv.toDataURL('image/jpeg', 0.88));
+      setNaturalW(outputW);
+      setNaturalH(outputH);
+    };
+    img.src = source;
+  }, []);
+
+  const rotateCropClockwise = useCallback((
+    oldW: number,
+    oldH: number,
+    oldLeft: number,
+    oldTop: number,
+    oldRight: number,
+    oldBottom: number,
+  ) => {
+    const x1 = (oldLeft / 100) * oldW;
+    const y1 = (oldTop / 100) * oldH;
+    const x2 = ((100 - oldRight) / 100) * oldW;
+    const y2 = ((100 - oldBottom) / 100) * oldH;
+    // A clockwise quarter-turn maps (x, y) to (oldH - y, x).
+    const newX1 = oldH - y2;
+    const newY1 = x1;
+    const newX2 = oldH - y1;
+    const newY2 = x2;
+    setLeft(Math.max(0, Math.min(100, (newX1 / oldH) * 100)));
+    setTop(Math.max(0, Math.min(100, (newY1 / oldW) * 100)));
+    setRight(Math.max(0, Math.min(100, 100 - (newX2 / oldH) * 100)));
+    setBottom(Math.max(0, Math.min(100, 100 - (newY2 / oldW) * 100)));
+  }, []);
 
   /* ── Load source image into preview ───────────────────────────────────── */
   useEffect(() => {

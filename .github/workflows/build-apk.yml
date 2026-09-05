@@ -34,9 +34,10 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build Debug APK with Gradle
+      - name: Make Gradlew Executable & Build Debug APK
         run: |
           cd android
+          chmod +x gradlew
           ./gradlew assembleDebug
 
       - name: Upload APK Artifact

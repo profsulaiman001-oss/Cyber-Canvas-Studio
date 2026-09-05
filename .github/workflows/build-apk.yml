@@ -28,7 +28,7 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: Ensure Capacitor Packages Installed
-        run: pnpm add -D @capacitor/cli @capacitor/android @capacitor/core
+        run: pnpm add -w -D @capacitor/cli @capacitor/android @capacitor/core
 
       - name: Build Web Assets
         run: pnpm run build

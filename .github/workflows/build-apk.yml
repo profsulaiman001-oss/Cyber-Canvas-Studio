@@ -17,24 +17,26 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v3
         with:
-          version: 8
+          version: 9
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'pnpm'
 
       - name: Install Dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Ensure Capacitor Packages Installed
+        run: pnpm add -D @capacitor/cli @capacitor/android @capacitor/core
 
       - name: Build Web Assets
         run: pnpm run build
 
       - name: Add and Sync Capacitor Android
         run: |
-          pnpm exec cap add android || true
-          pnpm exec cap sync android
+          npx cap add android || true
+          npx cap sync android
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

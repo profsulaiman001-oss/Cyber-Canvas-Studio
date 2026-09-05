@@ -17,6 +17,7 @@
   "build": {
     "appId": "com.cybercanvas.studio",
     "productName": "Cyber Canvas Studio",
+    "electronVersion": "34.0.0",
     "directories": {
       "output": "dist-electron"
     },

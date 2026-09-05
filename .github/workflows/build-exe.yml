@@ -1,0 +1,44 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Ensure Electron Packages Installed
+        run: pnpm add -w -D electron electron-builder
+
+      - name: Build Web Assets
+        run: pnpm --filter design-editor exec vite build
+
+      - name: Package Executable (.exe)
+        working-directory: artifacts/design-editor
+        run: npx electron-builder --win nsis
+
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cyber-Canvas-Studio-Setup.exe
+          path: artifacts/design-editor/dist-electron/*.exe

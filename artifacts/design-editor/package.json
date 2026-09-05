@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "electron-main.js",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
@@ -12,6 +13,22 @@
     "cap:build": "pnpm run build:cap && npx cap copy android && npx cap sync android",
     "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android"
+  },
+  "build": {
+    "appId": "com.cybercanvas.studio",
+    "productName": "Cyber Canvas Studio",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron-main.js"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.2",

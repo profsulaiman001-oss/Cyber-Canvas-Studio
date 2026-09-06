@@ -324,6 +324,7 @@ const EXTRA_PROPS = [
   '_isPenAux',
   '_isAuxLayer',
 ];
+export const FABRIC_EDITOR_CLONE_PROPS = EXTRA_PROPS;
 let objectSeq: Record<string, number> = {};
 
 function nextName(type: string): string {
@@ -419,6 +420,15 @@ function visualSignature(obj: FabricObject): string {
 function tagObj(obj: FabricObject, nameKey: string) {
   (obj as FabricObject & { _name: string })._name = nextName(nameKey);
   (obj as FabricObject & { _uid: string })._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function clonePlainCustomValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
 }
 
 /* ─── SVG path helpers ─── */
@@ -2389,7 +2399,7 @@ export function useFabricCanvas(
     const target = sorted[0];       // bottom-most object = content
     const maskShape = sorted[sorted.length - 1]; // topmost = clip shape
 
-    maskShape.clone().then((clonedMask: FabricObject) => {
+    maskShape.clone(EXTRA_PROPS).then((clonedMask: FabricObject) => {
       // absolutePositioned:true → Fabric uses canvas-absolute coordinates directly,
       // so no manual coordinate offset math is needed. The clone sits exactly where
       // the original mask shape was on the canvas, clipping the target object.
@@ -2557,6 +2567,38 @@ export function useFabricCanvas(
     designWidth.current = width; designHeight.current = height; fitToContainer();
   }, [fitToContainer]);
 
+  const cloneObjectWithEditorState = useCallback(async (source: FabricObject): Promise<FabricObject> => {
+    const cloned = await source.clone(EXTRA_PROPS);
+    const customStateProps = [
+      '_origFill',
+      '_innerShadow',
+      '_textureKey',
+      '_depth3d',
+      '_glow',
+      '_gradientConfig',
+      'cornerRadius',
+      'innerShadow',
+      'effect3D',
+      'customProperties',
+    ];
+    // Fabric's whitelist handles serialization/deserialization. This second
+    // pass protects plain custom metadata from being shared or omitted by a
+    // custom object implementation.
+    customStateProps.forEach((key) => {
+      const sourceValue = (source as any)[key];
+      if (sourceValue !== undefined) {
+        (cloned as any)[key] = clonePlainCustomValue(sourceValue);
+      }
+    });
+    if (cloned.type === 'image') {
+      // Fabric deserializes filters, but applying them again ensures the
+      // duplicate's cache reflects the copied filter list immediately.
+      (cloned as FabricImage & { applyFilters?: () => void }).applyFilters?.();
+    }
+    cloned.setCoords();
+    return cloned;
+  }, []);
+
   const deleteSelected = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     c.getActiveObjects().forEach((o) => c.remove(o));
@@ -2566,30 +2608,29 @@ export function useFabricCanvas(
   const duplicateSelected = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const active = c.getActiveObject(); if (!active) return;
-    active.clone().then((cloned: FabricObject) => {
+    cloneObjectWithEditorState(active).then((cloned) => {
       cloned.set({ left: (cloned.left || 0) + 20, top: (cloned.top || 0) + 20 });
       (cloned as FabricObject & { _name: string })._name = `${(active as FabricObject & { _name?: string })._name || 'Object'} copy`;
       (cloned as FabricObject & { _uid: string })._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       c.add(cloned); c.setActiveObject(cloned); c.renderAll();
     });
-  }, []);
+  }, [cloneObjectWithEditorState]);
 
   /* ─── Copy / Paste (internal canvas clipboard) ─── */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const clipboardRef = useRef<any>(null);
+  const clipboardRef = useRef<FabricObject | null>(null);
 
   const copySelected = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const active = c.getActiveObject(); if (!active) return;
-    active.clone().then((cloned: FabricObject) => {
+    cloneObjectWithEditorState(active).then((cloned) => {
       clipboardRef.current = cloned;
     });
-  }, []);
+  }, [cloneObjectWithEditorState]);
 
   const pasteSelected = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const src = clipboardRef.current; if (!src) return;
-    src.clone().then((cloned: FabricObject) => {
+    cloneObjectWithEditorState(src).then((cloned) => {
       cloned.set({ left: (cloned.left || 0) + 20, top: (cloned.top || 0) + 20 });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (cloned as any)._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -2598,7 +2639,7 @@ export function useFabricCanvas(
       c.add(cloned); c.setActiveObject(cloned); c.renderAll();
       pushUndo(); syncObjects();
     });
-  }, [pushUndo, syncObjects]);
+  }, [cloneObjectWithEditorState, pushUndo, syncObjects]);
 
   const bringForward = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;

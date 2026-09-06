@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useEditor } from '@/store/editorStore';
-import { CanvasController } from '@/hooks/useFabricCanvas';
+import { CanvasController, FABRIC_EDITOR_CLONE_PROPS } from '@/hooks/useFabricCanvas';
 import { FabricObject, Path as FabricPath, Canvas } from 'fabric';
 import { useToast } from '@/hooks/use-toast';
 import { Layers2 } from 'lucide-react';
@@ -255,7 +255,7 @@ async function performBooleanOp(objs: FabricObject[], op: BoolOp, canvas: Canvas
         strokeWidth: 0,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const clonedImg: FabricObject = await (imageObj as any).clone();
+      const clonedImg: FabricObject = await (imageObj as any).clone(FABRIC_EDITOR_CLONE_PROPS);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (clonedImg as any).clipPath = clipShape;
       objs.forEach((o) => canvas.remove(o));

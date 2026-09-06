@@ -8,7 +8,9 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Input } from '@/components/ui/input';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
-import { Download } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Capacitor } from '@capacitor/core';
+import { Download, ImageDown } from 'lucide-react';
 
 interface ExportDialogProps {
   controller: CanvasController;
@@ -16,22 +18,86 @@ interface ExportDialogProps {
 
 export default function ExportDialog({ controller }: ExportDialogProps) {
   const { state, dispatch } = useEditor();
+  const { toast } = useToast();
   const isOpen = state.activePanel === 'export';
 
   const [format, setFormat] = useState<'png' | 'jpeg'>('png');
   const [quality, setQuality] = useState(95);
   const [scalePreset, setScalePreset] = useState('2');
   const [customScale, setCustomScale] = useState('2');
+  const [isSaving, setIsSaving] = useState(false);
 
   const multiplier = scalePreset === 'custom' ? parseFloat(customScale) || 1 : parseFloat(scalePreset);
 
-  const handleExport = () => {
+  const handleExport = async () => {
     // controller.exportCanvas now handles the viewport preservation and edge cropping internally!
     const dataUrl = controller.exportCanvas(format, quality / 100, multiplier);
     if (!dataUrl) return;
     const ext = format === 'jpeg' ? 'jpg' : 'png';
     const filename = `${state.projectName || 'untitled'}_design.${ext}`;
 
+    /*
+     * Native Android path: Media.savePhoto writes through Android's media
+     * storage, creates an app album, and scans the resulting file so it is
+     * visible to Google Photos/Gallery immediately. This branch is deliberately
+     * before the browser download and is never used by Web or Electron.
+     */
+    if (Capacitor.isNativePlatform()) {
+      setIsSaving(true);
+      try {
+        const [{ Media }, { Filesystem }] = await Promise.all([
+          import('@capacitor-community/media'),
+          import('@capacitor/filesystem'),
+        ]);
+
+        // Ask the Filesystem plugin for legacy public-storage permissions.
+        // Media.getAlbums() below separately handles READ_MEDIA_IMAGES on
+        // Android 13+ when gallery mode is enabled.
+        await Filesystem.requestPermissions();
+
+        const albumName = 'Cyber Canvas Studio';
+        let albums = (await Media.getAlbums()).albums;
+        let album = albums.find((candidate) => candidate.name === albumName);
+        if (!album) {
+          try {
+            await Media.createAlbum({ name: albumName });
+          } catch {
+            // A concurrent export may have created it; resolve the identifier
+            // from the refreshed album list below.
+          }
+          albums = (await Media.getAlbums()).albums;
+          album = albums.find((candidate) => candidate.name === albumName);
+        }
+
+        if (!album?.identifier) {
+          throw new Error('The Cyber Canvas Studio album could not be created');
+        }
+
+        const fileName = filename.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]+/g, '_');
+        await Media.savePhoto({
+          path: dataUrl,
+          albumIdentifier: album.identifier,
+          fileName,
+        });
+
+        toast({
+          title: 'Saved to Gallery',
+          description: `Exported to the ${albumName} album`,
+        });
+        dispatch({ type: 'CLOSE_PANEL' });
+      } catch (error) {
+        toast({
+          title: 'Gallery export failed',
+          description: error instanceof Error ? error.message : 'Allow photo access and try again.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
+    // Existing Web and Electron behavior stays unchanged.
     const link = document.createElement('a');
     link.href = dataUrl;
     link.download = filename;
@@ -128,8 +194,8 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
 
         <DialogFooter>
           <Button onClick={handleExport} className="w-full gap-2" data-testid="button-export">
-            <Download size={14} />
-            Download {format.toUpperCase()}
+            {Capacitor.isNativePlatform() ? <ImageDown size={14} /> : <Download size={14} />}
+            {isSaving ? 'Saving to Gallery…' : Capacitor.isNativePlatform() ? `Save to Gallery (${format.toUpperCase()})` : `Download ${format.toUpperCase()}`}
           </Button>
         </DialogFooter>
       </DialogContent>

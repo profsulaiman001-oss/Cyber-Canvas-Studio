@@ -40,4 +40,11 @@ All Capacitor files live inside `artifacts/design-editor/`:
 ## Node.js requirement
 Capacitor CLI v8 requires Node ≥22. Environment was upgraded to `nodejs-24`.
 
+## Native build prerequisites
+The Java module can provide a JDK for Gradle, but it does not provision the Android SDK. A local SDK plus `ANDROID_HOME`/`ANDROID_SDK_ROOT` (or `android/local.properties`) is still required before `./gradlew assembleDebug` can run.
+
+**Why:** Capacitor sync can complete without an SDK, which makes the Android project look ready while the first Gradle build fails during SDK discovery.
+
+**How to apply:** Run `cap:build`/`cap:sync` for project validation, then verify the Android SDK is installed and configured before claiming an APK build.
+
 **How to apply:** Run `pnpm run cap:build` from `artifacts/design-editor/` to produce a fresh APK-ready Android project. Open `artifacts/design-editor/android/` in Android Studio to build the APK.

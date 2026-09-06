@@ -21,6 +21,11 @@ const config: CapacitorConfig = {
       // is still required on every start to clear any pending rollback flag.
       autoUpdate: false,
     },
+    Media: {
+      // Save exports into public, Gallery-visible media storage and request
+      // the Android media permissions needed by the community Media plugin.
+      androidGalleryMode: true,
+    },
   },
 };
 

@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useFabricCanvas } from '@/hooks/useFabricCanvas';
+import { getActiveProjectId, loadProjectById, useProjects } from '@/hooks/useProjects';
 import { useEditor } from '@/store/editorStore';
 import { loadStoredFonts } from '@/components/editor/FontUploader';
 import CanvasWorkspace from '@/components/editor/Canvas';
@@ -29,8 +30,6 @@ import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 import { Droplet, SquareRoundCorner } from 'lucide-react';
 
-let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
 /* Pixel multiplier used when rasterising any non-image canvas object for crop */
 const RASTER_MULT = 2;
 
@@ -40,6 +39,15 @@ export default function DesignEditor() {
   const { state, dispatch } = useEditor();
   const { toast } = useToast();
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const { saveProject: persistProject } = useProjects();
+  const currentProjectIdRef = useRef<string | null>(null);
+  const editorStateRef = useRef(state);
+  const controllerRef = useRef<ReturnType<typeof useFabricCanvas> | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeAttemptedRef = useRef(false);
+
+  currentProjectIdRef.current = currentProjectId;
+  editorStateRef.current = state;
 
   const [vpX, setVpX] = useState(0);
   const [vpY, setVpY] = useState(0);
@@ -73,11 +81,38 @@ export default function DesignEditor() {
 
   const handleCanvasChanged = useCallback(() => {
     dispatch({ type: 'SET_DIRTY', payload: true });
-    if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(() => {
-      if (currentProjectId) toast({ title: 'Auto-saved', description: '' });
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    const projectId = currentProjectIdRef.current;
+    if (!projectId) return;
+    autoSaveTimerRef.current = setTimeout(async () => {
+      const activeController = controllerRef.current;
+      const latestState = editorStateRef.current;
+      if (!activeController || currentProjectIdRef.current !== projectId) return;
+      const canvas = activeController.getCanvas();
+      if (!canvas) return;
+      try {
+        const thumbnail = canvas.toDataURL({
+          format: 'jpeg',
+          quality: 0.3,
+          multiplier: Math.min(200 / latestState.canvasSize.width, 200 / latestState.canvasSize.height),
+        });
+        await persistProject(
+          projectId,
+          latestState.projectName,
+          activeController.getJSON(),
+          thumbnail,
+          latestState.canvasSize.width,
+          latestState.canvasSize.height,
+        );
+        if (currentProjectIdRef.current === projectId) {
+          dispatch({ type: 'SET_DIRTY', payload: false });
+          toast({ title: 'Auto-saved', description: '' });
+        }
+      } catch {
+        // Manual Save remains available if a browser storage write fails.
+      }
     }, 3000);
-  }, [dispatch, currentProjectId, toast]);
+  }, [dispatch, persistProject, toast]);
 
   const handleUndoRedoChange = useCallback(
     (canUndo: boolean, canRedo: boolean) => {
@@ -93,6 +128,32 @@ export default function DesignEditor() {
     onCanvasChanged:   handleCanvasChanged,
     onUndoRedoChange:  handleUndoRedoChange,
   });
+  controllerRef.current = controller;
+
+  useEffect(() => {
+    if (resumeAttemptedRef.current) return;
+    resumeAttemptedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      const projectId = await getActiveProjectId();
+      if (!projectId || cancelled) return;
+      const project = await loadProjectById(projectId);
+      if (!project || cancelled) return;
+      await controller.loadFromJSON(project.canvasJSON);
+      if (cancelled) return;
+      controller.setCanvasSize(project.canvasWidth, project.canvasHeight);
+      setCurrentProjectId(project.id);
+      dispatch({ type: 'SET_PROJECT_NAME', payload: project.name });
+      dispatch({ type: 'SET_CANVAS_SIZE', payload: { width: project.canvasWidth, height: project.canvasHeight } });
+      dispatch({ type: 'SET_DIRTY', payload: false });
+    })().catch(() => {
+      // A missing or corrupt saved project must not block a fresh editor.
+    });
+    return () => {
+      cancelled = true;
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
 
   /* ── Directional Nudge ── */
   const handleNudgeElement = useCallback((direction: 'up' | 'down' | 'left' | 'right', amount: number) => {

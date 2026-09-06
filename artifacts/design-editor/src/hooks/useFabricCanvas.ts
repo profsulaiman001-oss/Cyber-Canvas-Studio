@@ -298,7 +298,18 @@ export interface VectorAnchor {
 }
 
 const MAX_UNDO = 50;
-const EXTRA_PROPS = ['_uid', '_name', '_innerShadow', '_textureKey', '_depth3d', '_glow', '_gradientConfig'];
+const EXTRA_PROPS = [
+  '_uid',
+  '_name',
+  '_origFill',
+  '_innerShadow',
+  '_textureKey',
+  '_depth3d',
+  '_glow',
+  '_gradientConfig',
+  '_isPenAux',
+  '_isAuxLayer',
+];
 let objectSeq: Record<string, number> = {};
 
 function nextName(type: string): string {
@@ -564,6 +575,10 @@ export function useFabricCanvas(
   const canvasRef = useRef<Canvas | null>(null);
   const undoStack = useRef<string[]>([]);
   const redoStack = useRef<string[]>([]);
+  // History entries represent the state immediately before a committed
+  // mutation. Fabric's object events fire after the mutation, so pushing the
+  // current canvas directly would make the first undo a no-op.
+  const lastCommittedSnapshotRef = useRef('');
   const isUndoRedoRef = useRef<boolean>(false);
   const undoDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const designWidth = useRef(options.width);
@@ -690,10 +705,16 @@ export function useFabricCanvas(
     if (!c || isUndoRedoRef.current) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
-    undoStack.current.push(json);
+    if (!lastCommittedSnapshotRef.current) {
+      lastCommittedSnapshotRef.current = json;
+      return;
+    }
+    if (json === lastCommittedSnapshotRef.current) return;
+    undoStack.current.push(lastCommittedSnapshotRef.current);
     if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
     redoStack.current = [];
     options.onUndoRedoChange(undoStack.current.length > 0, false);
+    lastCommittedSnapshotRef.current = json;
     options.onCanvasChanged();
     syncObjects();
   }, [options, syncObjects]);
@@ -930,6 +951,10 @@ export function useFabricCanvas(
     designWidth.current = options.width;
     designHeight.current = options.height;
     fitToContainer();
+    // Establish the initial history baseline before any Fabric event can
+    // record a mutation.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    lastCommittedSnapshotRef.current = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
 
     /* ─── Selection events ─── */
     const handleSelect = () => {
@@ -1316,16 +1341,16 @@ export function useFabricCanvas(
 
   const addImageFromFile = useCallback(async (file: File) => {
     const c = canvasRef.current; if (!c) return;
-    const url = URL.createObjectURL(file);
-    try {
-      const img = await FabricImage.fromURL(url);
-      const maxDim = Math.min(designWidth.current, designHeight.current) * 0.5;
-      const scale = Math.min(maxDim / (img.width || 1), maxDim / (img.height || 1));
-      img.scale(scale);
-      const { cx, cy } = getCenter();
-      img.set({ left: cx - (img.width || 0) * scale / 2, top: cy - (img.height || 0) * scale / 2 });
-      tagObj(img, 'image'); c.add(img); c.setActiveObject(img); c.renderAll();
-    } finally { URL.revokeObjectURL(url); }
+    // Keep the source durable. A revoked blob URL is still present in
+    // Fabric's JSON, but cannot be decoded by a later undo/project restore.
+    const element = await loadLocalImage(file);
+    const img = new FabricImage(element);
+    const maxDim = Math.min(designWidth.current, designHeight.current) * 0.5;
+    const scale = Math.min(maxDim / (img.width || 1), maxDim / (img.height || 1));
+    img.scale(scale);
+    const { cx, cy } = getCenter();
+    img.set({ left: cx - (img.width || 0) * scale / 2, top: cy - (img.height || 0) * scale / 2 });
+    tagObj(img, 'image'); c.add(img); c.setActiveObject(img); c.renderAll();
   }, [getCenter]);
 
   const alignObjects = useCallback((type: AlignType) => {
@@ -1415,7 +1440,9 @@ export function useFabricCanvas(
     if (!textureKey) {
       obj.set('fill', (obj as FabricObject & { _origFill?: string })._origFill || '#00F5FF');
       (obj as FabricObject & { _textureKey?: string })._textureKey = undefined;
-      c.requestRenderAll(); return;
+      c.requestRenderAll();
+      pushUndo();
+      return;
     }
     if (!(obj as FabricObject & { _origFill?: string })._origFill && typeof obj.fill === 'string') {
       (obj as FabricObject & { _origFill?: string })._origFill = obj.fill;
@@ -1424,17 +1451,18 @@ export function useFabricCanvas(
     const svgStr = TEXTURES[textureKey];
     if (!svgStr) return;
     const img = new Image();
-    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
+    // Keep the generated texture source durable for project/undo restores.
+    // A revoked blob URL would serialize successfully but fail to decode later.
+    const source = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
     img.onload = () => {
       const pat = new Pattern({ source: img, repeat: 'repeat' });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       obj.set('fill', pat as any);
       c.requestRenderAll();
-      URL.revokeObjectURL(url);
+       pushUndo();
     };
-    img.src = url;
-  }, []);
+    img.src = source;
+  }, [pushUndo]);
 
   /* ─── Apply inner shadow ─── */
   const applyInnerShadow = useCallback(
@@ -1442,8 +1470,9 @@ export function useFabricCanvas(
       const c = canvasRef.current; if (!c || !obj) return;
       (obj as FabricObject & { _innerShadow?: unknown })._innerShadow = cfg;
       c.requestRenderAll();
+      pushUndo();
     },
-    []
+    [pushUndo]
   );
 
   /* ─── True 3D Extrusion ─── */
@@ -1452,7 +1481,8 @@ export function useFabricCanvas(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any)._depth3d = cfg;
     canvasRef.current?.requestRenderAll();
-  }, []);
+    pushUndo();
+  }, [pushUndo]);
 
   /* ─── Glow / Neon ─── */
   const applyGlow = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; color: string; intensity: number } | null) => {
@@ -1465,7 +1495,8 @@ export function useFabricCanvas(
       obj.set('shadow', null);
     }
     canvasRef.current?.requestRenderAll();
-  }, []);
+    pushUndo();
+  }, [pushUndo]);
 
   /* ─── Gradient Fill (radialRadius is optional pixels; defaults to Math.max(w,h)/2) ─── */
   const applyGradientFill = useCallback((
@@ -1555,12 +1586,13 @@ export function useFabricCanvas(
         origin: { ...safeOrigin },
       };
       c.requestRenderAll();
+      pushUndo();
     } catch {
       // A malformed stop or unsupported Fabric fill must not take down the
       // editor. Leave the previous fill intact and keep the canvas responsive.
       return;
     }
-  }, []);
+  }, [pushUndo]);
 
   /* ─── Decoupled Fill Opacity (encodes alpha into fill color, never touches obj.opacity) ─── */
   const applyFillOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
@@ -1581,7 +1613,8 @@ export function useFabricCanvas(
     // Keep obj.opacity = 1 so stroke is never dimmed by this fill-opacity change
     obj.set('opacity', 1);
     c.requestRenderAll();
-  }, []);
+    pushUndo();
+  }, [pushUndo]);
 
   const getFillOpacity = useCallback((obj: FabricObject | null): number => {
     if (!obj) return 1;
@@ -1603,7 +1636,8 @@ export function useFabricCanvas(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any).setDirty?.(true);
     c.requestRenderAll();
-  }, []);
+    pushUndo();
+  }, [pushUndo]);
 
   const getStrokeOpacity = useCallback((obj: FabricObject | null): number => {
     if (!obj) return 1;
@@ -1764,7 +1798,8 @@ export function useFabricCanvas(
     img.filters = filterList as any;
     img.applyFilters();
     c.requestRenderAll();
-  }, []);
+    pushUndo();
+  }, [pushUndo]);
 
   /* ─── Brush Engine ─── */
   const activateBrush = useCallback((preset: BrushPreset, color: string, size: number) => {
@@ -2288,30 +2323,39 @@ export function useFabricCanvas(
     const c = canvasRef.current;
     if (!c || undoStack.current.length === 0) return;
     isUndoRedoRef.current = true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    redoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
-    const prev = undoStack.current.pop()!;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (c as any).loadFromJSON(JSON.parse(prev));
-    c.renderAll();
-    isUndoRedoRef.current = false;
-    options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
-    syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      redoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
+      const prev = undoStack.current.pop()!;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (c as any).loadFromJSON(JSON.parse(prev));
+      lastCommittedSnapshotRef.current = prev;
+      c.renderAll();
+      options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
+      syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+    } finally {
+      isUndoRedoRef.current = false;
+    }
   }, [options, syncObjects]);
 
   const redo = useCallback(async () => {
     const c = canvasRef.current;
     if (!c || redoStack.current.length === 0) return;
     isUndoRedoRef.current = true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    undoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
-    const next = redoStack.current.pop()!;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (c as any).loadFromJSON(JSON.parse(next));
-    c.renderAll();
-    isUndoRedoRef.current = false;
-    options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
-    syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      undoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
+      const next = redoStack.current.pop()!;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (c as any).loadFromJSON(JSON.parse(next));
+      lastCommittedSnapshotRef.current = next;
+      c.renderAll();
+      isUndoRedoRef.current = false;
+      options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
+      syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+    } finally {
+      isUndoRedoRef.current = false;
+    }
   }, [options, syncObjects]);
 
   /* ─── Export (Fixed: Enforces Explicit Snapshot Clipping Parameters) ─── */
@@ -2362,6 +2406,8 @@ export function useFabricCanvas(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (c as any).loadFromJSON(json);
     isUndoRedoRef.current = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    lastCommittedSnapshotRef.current = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
     c.renderAll(); syncObjects();
     options.onUndoRedoChange(false, false);
     undoStack.current = []; redoStack.current = [];

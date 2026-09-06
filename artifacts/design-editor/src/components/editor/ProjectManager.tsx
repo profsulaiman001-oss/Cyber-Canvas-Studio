@@ -3,14 +3,14 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
-import { useProjects, Project } from '@/hooks/useProjects';
+import { useProjects, Project, setActiveProjectId } from '@/hooks/useProjects';
 import { Plus, Trash2, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface ProjectManagerProps {
   controller: CanvasController;
   currentProjectId: string | null;
-  onProjectSaved: (id: string) => void;
+  onProjectSaved: (id: string | null) => void;
 }
 
 function formatDate(ts: number): string {
@@ -34,12 +34,13 @@ export default function ProjectManager({ controller, currentProjectId, onProject
     if (isOpen) refreshProjects();
   }, [isOpen, refreshProjects]);
 
-  const handleNew = () => {
+  const handleNew = async () => {
     const c = controller.getCanvas();
     if (!c) return;
-    c.clear();
-    c.backgroundColor = '#ffffff';
+    await controller.loadFromJSON({ version: '7.3.1', objects: [], background: '#ffffff' });
     c.renderAll();
+    await setActiveProjectId(null);
+    onProjectSaved(null);
     dispatch({ type: 'SET_PROJECT_NAME', payload: 'Untitled Design' });
     dispatch({ type: 'SET_DIRTY', payload: false });
     dispatch({ type: 'CLOSE_PANEL' });
@@ -61,6 +62,7 @@ export default function ProjectManager({ controller, currentProjectId, onProject
         state.canvasSize.height
       );
       onProjectSaved(project.id);
+      await setActiveProjectId(project.id);
       dispatch({ type: 'SET_DIRTY', payload: false });
       toast({ title: 'Saved', description: `"${state.projectName}" saved successfully` });
       await refreshProjects();
@@ -76,6 +78,7 @@ export default function ProjectManager({ controller, currentProjectId, onProject
     dispatch({ type: 'SET_CANVAS_SIZE', payload: { width: project.canvasWidth, height: project.canvasHeight } });
     dispatch({ type: 'SET_DIRTY', payload: false });
     onProjectSaved(project.id);
+    await setActiveProjectId(project.id);
     dispatch({ type: 'CLOSE_PANEL' });
     toast({ title: 'Loaded', description: `"${project.name}" loaded` });
   };
@@ -83,6 +86,7 @@ export default function ProjectManager({ controller, currentProjectId, onProject
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     await deleteProject(id);
+    if (id === currentProjectId) onProjectSaved(null);
     await refreshProjects();
   };
 

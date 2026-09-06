@@ -12,6 +12,7 @@ export interface Project {
 }
 
 const PROJECTS_KEY = 'cyber_studio_projects';
+const ACTIVE_PROJECT_KEY = 'cyber_studio_active_project';
 
 async function getAll(): Promise<Project[]> {
   const data = await localforage.getItem<Project[]>(PROJECTS_KEY);
@@ -20,6 +21,20 @@ async function getAll(): Promise<Project[]> {
 
 async function saveAll(projects: Project[]): Promise<void> {
   await localforage.setItem(PROJECTS_KEY, projects);
+}
+
+/** Return the project that should be restored on the next editor launch. */
+export async function getActiveProjectId(): Promise<string | null> {
+  return (await localforage.getItem<string>(ACTIVE_PROJECT_KEY)) || null;
+}
+
+/** Persist the current project selection separately from the project records. */
+export async function setActiveProjectId(id: string | null): Promise<void> {
+  if (id) {
+    await localforage.setItem(ACTIVE_PROJECT_KEY, id);
+  } else {
+    await localforage.removeItem(ACTIVE_PROJECT_KEY);
+  }
 }
 
 /** Load a single project by ID without requiring the hook. */
@@ -74,6 +89,7 @@ export function useProjects() {
         projects.unshift(project);
       }
       await saveAll(projects);
+      await setActiveProjectId(projectId);
       return project;
     },
     []
@@ -87,6 +103,7 @@ export function useProjects() {
   const deleteProject = useCallback(async (id: string): Promise<void> => {
     const projects = await getAll();
     await saveAll(projects.filter((p) => p.id !== id));
+    if (await getActiveProjectId() === id) await setActiveProjectId(null);
   }, []);
 
   const renameProject = useCallback(async (id: string, newName: string): Promise<void> => {

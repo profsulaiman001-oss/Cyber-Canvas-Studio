@@ -230,6 +230,7 @@ export default function CropModal({
       });
       return () => { cancelled = true; };
     }
+    return undefined;
   }, [open, mode, fabricObj, file, dataUrl, sourceW, sourceH]);
 
   const handleTransform = useCallback((kind: 'flipX' | 'flipY' | 'rotate') => {

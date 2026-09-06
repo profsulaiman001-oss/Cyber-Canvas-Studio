@@ -31,6 +31,8 @@ jobs:
         run: pnpm add -w -D electron electron-builder
 
       - name: Build Web Assets
+        env:
+          ELECTRON_BUILD: "true"
         run: pnpm --filter design-editor exec vite build
 
       - name: Package Executable (.exe)

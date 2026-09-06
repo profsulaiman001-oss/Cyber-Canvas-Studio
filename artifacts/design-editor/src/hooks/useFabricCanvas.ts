@@ -297,7 +297,8 @@ export interface VectorAnchor {
   mirrorYOff?: number;
 }
 
-const MAX_UNDO = 50;
+const MAX_UNDO = 20;
+const HISTORY_ASSET_REF_PREFIX = '__cyber_studio_history_asset__:';
 const EXTRA_PROPS = [
   '_uid',
   '_name',
@@ -579,7 +580,16 @@ export function useFabricCanvas(
   // mutation. Fabric's object events fire after the mutation, so pushing the
   // current canvas directly would make the first undo a no-op.
   const lastCommittedSnapshotRef = useRef('');
-  const isUndoRedoRef = useRef<boolean>(false);
+  // History snapshots may contain the same large image/pattern data URL many
+  // times. Keep those bytes once in memory and store compact references in the
+  // bounded history stacks; project serialization still keeps durable sources.
+  const historyAssetRefToSourceRef = useRef(new Map<string, string>());
+  const historyAssetSourceToRefRef = useRef(new Map<string, string>());
+  const historyAssetSeqRef = useRef(0);
+  // Fabric emits object/path events while loadFromJSON is rebuilding the
+  // canvas. Keep one guard for every history restore path so those synthetic
+  // events can never schedule a new history entry.
+  const isHistoryProcessingRef = useRef<boolean>(false);
   const undoDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const designWidth = useRef(options.width);
   const designHeight = useRef(options.height);
@@ -700,11 +710,73 @@ export function useFabricCanvas(
     );
   }, []);
 
+  const getHistorySnapshot = useCallback(() => {
+    const c = canvasRef.current;
+    if (!c) return '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = (c as any).toJSON(EXTRA_PROPS);
+    const compact = (value: unknown): unknown => {
+      if (typeof value === 'string' && value.startsWith('data:') && value.length > 2048) {
+        let ref = historyAssetSourceToRefRef.current.get(value);
+        if (!ref) {
+          ref = `${HISTORY_ASSET_REF_PREFIX}${++historyAssetSeqRef.current}`;
+          historyAssetSourceToRefRef.current.set(value, ref);
+          historyAssetRefToSourceRef.current.set(ref, value);
+        }
+        return ref;
+      }
+      if (Array.isArray(value)) return value.map(compact);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, compact(entry)]),
+        );
+      }
+      return value;
+    };
+    return JSON.stringify(compact(raw));
+  }, []);
+
+  const expandHistorySnapshot = useCallback((snapshot: string): object => {
+    const expand = (value: unknown): unknown => {
+      if (typeof value === 'string' && value.startsWith(HISTORY_ASSET_REF_PREFIX)) {
+        return historyAssetRefToSourceRef.current.get(value) || value;
+      }
+      if (Array.isArray(value)) return value.map(expand);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, expand(entry)]),
+        );
+      }
+      return value;
+    };
+    return expand(JSON.parse(snapshot)) as object;
+  }, []);
+
+  const pruneHistoryAssets = useCallback(() => {
+    const referenced = new Set<string>();
+    const collect = (snapshot: string) => {
+      const matches = snapshot.match(new RegExp(`${HISTORY_ASSET_REF_PREFIX}\\d+`, 'g')) || [];
+      matches.forEach((ref) => referenced.add(ref));
+    };
+    collect(lastCommittedSnapshotRef.current);
+    undoStack.current.forEach(collect);
+    redoStack.current.forEach(collect);
+
+    historyAssetRefToSourceRef.current.forEach((_source, ref) => {
+      if (!referenced.has(ref)) {
+        historyAssetRefToSourceRef.current.delete(ref);
+        for (const [source, sourceRef] of historyAssetSourceToRefRef.current) {
+          if (sourceRef === ref) historyAssetSourceToRefRef.current.delete(source);
+        }
+      }
+    });
+  }, []);
+
   const pushUndo = useCallback(() => {
     const c = canvasRef.current;
-    if (!c || isUndoRedoRef.current) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
+    if (!c || isHistoryProcessingRef.current) return;
+    const json = getHistorySnapshot();
+    if (!json) return;
     if (!lastCommittedSnapshotRef.current) {
       lastCommittedSnapshotRef.current = json;
       return;
@@ -715,9 +787,19 @@ export function useFabricCanvas(
     redoStack.current = [];
     options.onUndoRedoChange(undoStack.current.length > 0, false);
     lastCommittedSnapshotRef.current = json;
+    pruneHistoryAssets();
     options.onCanvasChanged();
     syncObjects();
-  }, [options, syncObjects]);
+  }, [getHistorySnapshot, options, pruneHistoryAssets, syncObjects]);
+
+  const scheduleHistoryCommit = useCallback(() => {
+    if (isHistoryProcessingRef.current) return;
+    if (undoDebounceRef.current) clearTimeout(undoDebounceRef.current);
+    undoDebounceRef.current = setTimeout(() => {
+      undoDebounceRef.current = null;
+      pushUndo();
+    }, 300);
+  }, [pushUndo]);
 
   const fitToContainer = useCallback(() => {
     const c = canvasRef.current;
@@ -954,18 +1036,27 @@ export function useFabricCanvas(
     // Establish the initial history baseline before any Fabric event can
     // record a mutation.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    lastCommittedSnapshotRef.current = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
+    lastCommittedSnapshotRef.current = getHistorySnapshot();
 
     /* ─── Selection events ─── */
     const handleSelect = () => {
+      if (isHistoryProcessingRef.current) return;
       const active = c.getActiveObject();
       if (active) {
         setSelectedObject(active);
         options.onSelectionChange(c.getActiveObjects().map(objId));
       }
     };
-    const handleDeselect = () => { setSelectedObject(null); options.onSelectionChange([]); };
-    const handleChange = () => { if (!isUndoRedoRef.current) pushUndo(); syncObjects(); };
+    const handleDeselect = () => {
+      if (isHistoryProcessingRef.current) return;
+      setSelectedObject(null);
+      options.onSelectionChange([]);
+    };
+    const handleChange = () => {
+      if (isHistoryProcessingRef.current) return;
+      scheduleHistoryCommit();
+      syncObjects();
+    };
 
     c.on('selection:created', handleSelect);
     c.on('selection:updated', handleSelect);
@@ -1022,9 +1113,10 @@ export function useFabricCanvas(
 
     /* ─── Brush stroke complete ─── */
     c.on('path:created', (e: { path: Path }) => {
+      if (isHistoryProcessingRef.current) return;
       if (brushActiveRef.current) {
         tagObj(e.path, 'brush');
-        pushUndo();
+        scheduleHistoryCommit();
       }
     });
 
@@ -1197,6 +1289,7 @@ export function useFabricCanvas(
 
     /* ─── Neon / glow path: screen blending for real light-emission look ─── */
     c.on('path:created', (e: Record<string, unknown>) => {
+      if (isHistoryProcessingRef.current) return;
       const path = e.path as FabricObject | undefined;
       if (!path) return;
       if (brushPresetRef.current === 'glow') {
@@ -1210,6 +1303,10 @@ export function useFabricCanvas(
     if (containerEl.current) ro.observe(containerEl.current);
 
     return () => {
+      if (undoDebounceRef.current) {
+        clearTimeout(undoDebounceRef.current);
+        undoDebounceRef.current = null;
+      }
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove', onTouchMove);
       ro.disconnect();
@@ -1217,7 +1314,7 @@ export function useFabricCanvas(
       canvasRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasEl]);
+  }, [canvasEl, getHistorySnapshot]);
 
   /* ─── Grid / snap setters ─── */
   const setGridOptions = useCallback((enabled: boolean, snap: boolean, size: number) => {
@@ -2314,49 +2411,63 @@ export function useFabricCanvas(
 
   const commitChange = useCallback(() => {
     syncObjects();
-    if (undoDebounceRef.current) clearTimeout(undoDebounceRef.current);
-    undoDebounceRef.current = setTimeout(() => { pushUndo(); undoDebounceRef.current = null; }, 400);
-  }, [syncObjects, pushUndo]);
+    scheduleHistoryCommit();
+  }, [scheduleHistoryCommit, syncObjects]);
 
   /* ─── Undo / Redo ─── */
   const undo = useCallback(async () => {
     const c = canvasRef.current;
-    if (!c || undoStack.current.length === 0) return;
-    isUndoRedoRef.current = true;
+    if (!c || undoStack.current.length === 0 || isHistoryProcessingRef.current) return;
+    if (undoDebounceRef.current) {
+      clearTimeout(undoDebounceRef.current);
+      undoDebounceRef.current = null;
+    }
+    isHistoryProcessingRef.current = true;
+    c.renderOnAddRemove = false;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      redoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
+      const current = getHistorySnapshot();
+      if (current) redoStack.current.push(current);
+      if (redoStack.current.length > MAX_UNDO) redoStack.current.shift();
       const prev = undoStack.current.pop()!;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (c as any).loadFromJSON(JSON.parse(prev));
+      await (c as any).loadFromJSON(expandHistorySnapshot(prev));
       lastCommittedSnapshotRef.current = prev;
-      c.renderAll();
-      options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
-      syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+      pruneHistoryAssets();
     } finally {
-      isUndoRedoRef.current = false;
+      c.renderOnAddRemove = true;
+      c.requestRenderAll();
+      isHistoryProcessingRef.current = false;
     }
-  }, [options, syncObjects]);
+    options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
+    syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+  }, [expandHistorySnapshot, getHistorySnapshot, options, pruneHistoryAssets, syncObjects]);
 
   const redo = useCallback(async () => {
     const c = canvasRef.current;
-    if (!c || redoStack.current.length === 0) return;
-    isUndoRedoRef.current = true;
+    if (!c || redoStack.current.length === 0 || isHistoryProcessingRef.current) return;
+    if (undoDebounceRef.current) {
+      clearTimeout(undoDebounceRef.current);
+      undoDebounceRef.current = null;
+    }
+    isHistoryProcessingRef.current = true;
+    c.renderOnAddRemove = false;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      undoStack.current.push(JSON.stringify((c as any).toJSON(EXTRA_PROPS)));
+      const current = getHistorySnapshot();
+      if (current) undoStack.current.push(current);
+      if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
       const next = redoStack.current.pop()!;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (c as any).loadFromJSON(JSON.parse(next));
+      await (c as any).loadFromJSON(expandHistorySnapshot(next));
       lastCommittedSnapshotRef.current = next;
-      c.renderAll();
-      isUndoRedoRef.current = false;
-      options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
-      syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+      pruneHistoryAssets();
     } finally {
-      isUndoRedoRef.current = false;
+      c.renderOnAddRemove = true;
+      c.requestRenderAll();
+      isHistoryProcessingRef.current = false;
     }
-  }, [options, syncObjects]);
+    options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
+    syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
+  }, [expandHistorySnapshot, getHistorySnapshot, options, pruneHistoryAssets, syncObjects]);
 
   /* ─── Export (Fixed: Enforces Explicit Snapshot Clipping Parameters) ─── */
   const exportCanvas = useCallback((format: 'png' | 'jpeg', quality: number, multiplier: number): string => {
@@ -2401,17 +2512,30 @@ export function useFabricCanvas(
     const c = canvasRef.current; if (!c) return;
     // Guard against object:added/modified handlers pushing spurious undo entries
     // while we restore state, and clear existing objects first to prevent smear.
-    isUndoRedoRef.current = true;
-    c.clear();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (c as any).loadFromJSON(json);
-    isUndoRedoRef.current = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    lastCommittedSnapshotRef.current = JSON.stringify((c as any).toJSON(EXTRA_PROPS));
-    c.renderAll(); syncObjects();
-    options.onUndoRedoChange(false, false);
-    undoStack.current = []; redoStack.current = [];
-  }, [options, syncObjects]);
+    if (undoDebounceRef.current) {
+      clearTimeout(undoDebounceRef.current);
+      undoDebounceRef.current = null;
+    }
+    isHistoryProcessingRef.current = true;
+    c.renderOnAddRemove = false;
+    try {
+      c.clear();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (c as any).loadFromJSON(json);
+      undoStack.current = [];
+      redoStack.current = [];
+      historyAssetRefToSourceRef.current.clear();
+      historyAssetSourceToRefRef.current.clear();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      lastCommittedSnapshotRef.current = getHistorySnapshot();
+      options.onUndoRedoChange(false, false);
+    } finally {
+      c.renderOnAddRemove = true;
+      c.requestRenderAll();
+      isHistoryProcessingRef.current = false;
+    }
+    syncObjects();
+  }, [getHistorySnapshot, options, syncObjects]);
 
   /* ─── Canvas / layer ops ─── */
   const setCanvasSize = useCallback((width: number, height: number) => {

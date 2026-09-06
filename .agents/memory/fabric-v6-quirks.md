@@ -1,9 +1,9 @@
 ---
-name: Fabric v6 quirks
-description: Non-obvious Fabric.js v6 API differences vs v5 and edge cases in this codebase
+name: Fabric serialization and v6 quirks
+description: Non-obvious Fabric.js serialization, API differences, and caching edge cases in this codebase
 ---
 
-- `canvas.toJSON()` requires explicit extra-props array: `(c as any).toJSON(['_uid', '_name', '_innerShadow', '_textureKey', '_depth3d', '_glow'])`
+- **Fabric 7 serialization:** `canvas.toJSON(extraProps)` ignores the argument; use `(c as any).toObject(extraProps)` whenever custom properties must be persisted.
 - `canvas.loadFromJSON(json)` requires `(c as any).loadFromJSON(json)`
 - `bringObjectForward` / `sendObjectBackwards` require `(c as any).bringObjectForward(obj)`
 - `after:render` fires post ctx.restore() — use `ctx.setTransform(vp...)` before drawing overlays

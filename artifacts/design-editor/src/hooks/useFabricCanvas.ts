@@ -2454,7 +2454,8 @@ export function useFabricCanvas(
       // failed async restore non-destructive.
       await (c as any).loadFromJSON(expandHistorySnapshot(snapshot));
       return true;
-    } catch {
+    } catch (error) {
+      console.error('[history] Unable to restore snapshot', error);
       return false;
     } finally {
       c.renderOnAddRemove = previousRenderOnAddRemove;
@@ -2546,11 +2547,12 @@ export function useFabricCanvas(
   const loadFromJSON = useCallback(async (json: object) => {
     const c = canvasRef.current; if (!c) return;
     // Guard against object:added/modified handlers pushing spurious undo entries
-    // while we restore state, and clear existing objects first to prevent smear.
+    // while Fabric atomically prepares and swaps in the restored object graph.
     if (undoDebounceRef.current) {
       clearTimeout(undoDebounceRef.current);
       undoDebounceRef.current = null;
     }
+    const previousRenderOnAddRemove = c.renderOnAddRemove;
     isHistoryProcessingRef.current = true;
     c.renderOnAddRemove = false;
     try {
@@ -2564,8 +2566,8 @@ export function useFabricCanvas(
       lastCommittedSnapshotRef.current = getHistorySnapshot();
       options.onUndoRedoChange(false, false);
     } finally {
-      c.renderOnAddRemove = true;
-      c.requestRenderAll();
+      c.renderOnAddRemove = previousRenderOnAddRemove;
+      if (previousRenderOnAddRemove) c.requestRenderAll();
       isHistoryProcessingRef.current = false;
     }
     syncObjects();

@@ -300,6 +300,19 @@ export interface VectorAnchor {
 const MAX_UNDO = 20;
 const HISTORY_ASSET_REF_PREFIX = '__cyber_studio_history_asset__:';
 const EXTRA_PROPS = [
+  // Fabric/native and compatibility names used by serialized objects.
+  'id',
+  'name',
+  'cornerRadius',
+  'innerShadow',
+  'effect3D',
+  'shadow',
+  'filters',
+  'selectable',
+  'evented',
+  'customProperties',
+  'rx',
+  'ry',
   '_uid',
   '_name',
   '_origFill',
@@ -2429,6 +2442,7 @@ export function useFabricCanvas(
       if (current) redoStack.current.push(current);
       if (redoStack.current.length > MAX_UNDO) redoStack.current.shift();
       const prev = undoStack.current.pop()!;
+      c.clear();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (c as any).loadFromJSON(expandHistorySnapshot(prev));
       lastCommittedSnapshotRef.current = prev;
@@ -2456,6 +2470,7 @@ export function useFabricCanvas(
       if (current) undoStack.current.push(current);
       if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
       const next = redoStack.current.pop()!;
+      c.clear();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (c as any).loadFromJSON(expandHistorySnapshot(next));
       lastCommittedSnapshotRef.current = next;

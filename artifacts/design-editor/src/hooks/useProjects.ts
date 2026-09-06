@@ -115,5 +115,9 @@ export function useProjects() {
     }
   }, []);
 
-  return { listProjects, saveProject, loadProject, deleteProject, renameProject };
+  const duplicateProjectRecord = useCallback(async (project: Project): Promise<Project> => {
+    return duplicateProject(project);
+  }, []);
+
+  return { listProjects, saveProject, loadProject, deleteProject, renameProject, duplicateProject: duplicateProjectRecord };
 }

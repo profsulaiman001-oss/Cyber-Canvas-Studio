@@ -40,6 +40,7 @@ export default function DesignEditor() {
   const { toast } = useToast();
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [sampledColor, setSampledColor] = useState<string | null>(null);
+  const [sampledColorCommitted, setSampledColorCommitted] = useState<string | null>(null);
   const eyedropperTargetRef = useRef<ReturnType<typeof useFabricCanvas>['selectedObject']>(null);
   const lastEyedropperColorRef = useRef<string | null>(null);
   const eyedropperWasActiveRef = useRef(false);
@@ -295,6 +296,7 @@ export default function DesignEditor() {
       dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' });
       const color = lastEyedropperColorRef.current;
       if (color) {
+        setSampledColorCommitted(color);
         toast({
           title: `Color applied: ${color.toUpperCase()}`,
           description: 'Sampled from the canvas',
@@ -316,6 +318,7 @@ export default function DesignEditor() {
         const eyeDropper = new (window as any).EyeDropper();
         const result: { sRGBHex: string } = await eyeDropper.open();
         applyEyedropperColor(result.sRGBHex);
+        setSampledColorCommitted(result.sRGBHex);
       } catch {
         // Browser picker cancellation is intentionally silent.
       } finally {
@@ -828,6 +831,7 @@ export default function DesignEditor() {
         eyedropperActive={controller.eyedropperActive}
         onEyedropper={handleEyedropper}
         sampledColor={sampledColor}
+        sampledColorCommitted={sampledColorCommitted}
       />
       <AddElementSheet controller={controller} />
       <ExportDialog controller={controller} />

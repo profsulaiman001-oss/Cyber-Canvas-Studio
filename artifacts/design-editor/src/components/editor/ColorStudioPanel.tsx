@@ -8,12 +8,24 @@ import { CanvasController } from '@/hooks/useFabricCanvas';
 import ColorPicker from './ColorPicker';
 
 interface Stop { offset: number; color: string }
+type FillMode = 'solid' | 'linear' | 'radial' | 'angular';
+
+interface RecentColorEntry {
+  kind: 'solid' | 'gradient';
+  color?: string;
+  mode?: Exclude<FillMode, 'solid'>;
+  stops?: Stop[];
+  radialRadius?: number;
+  angle?: number;
+  origin?: { x: number; y: number };
+}
 
 interface ColorStudioProps {
   controller: CanvasController;
   eyedropperActive: boolean;
   onEyedropper: () => void;
   sampledColor?: string | null;
+  sampledColorCommitted?: string | null;
 }
 
 /* ─── Color helpers ─── */
@@ -46,10 +58,73 @@ function lerpStopColor(stops: Stop[], pos: number): string {
   return '#888888';
 }
 
-function readColorHistory(): string[] {
-  try { return JSON.parse(localStorage.getItem('cs_color_history') || '[]'); } catch { return []; }
+function recentEntryKey(entry: RecentColorEntry): string {
+  if (entry.kind === 'solid') return `solid:${(entry.color ?? '').toLowerCase()}`;
+  return JSON.stringify({
+    kind: entry.kind,
+    mode: entry.mode,
+    stops: (entry.stops ?? [])
+      .slice()
+      .sort((a, b) => a.offset - b.offset)
+      .map((stop) => ({
+        offset: Number(stop.offset.toFixed(4)),
+        color: stop.color.toLowerCase(),
+      })),
+    radialRadius: entry.radialRadius ?? null,
+    angle: entry.angle == null ? null : Number(entry.angle.toFixed(2)),
+    origin: entry.origin
+      ? { x: Number(entry.origin.x.toFixed(4)), y: Number(entry.origin.y.toFixed(4)) }
+      : null,
+  });
 }
-function saveColorHistory(h: string[]) {
+
+function readColorHistory(): RecentColorEntry[] {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem('cs_color_history') || '[]');
+    if (!Array.isArray(stored)) return [];
+    // Migrate the previous string[] format without discarding colors users
+    // already saved before gradient history was introduced.
+    return stored
+      .map((entry): RecentColorEntry | null => {
+        if (typeof entry === 'string' && entry.trim()) {
+          return { kind: 'solid', color: entry };
+        }
+        if (!entry || typeof entry !== 'object') return null;
+        const candidate = entry as Partial<RecentColorEntry>;
+        if (candidate.kind === 'solid' && typeof candidate.color === 'string') {
+          return { kind: 'solid', color: candidate.color };
+        }
+        if (
+          candidate.kind === 'gradient'
+          && (candidate.mode === 'linear' || candidate.mode === 'radial' || candidate.mode === 'angular')
+          && Array.isArray(candidate.stops)
+        ) {
+          return {
+            kind: 'gradient',
+            mode: candidate.mode,
+            stops: candidate.stops
+              .filter((stop): stop is Stop => !!stop && typeof stop.offset === 'number' && typeof stop.color === 'string')
+              .map((stop) => ({ offset: stop.offset, color: stop.color })),
+            radialRadius: typeof candidate.radialRadius === 'number' ? candidate.radialRadius : undefined,
+            angle: typeof candidate.angle === 'number' ? candidate.angle : undefined,
+            origin: candidate.origin && typeof candidate.origin.x === 'number' && typeof candidate.origin.y === 'number'
+              ? { x: candidate.origin.x, y: candidate.origin.y }
+              : undefined,
+          };
+        }
+        return null;
+      })
+      .filter((entry): entry is RecentColorEntry => entry !== null)
+      .filter((entry, index, all) => {
+        const key = recentEntryKey(entry);
+        return all.findIndex((candidate) => recentEntryKey(candidate) === key) === index;
+      })
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+function saveColorHistory(h: RecentColorEntry[]) {
   try { localStorage.setItem('cs_color_history', JSON.stringify(h)); } catch { /* ignore */ }
 }
 
@@ -325,33 +400,63 @@ function GradientPreview({
 }
 
 /* ─── Recent-color history swatches ─── */
-function ColorHistory({ history, onPick }: { history: string[]; onPick: (c: string) => void }) {
+function ColorHistory({ history, onPick }: {
+  history: RecentColorEntry[];
+  onPick: (entry: RecentColorEntry) => void;
+}) {
   if (!history.length) return null;
   return (
     <div className="space-y-1.5">
       <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Recent</p>
       <div className="flex flex-wrap gap-1.5">
-        {history.map((c) => (
+        {history.map((entry) => {
+          const isGradient = entry.kind === 'gradient';
+          const stops = entry.stops ?? [];
+          const stopCss = stops
+            .slice()
+            .sort((a, b) => a.offset - b.offset)
+            .map((stop) => `${stop.color} ${(stop.offset * 100).toFixed(1)}%`)
+            .join(', ');
+          const background = !isGradient
+            ? entry.color
+            : entry.mode === 'radial'
+              ? `radial-gradient(circle, ${stopCss})`
+              : entry.mode === 'angular'
+                ? `conic-gradient(${stopCss})`
+                : `linear-gradient(135deg, ${stopCss})`;
+          const title = isGradient
+            ? `${entry.mode} gradient`
+            : (entry.color ?? '').toUpperCase();
+          return (
           <button
-            key={c}
-            title={c.toUpperCase()}
-            onClick={() => onPick(c)}
+            key={recentEntryKey(entry)}
+            type="button"
+            title={title}
+            aria-label={`Apply recent ${title}`}
+            onClick={() => onPick(entry)}
             className="rounded-md border border-border hover:scale-110 transition-transform"
-            style={{ width: 24, height: 24, background: c, flexShrink: 0 }}
+            style={{ width: 24, height: 24, background, flexShrink: 0 }}
           />
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
 /* ─── Main Color Studio Panel ─── */
-export default function ColorStudioPanel({ controller, eyedropperActive, onEyedropper, sampledColor }: ColorStudioProps) {
+export default function ColorStudioPanel({
+  controller,
+  eyedropperActive,
+  onEyedropper,
+  sampledColor,
+  sampledColorCommitted,
+}: ColorStudioProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'colorStudio';
   const obj = controller.selectedObject;
 
-  const [fillMode, setFillMode] = useState<'solid' | 'linear' | 'radial' | 'angular'>('solid');
+  const [fillMode, setFillMode] = useState<FillMode>('solid');
   const [solidColor, setSolidColor] = useState('#00F5FF');
   const [stops, setStops] = useState<Stop[]>([
     { offset: 0, color: '#00F5FF' },
@@ -361,11 +466,12 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
   const [radialRadius, setRadialRadius] = useState(200);
   const [gradientAngle, setGradientAngle] = useState(0);
   const [gradientOrigin, setGradientOrigin] = useState({ x: 0.5, y: 0.5 });
-  const [colorHistory, setColorHistory] = useState<string[]>(readColorHistory);
+  const [colorHistory, setColorHistory] = useState<RecentColorEntry[]>(readColorHistory);
 
-  const pushHistory = useCallback((color: string) => {
+  const pushHistory = useCallback((entry: RecentColorEntry) => {
     setColorHistory((prev) => {
-      const deduped = [color, ...prev.filter((c) => c.toLowerCase() !== color.toLowerCase())].slice(0, 8);
+      const key = recentEntryKey(entry);
+      const deduped = [entry, ...prev.filter((candidate) => recentEntryKey(candidate) !== key)].slice(0, 8);
       saveColorHistory(deduped);
       return deduped;
     });
@@ -378,8 +484,12 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
     // aligned when the sheet is restored after a canvas pick.
     setFillMode('solid');
     setSolidColor(sampledColor);
-    pushHistory(sampledColor);
-  }, [sampledColor, pushHistory]);
+  }, [sampledColor]);
+
+  useEffect(() => {
+    if (!sampledColorCommitted) return;
+    pushHistory({ kind: 'solid', color: sampledColorCommitted });
+  }, [sampledColorCommitted, pushHistory]);
 
   useEffect(() => {
     if (!isOpen || !obj) return;
@@ -448,22 +558,48 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
   const handleSolidChange = useCallback((color: string) => {
     setSolidColor(color);
     pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
-    pushHistory(color);
-  }, [pushFill, stops, radialRadius, gradientAngle, gradientOrigin, pushHistory]);
+  }, [pushFill, stops, radialRadius, gradientAngle, gradientOrigin]);
 
-  const handleHistoryPick = useCallback((color: string) => {
-    setSolidColor(color);
-    setFillMode('solid');
-    pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
-    pushHistory(color);
-  }, [pushFill, stops, radialRadius, gradientAngle, gradientOrigin, pushHistory]);
+  const handleHistoryPick = useCallback((entry: RecentColorEntry) => {
+    if (entry.kind === 'solid') {
+      const color = entry.color ?? '#00F5FF';
+      setSolidColor(color);
+      setFillMode('solid');
+      pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
+    } else if (entry.mode && entry.stops?.length) {
+      setFillMode(entry.mode);
+      setStops(entry.stops.map((stop) => ({ ...stop })));
+      if (typeof entry.radialRadius === 'number') setRadialRadius(entry.radialRadius);
+      if (typeof entry.angle === 'number') setGradientAngle(entry.angle);
+      if (entry.origin) setGradientOrigin({ ...entry.origin });
+      pushFill(
+        entry.mode,
+        solidColor,
+        entry.stops,
+        entry.radialRadius ?? radialRadius,
+        entry.angle ?? gradientAngle,
+        entry.origin ?? gradientOrigin,
+      );
+    }
+    // Selecting a recent swatch is itself an explicit preset action.
+    pushHistory(entry);
+    controller.commitChange();
+  }, [
+    pushFill,
+    stops,
+    radialRadius,
+    gradientAngle,
+    gradientOrigin,
+    solidColor,
+    pushHistory,
+    controller,
+  ]);
 
   const handleStopColorChange = useCallback((color: string) => {
     const ns = stops.map((s, i) => i === selectedStop ? { ...s, color } : s);
     setStops(ns);
     pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
-    pushHistory(color);
-  }, [stops, selectedStop, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill, pushHistory]);
+  }, [stops, selectedStop, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill]);
 
   const handleMoveStop = useCallback((idx: number, offset: number) => {
     const ns = stops.map((s, i) => i === idx ? { ...s, offset } : s);
@@ -513,6 +649,26 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
     setGradientOrigin(origin);
     if (fillMode !== 'solid') pushFill(fillMode, solidColor, stops, radialRadius, gradientAngle, origin);
   }, [fillMode, solidColor, stops, radialRadius, gradientAngle, pushFill]);
+
+  const currentRecentEntry = useCallback((): RecentColorEntry => (
+    fillMode === 'solid'
+      ? { kind: 'solid', color: solidColor }
+      : {
+          kind: 'gradient',
+          mode: fillMode,
+          stops: stops.map((stop) => ({ ...stop })),
+          radialRadius,
+          angle: gradientAngle,
+          origin: { ...gradientOrigin },
+        }
+  ), [fillMode, solidColor, stops, radialRadius, gradientAngle, gradientOrigin]);
+
+  const handleApplyColor = useCallback(() => {
+    pushHistory(currentRecentEntry());
+    // Live edits are previewed immediately; Apply creates the undo/history
+    // boundary and marks the current canvas state as an intentional change.
+    controller.commitChange();
+  }, [controller, currentRecentEntry, pushHistory]);
 
   const currentStopColor = stops[selectedStop]?.color ?? '#00F5FF';
   const isGradient = fillMode !== 'solid';
@@ -620,7 +776,7 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
                 Stop {selectedStop + 1} — Color
               </p>
               <ColorPicker value={currentStopColor} onChange={handleStopColorChange} />
-              <ColorHistory history={colorHistory} onPick={handleStopColorChange} />
+              <ColorHistory history={colorHistory} onPick={handleHistoryPick} />
 
               <GradientPreview
                 mode={fillMode}
@@ -680,6 +836,29 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
               Select a shape or text on the canvas to apply colors.
             </p>
           )}
+
+          <div className="pt-2 pb-1">
+            <button
+              type="button"
+              onClick={handleApplyColor}
+              disabled={!obj}
+              className="w-full rounded-xl py-3 text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                background: obj
+                  ? 'linear-gradient(135deg, rgba(0,245,255,0.95), rgba(123,47,255,0.95))'
+                  : 'rgba(255,255,255,0.08)',
+                color: obj ? '#061016' : '#9ca3af',
+                border: `1px solid ${obj ? 'rgba(0,245,255,0.75)' : 'rgba(255,255,255,0.1)'}`,
+                boxShadow: obj ? '0 0 18px rgba(0,245,255,0.2)' : 'none',
+              }}
+              data-testid="apply-color-button"
+            >
+              Apply Color
+            </button>
+            <p className="text-center text-[10px] text-muted-foreground mt-1.5">
+              Live preview updates immediately; Apply saves this color to Recent.
+            </p>
+          </div>
         </div>
       </SheetContent>
     </Sheet>

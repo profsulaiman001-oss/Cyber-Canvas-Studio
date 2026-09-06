@@ -636,6 +636,7 @@ export function useFabricCanvas(
   const brushActiveRef = useRef(false);
   const eyedropperActiveRef = useRef(false);
   const eyedropperCallbackRef = useRef<((color: string) => void) | null>(null);
+  const eyedropperPointerDownRef = useRef(false);
   const brushPresetRef = useRef<BrushPreset>('standard');
   const panModeRef = useRef(false);
   const vectorEditObjRef = useRef<FabricObject | null>(null);
@@ -1153,20 +1154,11 @@ export function useFabricCanvas(
     c.on('mouse:down', (opt) => {
       // Eyedropper intercept
       if (eyedropperActiveRef.current && eyedropperCallbackRef.current) {
-        const lc = c.getElement() as HTMLCanvasElement;
-        const lCtx = lc.getContext('2d');
-        if (lCtx) {
-          const me = opt.e as MouseEvent;
-          const rect = lc.getBoundingClientRect();
-          const sx = Math.max(0, Math.round(me.clientX - rect.left));
-          const sy = Math.max(0, Math.round(me.clientY - rect.top));
-          const px = lCtx.getImageData(sx, sy, 1, 1).data;
-          const hex = `#${[px[0], px[1], px[2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-          eyedropperCallbackRef.current(hex);
+        const me = opt.e as MouseEvent;
+        if (Number.isFinite(me.clientX) && Number.isFinite(me.clientY)) {
+          sampleEyedropperAt(me.clientX, me.clientY);
+          eyedropperPointerDownRef.current = true;
         }
-        eyedropperActiveRef.current = false;
-        eyedropperCallbackRef.current = null;
-        setEyedropperActive(false);
         return;
       }
 
@@ -1204,6 +1196,14 @@ export function useFabricCanvas(
     });
 
     c.on('mouse:move', (opt) => {
+      if (eyedropperActiveRef.current && eyedropperPointerDownRef.current && !('touches' in opt.e)) {
+        const me = opt.e as MouseEvent;
+        if (Number.isFinite(me.clientX) && Number.isFinite(me.clientY)) {
+          sampleEyedropperAt(me.clientX, me.clientY);
+        }
+        return;
+      }
+
       // Bezier pen: while mouse button is held, compute live bezier handle from drag
       if (penActiveRef.current && penMouseDownRef.current && penDownPointerRef.current) {
         const pointer = c.getScenePoint(opt.e as MouseEvent);
@@ -1235,6 +1235,11 @@ export function useFabricCanvas(
     });
 
     c.on('mouse:up', () => {
+      if (eyedropperActiveRef.current) {
+        finishEyedropper();
+        return;
+      }
+
       // Bezier pen: commit the node (with handles if drag occurred) on mouse release
       if (penActiveRef.current && penMouseDownRef.current && penDownPointerRef.current) {
         const anchor = penDownPointerRef.current;
@@ -1976,23 +1981,55 @@ export function useFabricCanvas(
   }, []);
 
   /* ─── Eyedropper ─── */
+  const sampleEyedropperAt = useCallback((clientX: number, clientY: number) => {
+    if (!eyedropperActiveRef.current || !eyedropperCallbackRef.current) return null;
+    const canvas = canvasRef.current?.getElement() as HTMLCanvasElement | undefined;
+    const context = canvas?.getContext('2d', { willReadFrequently: true });
+    if (!canvas || !context) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    // Fabric may use a retina-scaled backing canvas behind a CSS-sized element.
+    // Map viewport coordinates into backing pixels rather than assuming the
+    // CSS size is the same as canvas.width/canvas.height.
+    const sx = Math.max(0, Math.min(canvas.width - 1, Math.round((clientX - rect.left) * canvas.width / rect.width)));
+    const sy = Math.max(0, Math.min(canvas.height - 1, Math.round((clientY - rect.top) * canvas.height / rect.height)));
+    try {
+      const pixel = context.getImageData(sx, sy, 1, 1).data;
+      const hex = `#${[pixel[0], pixel[1], pixel[2]].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+      eyedropperCallbackRef.current(hex);
+      return hex;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const finishEyedropper = useCallback(() => {
+    eyedropperPointerDownRef.current = false;
+    eyedropperActiveRef.current = false;
+    eyedropperCallbackRef.current = null;
+    setEyedropperActive(false);
+    const c = canvasRef.current;
+    if (!c) return;
+    c.selection = true;
+    c.requestRenderAll();
+  }, []);
+
   const activateEyedropper = useCallback((callback: (color: string) => void) => {
     eyedropperActiveRef.current = true;
     eyedropperCallbackRef.current = callback;
+    eyedropperPointerDownRef.current = false;
     setEyedropperActive(true);
     const c = canvasRef.current; if (!c) return;
-    c.discardActiveObject();
+    // Keep the selected object in place so the sampled color can be applied
+    // to the object the user was editing when the tool started.
     c.selection = false;
     c.requestRenderAll();
   }, []);
 
   const deactivateEyedropper = useCallback(() => {
-    eyedropperActiveRef.current = false;
-    eyedropperCallbackRef.current = null;
-    setEyedropperActive(false);
-    const c = canvasRef.current; if (!c) return;
-    c.selection = true;
-  }, []);
+    finishEyedropper();
+  }, [finishEyedropper]);
 
   /* ─── Vector / path anchor editor ─── */
   const refreshVectorAnchors = useCallback(() => {
@@ -2770,7 +2807,7 @@ export function useFabricCanvas(
     // Brush engine
     activateBrush, deactivateBrush,
     // Eyedropper
-    activateEyedropper, deactivateEyedropper,
+    activateEyedropper, deactivateEyedropper, sampleEyedropperAt, finishEyedropper,
     // Undo/redo/export
     pushUndoNow, commitChange,
     undo, redo, exportCanvas, getJSON, loadFromJSON,

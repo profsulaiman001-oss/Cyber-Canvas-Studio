@@ -39,6 +39,10 @@ export default function DesignEditor() {
   const { state, dispatch } = useEditor();
   const { toast } = useToast();
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [sampledColor, setSampledColor] = useState<string | null>(null);
+  const eyedropperTargetRef = useRef<ReturnType<typeof useFabricCanvas>['selectedObject']>(null);
+  const lastEyedropperColorRef = useRef<string | null>(null);
+  const eyedropperWasActiveRef = useRef(false);
   const { saveProject: persistProject } = useProjects();
   const currentProjectIdRef = useRef<string | null>(null);
   const editorStateRef = useRef(state);
@@ -264,43 +268,70 @@ export default function DesignEditor() {
   }, [state.guides, dispatch]);
 
   /* ── Eyedropper ── */
+  const applyEyedropperColor = useCallback((color: string) => {
+    const obj = eyedropperTargetRef.current ?? controller.selectedObject;
+    lastEyedropperColorRef.current = color;
+    setSampledColor(color);
+    if (!obj) return;
+
+    const fill = (obj as typeof obj & { fill?: unknown }).fill;
+    const strokeWidth = Number((obj as typeof obj & { strokeWidth?: number }).strokeWidth ?? 0);
+    const strokeOnly = obj.type === 'line'
+      || (strokeWidth > 0 && (!fill || fill === 'transparent'));
+    if (strokeOnly) {
+      obj.set('stroke', color);
+    } else {
+      obj.set('fill', color);
+      // A sampled pixel is a solid replacement for an existing gradient.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (obj as any)._gradientConfig;
+    }
+    controller.getCanvas()?.requestRenderAll();
+    controller.commitChange();
+  }, [controller]);
+
+  useEffect(() => {
+    if (eyedropperWasActiveRef.current && !controller.eyedropperActive) {
+      dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' });
+      const color = lastEyedropperColorRef.current;
+      if (color) {
+        toast({
+          title: `Color applied: ${color.toUpperCase()}`,
+          description: 'Sampled from the canvas',
+        });
+      }
+    }
+    eyedropperWasActiveRef.current = controller.eyedropperActive;
+  }, [controller.eyedropperActive, dispatch, toast]);
+
   const handleEyedropper = useCallback(async () => {
+    eyedropperTargetRef.current = controller.selectedObject;
+    lastEyedropperColorRef.current = null;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ('EyeDropper' in window && typeof (window as any).EyeDropper === 'function') {
+      dispatch({ type: 'CLOSE_PANEL' });
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const eyeDropper = new (window as any).EyeDropper();
         const result: { sRGBHex: string } = await eyeDropper.open();
-        const color = result.sRGBHex;
-        const obj = controller.selectedObject;
-        if (obj) {
-          obj.set('fill', color);
-          controller.getCanvas()?.renderAll();
-          controller.syncObjects();
-          toast({ title: `Color applied: ${color.toUpperCase()}`, description: 'Picked from screen' });
-        } else {
-          toast({ title: `Color picked: ${color.toUpperCase()}`, description: 'Select an object to apply it' });
-        }
-      } catch { /* user cancelled */ }
+        applyEyedropperColor(result.sRGBHex);
+      } catch {
+        // Browser picker cancellation is intentionally silent.
+      } finally {
+        dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' });
+      }
       return;
     }
+
     if (controller.eyedropperActive) {
       controller.deactivateEyedropper();
       return;
     }
+
     dispatch({ type: 'CLOSE_PANEL' });
-    controller.activateEyedropper((color) => {
-      const obj = controller.selectedObject;
-      if (obj) {
-        obj.set('fill', color);
-        controller.getCanvas()?.renderAll();
-        controller.syncObjects();
-        toast({ title: `Color applied: ${color.toUpperCase()}`, description: 'Fill color updated from canvas sample' });
-      } else {
-        toast({ title: `Color picked: ${color.toUpperCase()}`, description: 'Select an object first to apply the color' });
-      }
-    });
-  }, [controller, dispatch, toast]);
+    controller.activateEyedropper(applyEyedropperColor);
+  }, [applyEyedropperColor, controller, dispatch]);
 
   const handleVectorsPenStart = useCallback(() => {
     controller.activatePenTool();
@@ -577,6 +608,8 @@ export default function DesignEditor() {
         onVectorAnchorDragStart={controller.vectorAnchorDragStart}
         onVectorAnchorDragMove={controller.vectorAnchorDragMove}
         onVectorAnchorDragEnd={controller.vectorAnchorDragEnd}
+        onEyedropperSample={controller.sampleEyedropperAt}
+        onEyedropperFinish={controller.finishEyedropper}
         guides={state.guides}
         gridLocked={state.gridLocked}
         onGuideMove={handleGuideMove}
@@ -794,6 +827,7 @@ export default function DesignEditor() {
         controller={controller}
         eyedropperActive={controller.eyedropperActive}
         onEyedropper={handleEyedropper}
+        sampledColor={sampledColor}
       />
       <AddElementSheet controller={controller} />
       <ExportDialog controller={controller} />

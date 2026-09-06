@@ -1,4 +1,4 @@
-import { RefObject, useRef, useEffect } from 'react';
+import { RefObject, useRef, useEffect, useState } from 'react';
 import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
 
 /** Build an SVG path string from committed bezier nodes, in canvas-pixel coords */
@@ -57,6 +57,8 @@ interface CanvasProps {
   gridLocked?: boolean;
   onGuideMove?: (axis: 'h' | 'v', idx: number, newDesignPos: number) => void;
   panActive?: boolean;
+  onEyedropperSample?: (clientX: number, clientY: number) => void;
+  onEyedropperFinish?: () => void;
   /** Live bezier handle being dragged for the in-progress pen node */
   penLiveHandle?: { x: number; y: number; cpOut: { x: number; y: number } } | null;
   /** Index of the currently highlighted anchor in the node editor */
@@ -86,12 +88,33 @@ export default function CanvasWorkspace({
   panActive = false,
   penLiveHandle = null,
   selectedAnchorIdx = null,
+  onEyedropperSample,
+  onEyedropperFinish,
 }: CanvasProps) {
   const tileSize = gridSize * zoom;
   const showEmptyHint = !hasObjects && !penActive && !brushActive;
   const showPenSvg = penActive && penPoints.length > 0;
 
   const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : panActive ? 'grab' : 'default';
+  const [eyedropperPoint, setEyedropperPoint] = useState<{ x: number; y: number } | null>(null);
+  const eyedropperSampleRef = useRef(onEyedropperSample);
+  const eyedropperFinishRef = useRef(onEyedropperFinish);
+  useEffect(() => { eyedropperSampleRef.current = onEyedropperSample; }, [onEyedropperSample]);
+  useEffect(() => { eyedropperFinishRef.current = onEyedropperFinish; }, [onEyedropperFinish]);
+  useEffect(() => {
+    if (!eyedropperActive) setEyedropperPoint(null);
+  }, [eyedropperActive]);
+
+  const updateEyedropperPoint = (clientX: number, clientY: number, sample: boolean) => {
+    const canvas = canvasRef.current;
+    const rect = canvas?.getBoundingClientRect();
+    if (!rect || clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      setEyedropperPoint(null);
+      return;
+    }
+    setEyedropperPoint({ x: clientX - rect.left, y: clientY - rect.top });
+    if (sample) eyedropperSampleRef.current?.(clientX, clientY);
+  };
 
   /* ── Drag tooltip position ── */
   let tooltipLeft = 0, tooltipTop = 0;
@@ -156,12 +179,22 @@ export default function CanvasWorkspace({
       // This is the sole fix for "panning when tool is OFF": the browser never
       // gets a chance to scroll the overflow:auto container natively.
       e.preventDefault();
+      if (eyedropperActive && e.touches.length === 1) {
+        const touch = e.touches[0];
+        updateEyedropperPoint(touch.clientX, touch.clientY, true);
+        return;
+      }
       if (!panActive || e.touches.length !== 1) return;
       const t = e.touches[0];
       touchPanRef.current = { lastX: t.clientX, lastY: t.clientY };
     };
     const onTouchMove = (e: TouchEvent) => {
       e.preventDefault(); // always block native scroll
+      if (eyedropperActive && e.touches.length === 1) {
+        const touch = e.touches[0];
+        updateEyedropperPoint(touch.clientX, touch.clientY, true);
+        return;
+      }
       if (!touchPanRef.current || !panActive || e.touches.length !== 1) return;
       const t = e.touches[0];
       const dx = t.clientX - touchPanRef.current.lastX;
@@ -170,7 +203,13 @@ export default function CanvasWorkspace({
       ct.scrollLeft -= dx;
       ct.scrollTop -= dy;
     };
-    const onTouchEnd = () => { touchPanRef.current = null; };
+    const onTouchEnd = () => {
+      if (eyedropperActive) {
+        eyedropperFinishRef.current?.();
+        setEyedropperPoint(null);
+      }
+      touchPanRef.current = null;
+    };
     ct.addEventListener('touchstart', onTouchStart, { passive: false });
     ct.addEventListener('touchmove', onTouchMove, { passive: false });
     ct.addEventListener('touchend', onTouchEnd);
@@ -179,7 +218,7 @@ export default function CanvasWorkspace({
       ct.removeEventListener('touchmove', onTouchMove);
       ct.removeEventListener('touchend', onTouchEnd);
     };
-  }, [containerRef, panActive]);
+  }, [containerRef, panActive, eyedropperActive]);
 
   return (
     <div
@@ -215,8 +254,58 @@ export default function CanvasWorkspace({
             height: `${canvasHeight * zoom}px`,
             background: transparentBg ? `repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 20px 20px` : `#ffffff`,
           }}
+          onMouseMove={(event) => {
+            if (eyedropperActive) {
+              updateEyedropperPoint(event.clientX, event.clientY, event.buttons === 1);
+            }
+          }}
+          onMouseLeave={() => {
+            if (eyedropperActive) setEyedropperPoint(null);
+          }}
         >
           <canvas ref={canvasRef} id="fabric-canvas" className="absolute top-0 left-0 w-full h-full" data-testid="fabric-canvas" />
+
+          {eyedropperActive && eyedropperPoint && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute z-40"
+              style={{
+                left: eyedropperPoint.x,
+                top: eyedropperPoint.y,
+                width: 22,
+                height: 22,
+                transform: 'translate(-50%, -50%)',
+                border: '2px solid #fff',
+                borderRadius: '50%',
+                boxShadow: '0 0 0 2px rgba(0,0,0,0.8), 0 0 12px rgba(0,245,255,0.9)',
+              }}
+            >
+              <span
+                className="absolute"
+                style={{
+                  left: '50%',
+                  top: -7,
+                  width: 2,
+                  height: 32,
+                  transform: 'translateX(-50%)',
+                  background: '#00F5FF',
+                  opacity: 0.9,
+                }}
+              />
+              <span
+                className="absolute"
+                style={{
+                  left: -7,
+                  top: '50%',
+                  width: 32,
+                  height: 2,
+                  transform: 'translateY(-50%)',
+                  background: '#00F5FF',
+                  opacity: 0.9,
+                }}
+              />
+            </div>
+          )}
 
           {/* High-contrast grid overlay */}
           <div

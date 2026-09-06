@@ -13,6 +13,7 @@ interface ColorStudioProps {
   controller: CanvasController;
   eyedropperActive: boolean;
   onEyedropper: () => void;
+  sampledColor?: string | null;
 }
 
 /* ─── Color helpers ─── */
@@ -345,7 +346,7 @@ function ColorHistory({ history, onPick }: { history: string[]; onPick: (c: stri
 }
 
 /* ─── Main Color Studio Panel ─── */
-export default function ColorStudioPanel({ controller, eyedropperActive, onEyedropper }: ColorStudioProps) {
+export default function ColorStudioPanel({ controller, eyedropperActive, onEyedropper, sampledColor }: ColorStudioProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'colorStudio';
   const obj = controller.selectedObject;
@@ -369,6 +370,16 @@ export default function ColorStudioPanel({ controller, eyedropperActive, onEyedr
       return deduped;
     });
   }, []);
+
+  useEffect(() => {
+    if (!sampledColor) return;
+    // Sampling always produces a solid color. Syncing this through the same
+    // local state as the picker keeps the spectrum, preview, and HEX input
+    // aligned when the sheet is restored after a canvas pick.
+    setFillMode('solid');
+    setSolidColor(sampledColor);
+    pushHistory(sampledColor);
+  }, [sampledColor, pushHistory]);
 
   useEffect(() => {
     if (!isOpen || !obj) return;

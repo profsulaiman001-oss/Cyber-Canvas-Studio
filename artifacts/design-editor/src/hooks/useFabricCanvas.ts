@@ -737,7 +737,10 @@ export function useFabricCanvas(
     const c = canvasRef.current;
     if (!c) return '';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = (c as any).toJSON(EXTRA_PROPS);
+    // Fabric 7's toJSON() intentionally ignores arguments and delegates to
+    // toObject() without a property whitelist. Use toObject() directly so
+    // editor-only effects and metadata actually enter history snapshots.
+    const raw = (c as any).toObject(EXTRA_PROPS);
     const compact = (value: unknown): unknown => {
       if (typeof value === 'string' && value.startsWith('data:') && value.length > 2048) {
         let ref = historyAssetSourceToRefRef.current.get(value);
@@ -2438,6 +2441,28 @@ export function useFabricCanvas(
   }, [scheduleHistoryCommit, syncObjects]);
 
   /* ─── Undo / Redo ─── */
+  const restoreHistorySnapshot = useCallback(async (snapshot: string): Promise<boolean> => {
+    const c = canvasRef.current;
+    if (!c || !snapshot) return false;
+    const previousRenderOnAddRemove = c.renderOnAddRemove;
+    isHistoryProcessingRef.current = true;
+    c.renderOnAddRemove = false;
+    try {
+      // Fabric 7 enlivenObjects() resolves the full object graph first and
+      // only then clears/replaces the canvas. Do not clear manually here:
+      // keeping the previous frame visible prevents flashing and keeps a
+      // failed async restore non-destructive.
+      await (c as any).loadFromJSON(expandHistorySnapshot(snapshot));
+      return true;
+    } catch {
+      return false;
+    } finally {
+      c.renderOnAddRemove = previousRenderOnAddRemove;
+      if (previousRenderOnAddRemove) c.requestRenderAll();
+      isHistoryProcessingRef.current = false;
+    }
+  }, [expandHistorySnapshot]);
+
   const undo = useCallback(async () => {
     const c = canvasRef.current;
     if (!c || undoStack.current.length === 0 || isHistoryProcessingRef.current) return;
@@ -2445,26 +2470,18 @@ export function useFabricCanvas(
       clearTimeout(undoDebounceRef.current);
       undoDebounceRef.current = null;
     }
-    isHistoryProcessingRef.current = true;
-    c.renderOnAddRemove = false;
-    try {
-      const current = getHistorySnapshot();
-      if (current) redoStack.current.push(current);
-      if (redoStack.current.length > MAX_UNDO) redoStack.current.shift();
-      const prev = undoStack.current.pop()!;
-      c.clear();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (c as any).loadFromJSON(expandHistorySnapshot(prev));
-      lastCommittedSnapshotRef.current = prev;
-      pruneHistoryAssets();
-    } finally {
-      c.renderOnAddRemove = true;
-      c.requestRenderAll();
-      isHistoryProcessingRef.current = false;
-    }
+    const current = getHistorySnapshot() || lastCommittedSnapshotRef.current;
+    const prev = undoStack.current[undoStack.current.length - 1];
+    const restored = await restoreHistorySnapshot(prev);
+    if (!restored) return;
+    undoStack.current.pop();
+    if (current) redoStack.current.push(current);
+    if (redoStack.current.length > MAX_UNDO) redoStack.current.shift();
+    lastCommittedSnapshotRef.current = prev;
+    pruneHistoryAssets();
     options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
     syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
-  }, [expandHistorySnapshot, getHistorySnapshot, options, pruneHistoryAssets, syncObjects]);
+  }, [getHistorySnapshot, options, pruneHistoryAssets, restoreHistorySnapshot, syncObjects]);
 
   const redo = useCallback(async () => {
     const c = canvasRef.current;
@@ -2473,26 +2490,18 @@ export function useFabricCanvas(
       clearTimeout(undoDebounceRef.current);
       undoDebounceRef.current = null;
     }
-    isHistoryProcessingRef.current = true;
-    c.renderOnAddRemove = false;
-    try {
-      const current = getHistorySnapshot();
-      if (current) undoStack.current.push(current);
-      if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
-      const next = redoStack.current.pop()!;
-      c.clear();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (c as any).loadFromJSON(expandHistorySnapshot(next));
-      lastCommittedSnapshotRef.current = next;
-      pruneHistoryAssets();
-    } finally {
-      c.renderOnAddRemove = true;
-      c.requestRenderAll();
-      isHistoryProcessingRef.current = false;
-    }
+    const current = getHistorySnapshot() || lastCommittedSnapshotRef.current;
+    const next = redoStack.current[redoStack.current.length - 1];
+    const restored = await restoreHistorySnapshot(next);
+    if (!restored) return;
+    redoStack.current.pop();
+    if (current) undoStack.current.push(current);
+    if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
+    lastCommittedSnapshotRef.current = next;
+    pruneHistoryAssets();
     options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
     syncObjects(); setSelectedObject(null); options.onSelectionChange([]);
-  }, [expandHistorySnapshot, getHistorySnapshot, options, pruneHistoryAssets, syncObjects]);
+  }, [getHistorySnapshot, options, pruneHistoryAssets, restoreHistorySnapshot, syncObjects]);
 
   /* ─── Export (Fixed: Enforces Explicit Snapshot Clipping Parameters) ─── */
   const exportCanvas = useCallback((format: 'png' | 'jpeg', quality: number, multiplier: number): string => {
@@ -2529,8 +2538,9 @@ export function useFabricCanvas(
   /* ─── Project persistence ─── */
   const getJSON = useCallback((): object => {
     const c = canvasRef.current; if (!c) return {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (c as any).toJSON(EXTRA_PROPS);
+    // Fabric 7's toJSON() ignores custom property arguments. Use toObject()
+    // so saved projects retain the same editor state as undo snapshots.
+    return (c as any).toObject(EXTRA_PROPS);
   }, []);
 
   const loadFromJSON = useCallback(async (json: object) => {
@@ -2544,7 +2554,6 @@ export function useFabricCanvas(
     isHistoryProcessingRef.current = true;
     c.renderOnAddRemove = false;
     try {
-      c.clear();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (c as any).loadFromJSON(json);
       undoStack.current = [];

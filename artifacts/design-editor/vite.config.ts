@@ -5,14 +5,14 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { VitePWA } from 'vite-plugin-pwa';
 
-// When CAPACITOR_BUILD=true we produce a self-contained static bundle with
-// relative paths so the Android WebView can load it from the local filesystem.
+// Enable relative paths for Capacitor OR Electron desktop builds
+const isDesktopOrMobile = process.env.CAPACITOR_BUILD === 'true' || process.env.ELECTRON_BUILD === 'true';
 const isCapacitor = process.env.CAPACITOR_BUILD === 'true';
 const isBuild = process.env.NODE_ENV === 'production' ||
                 process.argv.includes('build') ||
-                isCapacitor;
+                isDesktopOrMobile;
 
-// For regular web builds BASE_PATH is required; Capacitor builds always use './'
+// For regular web builds BASE_PATH is required; Desktop/Capacitor builds always use './'
 const rawPort = process.env.PORT;
 if (!isBuild && !rawPort) {
   throw new Error(
@@ -31,8 +31,8 @@ if (!isBuild && !basePath) {
   );
 }
 
-// Capacitor APK needs relative asset paths ('./'). Web preview uses basePath.
-const resolvedBase = isCapacitor ? './' : (basePath ?? '/');
+// Relative asset paths ('./') are required for local file:// loading in Electron & Capacitor
+const resolvedBase = isDesktopOrMobile ? './' : (basePath ?? '/');
 
 export default defineConfig({
   base: resolvedBase,
@@ -40,21 +40,15 @@ export default defineConfig({
     react(),
     tailwindcss(),
     // Only include the runtime error overlay during web development
-    ...(!isCapacitor ? [runtimeErrorOverlay()] : []),
+    ...(!isDesktopOrMobile ? [runtimeErrorOverlay()] : []),
     VitePWA({
       registerType: 'autoUpdate',
-      // Inline the service worker into the bundle so it is always up-to-date
       injectRegister: 'auto',
-      // Include every static asset so the SW can cache the full app shell
       includeAssets: ['favicon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
       workbox: {
-        // Cache ALL bundled assets: JS chunks, CSS, fonts, images
         globPatterns: ['**/*.{js,css,html,ico,svg,png,jpg,jpeg,woff,woff2,ttf,otf}'],
-        // Serve index.html for any navigation miss (SPA routing + offline)
         navigateFallback: 'index.html',
-        // Keep the SW in control even when assets have been updated
         cleanupOutdatedCaches: true,
-        // Runtime caching: serve font files from cache-first
         runtimeCaching: [
           {
             urlPattern: /\.(?:woff2?|ttf|otf)$/i,
@@ -102,7 +96,7 @@ export default defineConfig({
     }),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined &&
-    !isCapacitor
+    !isDesktopOrMobile
       ? [
           await import("@replit/vite-plugin-cartographer").then((m) =>
             m.cartographer({
@@ -126,8 +120,6 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
-    // Ensure all assets are inlined or placed relative to index.html
-    // so the Capacitor WebView can resolve them without a server.
     assetsInlineLimit: 0,
   },
   server: {

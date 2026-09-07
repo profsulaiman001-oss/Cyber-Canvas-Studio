@@ -34,7 +34,6 @@ export interface DragInfo {
 interface CanvasProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   containerRef: RefObject<HTMLDivElement | null>;
-  hasObjects: boolean;
   gridEnabled: boolean;
   gridSize: number;
   transparentBg: boolean;
@@ -71,7 +70,7 @@ interface CanvasProps {
 export const PAN_MARGIN = 600;
 
 export default function CanvasWorkspace({
-  canvasRef, containerRef, hasObjects,
+  canvasRef, containerRef,
   gridEnabled, gridSize, transparentBg,
   penPoints, penActive,
   zoom, vpX, vpY,
@@ -92,7 +91,6 @@ export default function CanvasWorkspace({
   onEyedropperFinish,
 }: CanvasProps) {
   const tileSize = gridSize * zoom;
-  const showEmptyHint = !hasObjects && !penActive && !brushActive;
   const showPenSvg = penActive && penPoints.length > 0;
 
   const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : panActive ? 'grab' : 'default';
@@ -373,17 +371,6 @@ export default function CanvasWorkspace({
               />
             );
           })}
-
-          {/* Empty-state hint */}
-          <div
-            aria-hidden={!showEmptyHint}
-            className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 animate-fade-in"
-            style={{ opacity: showEmptyHint ? 1 : 0 }}
-          >
-            <p className="text-neutral-400 text-sm tracking-wider font-medium bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm">
-              Tap + to add your first element
-            </p>
-          </div>
 
           {/* Bezier Pen SVG overlay */}
           <svg

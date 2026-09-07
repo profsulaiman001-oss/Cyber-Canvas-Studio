@@ -51,6 +51,7 @@ interface ProjectManagerProps {
   controller: CanvasController;
   currentProjectId: string | null;
   onProjectSaved: (id: string | null) => void;
+  onRequestNavigation?: (action: () => Promise<void>) => void;
 }
 
 function formatDate(ts: number): string {
@@ -75,7 +76,12 @@ function safeFilename(name: string): string {
   return name.trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'cyber-studio-project';
 }
 
-export default function ProjectManager({ controller, currentProjectId, onProjectSaved }: ProjectManagerProps) {
+export default function ProjectManager({
+  controller,
+  currentProjectId,
+  onProjectSaved,
+  onRequestNavigation,
+}: ProjectManagerProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'project';
   const { listProjects, saveProject, loadProject, deleteProject, renameProject, duplicateProject } = useProjects();
@@ -123,15 +129,29 @@ export default function ProjectManager({ controller, currentProjectId, onProject
   }, [projects, search, sortBy]);
 
   const handleNew = async () => {
-    const c = controller.getCanvas();
-    if (!c) return;
-    await controller.loadFromJSON({ version: '7.3.1', objects: [], background: '#ffffff' });
-    c.renderAll();
-    await setActiveProjectId(null);
-    onProjectSaved(null);
-    dispatch({ type: 'SET_PROJECT_NAME', payload: 'Untitled Design' });
-    dispatch({ type: 'SET_DIRTY', payload: false });
-    dispatch({ type: 'CLOSE_PANEL' });
+    const action = async () => {
+      const c = controller.getCanvas();
+      if (!c) return;
+      await controller.loadFromJSON({ version: '7.3.1', objects: [], background: '#ffffff' });
+      c.renderAll();
+      const project = await saveProject(
+        null,
+        'Untitled Design',
+        controller.getJSON(),
+        c.toDataURL({ format: 'jpeg', quality: 0.3, multiplier: Math.min(200 / state.canvasSize.width, 200 / state.canvasSize.height) }),
+        state.canvasSize.width,
+        state.canvasSize.height,
+      );
+      onProjectSaved(project.id);
+      dispatch({ type: 'SET_PROJECT_NAME', payload: 'Untitled Design' });
+      dispatch({ type: 'SET_DIRTY', payload: false });
+      dispatch({ type: 'CLOSE_PANEL' });
+    };
+    if (onRequestNavigation) {
+      onRequestNavigation(action);
+      return;
+    }
+    await action();
   };
 
   const handleSave = async () => {
@@ -160,15 +180,22 @@ export default function ProjectManager({ controller, currentProjectId, onProject
   };
 
   const handleLoad = async (project: Project) => {
-    await controller.loadFromJSON(project.canvasJSON);
-    controller.setCanvasSize(project.canvasWidth, project.canvasHeight);
-    dispatch({ type: 'SET_PROJECT_NAME', payload: project.name });
-    dispatch({ type: 'SET_CANVAS_SIZE', payload: { width: project.canvasWidth, height: project.canvasHeight } });
-    dispatch({ type: 'SET_DIRTY', payload: false });
-    onProjectSaved(project.id);
-    await setActiveProjectId(project.id);
-    dispatch({ type: 'CLOSE_PANEL' });
-    toast({ title: 'Loaded', description: `"${project.name}" loaded` });
+    const action = async () => {
+      await controller.loadFromJSON(project.canvasJSON);
+      controller.setCanvasSize(project.canvasWidth, project.canvasHeight);
+      dispatch({ type: 'SET_PROJECT_NAME', payload: project.name });
+      dispatch({ type: 'SET_CANVAS_SIZE', payload: { width: project.canvasWidth, height: project.canvasHeight } });
+      dispatch({ type: 'SET_DIRTY', payload: false });
+      onProjectSaved(project.id);
+      await setActiveProjectId(project.id);
+      dispatch({ type: 'CLOSE_PANEL' });
+      toast({ title: 'Loaded', description: `"${project.name}" loaded` });
+    };
+    if (onRequestNavigation) {
+      onRequestNavigation(action);
+      return;
+    }
+    await action();
   };
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {

@@ -27,6 +27,15 @@ import VectorNodePanel from '@/components/editor/VectorNodePanel';
 import CropModal from '@/components/editor/CropModal';
 import ColorPicker from '@/components/editor/ColorPicker';
 import { Slider } from '@/components/ui/slider';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Droplet, SquareRoundCorner } from 'lucide-react';
 
@@ -54,6 +63,9 @@ export default function DesignEditor() {
   const controllerRef = useRef<ReturnType<typeof useFabricCanvas> | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeAttemptedRef = useRef(false);
+  const pendingProjectActionRef = useRef<(() => Promise<void>) | null>(null);
+  const [exitDialogOpen, setExitDialogOpen] = useState(false);
+  const [exitBusy, setExitBusy] = useState(false);
 
   currentProjectIdRef.current = currentProjectId;
   editorStateRef.current = state;
@@ -96,7 +108,7 @@ export default function DesignEditor() {
     autoSaveTimerRef.current = setTimeout(async () => {
       const activeController = controllerRef.current;
       const latestState = editorStateRef.current;
-      if (!activeController || currentProjectIdRef.current !== projectId) return;
+      if (!activeController || (projectId !== null && currentProjectIdRef.current !== projectId)) return;
       const canvas = activeController.getCanvas();
       if (!canvas) return;
       try {
@@ -105,7 +117,7 @@ export default function DesignEditor() {
           quality: 0.3,
           multiplier: Math.min(200 / latestState.canvasSize.width, 200 / latestState.canvasSize.height),
         });
-        await persistProject(
+        const project = await persistProject(
           projectId,
           latestState.projectName,
           activeController.getJSON(),
@@ -113,15 +125,16 @@ export default function DesignEditor() {
           latestState.canvasSize.width,
           latestState.canvasSize.height,
         );
-        if (currentProjectIdRef.current === projectId) {
+        if (currentProjectIdRef.current === projectId || projectId === null) {
+          currentProjectIdRef.current = project.id;
+          setCurrentProjectId(project.id);
           dispatch({ type: 'SET_DIRTY', payload: false });
-          toast({ title: 'Auto-saved', description: '' });
         }
       } catch {
         // Manual Save remains available if a browser storage write fails.
       }
     }, 3000);
-  }, [dispatch, persistProject, toast]);
+  }, [dispatch, persistProject]);
 
   const handleUndoRedoChange = useCallback(
     (canUndo: boolean, canRedo: boolean) => {
@@ -138,6 +151,103 @@ export default function DesignEditor() {
     onUndoRedoChange:  handleUndoRedoChange,
   });
   controllerRef.current = controller;
+
+  const saveCurrentProject = useCallback(async () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    const activeController = controllerRef.current ?? controller;
+    const canvas = activeController.getCanvas();
+    if (!canvas) return;
+    const latestState = editorStateRef.current;
+    const project = await persistProject(
+      currentProjectIdRef.current,
+      latestState.projectName,
+      activeController.getJSON(),
+      canvas.toDataURL({
+        format: 'jpeg',
+        quality: 0.3,
+        multiplier: Math.min(200 / latestState.canvasSize.width, 200 / latestState.canvasSize.height),
+      }),
+      latestState.canvasSize.width,
+      latestState.canvasSize.height,
+    );
+    currentProjectIdRef.current = project.id;
+    setCurrentProjectId(project.id);
+    dispatch({ type: 'SET_DIRTY', payload: false });
+  }, [controller, dispatch, persistProject]);
+
+  const discardUnsavedChanges = useCallback(async () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    const activeController = controllerRef.current ?? controller;
+    const projectId = currentProjectIdRef.current;
+    if (projectId) {
+      const savedProject = await loadProjectById(projectId);
+      if (savedProject) {
+        await activeController.loadFromJSON(savedProject.canvasJSON);
+        activeController.setCanvasSize(savedProject.canvasWidth, savedProject.canvasHeight);
+        dispatch({ type: 'SET_PROJECT_NAME', payload: savedProject.name });
+        dispatch({ type: 'SET_CANVAS_SIZE', payload: { width: savedProject.canvasWidth, height: savedProject.canvasHeight } });
+      }
+    } else {
+      await activeController.loadFromJSON({ version: '7.3.1', objects: [], background: '#ffffff' });
+    }
+    dispatch({ type: 'SET_DIRTY', payload: false });
+  }, [controller, dispatch]);
+
+  const requestProjectManager = useCallback(() => {
+    if (state.activePanel === 'project') {
+      dispatch({ type: 'TOGGLE_PANEL', payload: 'project' });
+      return;
+    }
+    if (state.isDirty) {
+      pendingProjectActionRef.current = null;
+      setExitDialogOpen(true);
+      return;
+    }
+    dispatch({ type: 'TOGGLE_PANEL', payload: 'project' });
+  }, [dispatch, state.activePanel, state.isDirty]);
+
+  const requestProjectNavigation = useCallback((action: () => Promise<void>) => {
+    if (state.isDirty) {
+      pendingProjectActionRef.current = action;
+      setExitDialogOpen(true);
+      return;
+    }
+    void action();
+  }, [state.isDirty]);
+
+  const handleExitChoice = useCallback(async (save: boolean) => {
+    if (exitBusy) return;
+    setExitBusy(true);
+    try {
+      if (save) {
+        await saveCurrentProject();
+      } else {
+        await discardUnsavedChanges();
+      }
+      const pendingAction = pendingProjectActionRef.current;
+      pendingProjectActionRef.current = null;
+      setExitDialogOpen(false);
+      if (pendingAction) {
+        await pendingAction();
+      } else {
+        dispatch({ type: 'TOGGLE_PANEL', payload: 'project' });
+      }
+    } catch {
+      toast({
+        title: save ? 'Save failed' : 'Exit failed',
+        description: save ? 'Your project could not be saved.' : 'The project could not be restored.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExitBusy(false);
+    }
+  }, [discardUnsavedChanges, dispatch, exitBusy, saveCurrentProject, toast]);
 
   useEffect(() => {
     if (resumeAttemptedRef.current) return;
@@ -613,12 +723,12 @@ export default function DesignEditor() {
         onRedo={controller.redo}
         onCopy={controller.copySelected}
         onPaste={controller.pasteSelected}
+        onOpenProjects={requestProjectManager}
       />
 
       <CanvasWorkspace
         canvasRef={canvasRef}
         containerRef={containerRef}
-        hasObjects={controller.objects.length > 0}
         gridEnabled={state.gridEnabled}
         gridSize={state.gridSize}
         transparentBg={state.canvasBg.type === 'transparent'}
@@ -867,12 +977,54 @@ export default function DesignEditor() {
       <ProjectManager
         controller={controller}
         currentProjectId={currentProjectId}
-        onProjectSaved={setCurrentProjectId}
+        onProjectSaved={(id) => {
+          currentProjectIdRef.current = id;
+          setCurrentProjectId(id);
+        }}
+        onRequestNavigation={requestProjectNavigation}
       />
       <TextPanel controller={controller} />
       <ShapeModifiersPanel controller={controller} />
       <AdjustPanel controller={controller} />
       <VectorsPanel controller={controller} onPenStart={handleVectorsPenStart} />
+
+      <AlertDialog
+        open={exitDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !exitBusy) {
+            pendingProjectActionRef.current = null;
+            setExitDialogOpen(false);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Exit Project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Do you want to exit without saving your changes?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={exitBusy}>Cancel</AlertDialogCancel>
+            <button
+              type="button"
+              disabled={exitBusy}
+              onClick={() => void handleExitChoice(false)}
+              className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            >
+              Exit Without Saving
+            </button>
+            <button
+              type="button"
+              disabled={exitBusy}
+              onClick={() => void handleExitChoice(true)}
+              className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+            >
+              Save &amp; Exit
+            </button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

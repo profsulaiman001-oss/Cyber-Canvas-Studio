@@ -11,9 +11,10 @@ interface TopBarProps {
   onRedo: () => void;
   onCopy: () => void;
   onPaste: () => void;
+  onOpenProjects?: () => void;
 }
 
-export default function TopBar({ onUndo, onRedo, onCopy, onPaste }: TopBarProps) {
+export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onOpenProjects }: TopBarProps) {
   const { state, dispatch } = useEditor();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(state.projectName);
@@ -56,7 +57,10 @@ export default function TopBar({ onUndo, onRedo, onCopy, onPaste }: TopBarProps)
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"
-              onClick={() => dispatch({ type: 'TOGGLE_PANEL', payload: 'project' })} data-testid="button-open-projects">
+              onClick={() => {
+                if (onOpenProjects) onOpenProjects();
+                else dispatch({ type: 'TOGGLE_PANEL', payload: 'project' });
+              }} data-testid="button-open-projects">
               <Menu size={18} />
             </Button>
           </TooltipTrigger>

@@ -264,7 +264,7 @@ export default function BottomToolbar({
       icon: <SlidersVertical size={22} />,
       label: 'Adjust',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'adjust' }),
-      disabled: !selectedIsImage,
+      disabled: !hasSelection,
     },
     {
       id: 'nudge',

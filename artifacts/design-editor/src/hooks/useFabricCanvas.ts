@@ -321,6 +321,8 @@ const EXTRA_PROPS = [
   '_depth3d',
   '_glow',
   '_gradientConfig',
+  '_adjustmentBase',
+  '_adjustments',
   '_isPenAux',
   '_isAuxLayer',
 ];

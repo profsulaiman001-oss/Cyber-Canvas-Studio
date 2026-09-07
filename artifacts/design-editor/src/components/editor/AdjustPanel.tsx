@@ -4,19 +4,21 @@ import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
-import { FabricImage, filters } from 'fabric';
+import { FabricImage, FabricObject, filters } from 'fabric';
 import { Check, ChevronDown, SlidersVertical } from 'lucide-react';
-
-interface Adjustments {
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  hue: number;
-}
+import {
+  applyObjectColorAdjustment,
+  ensureObjectColorBaseline,
+  getAdjustedGradientConfig,
+  getBaselineGradientConfig,
+  restoreObjectColorBaseline,
+  type ColorAdjustments,
+  walkObjectTree,
+} from '@/lib/colorAdjustments';
 
 interface AdjustPanelProps { controller: CanvasController }
 
-type AdjustmentKey = keyof Adjustments;
+type AdjustmentKey = keyof ColorAdjustments;
 
 const ADJUSTMENT_OPTIONS: Array<{
   key: AdjustmentKey;
@@ -61,8 +63,8 @@ function ActiveAdjustmentSlider({ label, value, min, max, step, onChange, displa
   );
 }
 
-function readFiltersFromImage(img: FabricImage): Adjustments {
-  const result: Adjustments = { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
+function readFiltersFromImage(img: FabricImage): ColorAdjustments {
+  const result: ColorAdjustments = { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
   if (!img.filters) return result;
   for (const f of img.filters) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,7 +78,7 @@ function readFiltersFromImage(img: FabricImage): Adjustments {
   return result;
 }
 
-function buildFilters(adj: Adjustments) {
+function buildFilters(adj: ColorAdjustments) {
   const list: object[] = [];
   if (adj.brightness !== 0) list.push(new filters.Brightness({ brightness: adj.brightness }));
   if (adj.contrast !== 0) list.push(new filters.Contrast({ contrast: adj.contrast }));
@@ -89,43 +91,109 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'adjust';
   const obj = controller.selectedObject;
-  const isImage = obj?.type === 'image';
-  const imgObj = isImage ? (obj as FabricImage) : null;
 
-  const [adj, setAdj] = useState<Adjustments>({ brightness: 0, contrast: 0, saturation: 0, hue: 0 });
+  const [adj, setAdj] = useState<ColorAdjustments>({ brightness: 0, contrast: 0, saturation: 0, hue: 0 });
   const [activeKey, setActiveKey] = useState<AdjustmentKey>('brightness');
   const [selectorOpen, setSelectorOpen] = useState(false);
 
-  const syncFromImage = useCallback(() => {
-    if (!imgObj) { setAdj({ brightness: 0, contrast: 0, saturation: 0, hue: 0 }); return; }
-    setAdj(readFiltersFromImage(imgObj));
-  }, [imgObj]);
+  const syncFromObject = useCallback(() => {
+    if (!obj) {
+      setAdj({ brightness: 0, contrast: 0, saturation: 0, hue: 0 });
+      return;
+    }
+    if (obj.type === 'image') {
+      setAdj(readFiltersFromImage(obj as FabricImage));
+      return;
+    }
+    walkObjectTree(obj, (child) => { ensureObjectColorBaseline(child); });
+    const stored = (obj as FabricObject & { _adjustments?: ColorAdjustments })._adjustments;
+    setAdj(stored ? { ...stored } : { brightness: 0, contrast: 0, saturation: 0, hue: 0 });
+  }, [obj]);
 
-  useEffect(() => { syncFromImage(); }, [syncFromImage]);
+  useEffect(() => { syncFromObject(); }, [syncFromObject]);
   useEffect(() => {
     if (!isOpen) setSelectorOpen(false);
   }, [isOpen]);
 
-  const applyFilters = useCallback((next: Adjustments) => {
-    if (!imgObj) return;
+  const applyFilters = useCallback((next: ColorAdjustments) => {
+    if (!obj) return;
     const c = controller.getCanvas();
     if (!c) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    imgObj.filters = buildFilters(next) as any;
-    imgObj.applyFilters();
-    c.requestRenderAll();
-  }, [imgObj, controller]);
 
-  const update = (key: keyof Adjustments, value: number) => {
+    walkObjectTree(obj, (child) => {
+      if (child.type === 'image') {
+        const img = child as FabricImage;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        img.filters = buildFilters(next) as any;
+        img.applyFilters();
+      } else {
+        applyObjectColorAdjustment(child, next);
+        const gradientConfig = getAdjustedGradientConfig(child, next);
+        if (gradientConfig) {
+          if (gradientConfig.type === 'angular') {
+            controller.applyGradientFill(
+              child,
+              'angular',
+              gradientConfig.stops,
+              gradientConfig.radialRadius ?? undefined,
+              gradientConfig.angleDeg ?? 0,
+              gradientConfig.origin ?? { x: 0.5, y: 0.5 },
+              false,
+            );
+          } else {
+            (child as FabricObject & { _gradientConfig?: unknown })._gradientConfig = gradientConfig;
+          }
+        }
+      }
+
+      (child as FabricObject & { _adjustments?: ColorAdjustments })._adjustments = { ...next };
+    });
+
+    (obj as FabricObject & { _adjustments?: ColorAdjustments })._adjustments = { ...next };
+    c.requestRenderAll();
+  }, [obj, controller]);
+
+  const update = (key: keyof ColorAdjustments, value: number) => {
     const next = { ...adj, [key]: value };
     setAdj(next);
     applyFilters(next);
   };
 
   const resetAll = () => {
-    const zero: Adjustments = { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
+    if (!obj) return;
+    const zero: ColorAdjustments = { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
+    const c = controller.getCanvas();
+    walkObjectTree(obj, (child) => {
+      if (child.type === 'image') {
+        const img = child as FabricImage;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        img.filters = [] as any;
+        img.applyFilters();
+        return;
+      }
+
+      restoreObjectColorBaseline(child);
+      const gradientConfig = getBaselineGradientConfig(child);
+      if (!gradientConfig) return;
+      if (gradientConfig.type === 'angular') {
+        controller.applyGradientFill(
+          child,
+          'angular',
+          gradientConfig.stops,
+          gradientConfig.radialRadius ?? undefined,
+          gradientConfig.angleDeg ?? 0,
+          gradientConfig.origin ?? { x: 0.5, y: 0.5 },
+          false,
+        );
+      } else {
+        (child as FabricObject & { _gradientConfig?: unknown })._gradientConfig = gradientConfig;
+      }
+    });
+    walkObjectTree(obj, (child) => {
+      delete (child as FabricObject & { _adjustments?: ColorAdjustments })._adjustments;
+    });
     setAdj(zero);
-    applyFilters(zero);
+    c?.requestRenderAll();
   };
 
   const activeOption = ADJUSTMENT_OPTIONS.find((option) => option.key === activeKey) ?? ADJUSTMENT_OPTIONS[0];
@@ -144,7 +212,7 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
             <SlidersVertical size={15} className="text-primary" />
             Image Adjustments
           </SheetTitle>
-          {isImage && (
+          {obj && (
             <Button
               variant="ghost"
               size="sm"
@@ -156,10 +224,10 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
           )}
         </SheetHeader>
 
-        {!isImage ? (
+        {!obj ? (
           <div className="px-4 pb-8 flex flex-col items-center gap-3 text-center pt-4">
             <SlidersVertical size={32} className="text-muted-foreground opacity-40" />
-            <p className="text-sm text-muted-foreground">Select an image on the canvas to adjust it.</p>
+            <p className="text-sm text-muted-foreground">Select an object on the canvas to adjust it.</p>
           </div>
         ) : (
           <div className="px-4 space-y-3" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>

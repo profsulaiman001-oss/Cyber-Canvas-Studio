@@ -1651,6 +1651,50 @@ export function useFabricCanvas(
     pushUndo();
   }, [pushUndo]);
 
+  const distributeObjects = useCallback((axis: 'horizontal' | 'vertical') => {
+    const c = canvasRef.current;
+    if (!c) return;
+
+    const objs = c.getActiveObjects();
+    if (objs.length < 3) return;
+
+    const metadata = objs.map((obj) => {
+      const rect = obj.getBoundingRect();
+      return {
+        obj,
+        rect,
+        deltaLeft: (obj.left ?? 0) - rect.left,
+        deltaTop: (obj.top ?? 0) - rect.top,
+      };
+    }).sort((a, b) => axis === 'horizontal' ? a.rect.left - b.rect.left : a.rect.top - b.rect.top);
+
+    const totalSize = metadata.reduce(
+      (sum, item) => sum + (axis === 'horizontal' ? item.rect.width : item.rect.height),
+      0,
+    );
+    const start = axis === 'horizontal' ? metadata[0].rect.left : metadata[0].rect.top;
+    const last = metadata[metadata.length - 1].rect;
+    const end = axis === 'horizontal' ? last.left + last.width : last.top + last.height;
+    const gap = Math.max(0, (end - start - totalSize) / (metadata.length - 1));
+
+    c.discardActiveObject();
+    let cursor = start;
+    metadata.forEach(({ obj, rect, deltaLeft, deltaTop }) => {
+      if (axis === 'horizontal') {
+        obj.set({ left: cursor + deltaLeft });
+        cursor += rect.width + gap;
+      } else {
+        obj.set({ top: cursor + deltaTop });
+        cursor += rect.height + gap;
+      }
+      obj.setCoords();
+    });
+
+    c.setActiveObject(new ActiveSelection(objs, { canvas: c }));
+    c.requestRenderAll();
+    pushUndo();
+  }, [pushUndo]);
+
   /* ─── Texture overlay ─── */
   const TEXTURES: Record<string, string> = {
     noise: `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='200' height='200' filter='url(#n)' opacity='0.4'/></svg>`,
@@ -3031,7 +3075,7 @@ export function useFabricCanvas(
     // Image transforms
     flipHorizontal, flipVertical, rotate90,
     // Alignment
-    alignObjects,
+    alignObjects, distributeObjects,
     // Effects
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
     applyGradientFill, fillShapeWithImage, cropImage, applyCircularCrop, addRasterLayer, applyImageFilters,

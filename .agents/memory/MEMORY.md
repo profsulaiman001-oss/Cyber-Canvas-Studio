@@ -21,4 +21,5 @@
 - [Layer panel ordering](layer-panel-ordering.md) — group thumbnails use Fabric toDataURL; layer drag targets are final panel slots; z-order commands must sync and commit
 - [Eyedropper state](eyedropper-state.md) — preserve active object and gradient context while sampling, then restore selection before callbacks resume
 - [Floating effect panels](floating-effect-panels.md) — effect tools belong inside the bottom-toolbar wrapper; use bottom-full floating pills, not modal sheets or scrims
+- [Grid settings surface](grid-settings-sheet.md) — top-bar settings inside horizontal scroll containers should open a portal-backed bottom sheet, not an inline popover
 - [Transform HUD](transform-hud.md) — reuse controller transform telemetry and place the size/angle HUD in pasteboard space outside the artboard

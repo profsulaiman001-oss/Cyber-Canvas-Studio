@@ -871,7 +871,11 @@ export default function DesignEditor() {
 
         {/* Nudge overlay */}
         <div className="absolute bottom-full left-0 right-0 z-50">
-          <NudgePanel onNudge={handleNudgeElement} />
+          <NudgePanel
+            onNudge={handleNudgeElement}
+            onAlign={controller.alignObjects}
+            onDistribute={controller.distributeObjects}
+          />
         </div>
 
         {/* Vector Node Panel — replaces nudge/zoom trays when in vector edit mode */}

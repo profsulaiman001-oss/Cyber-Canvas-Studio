@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
-  PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
+  PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Move,
   PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus,
   Droplet, SquareRoundCorner, ChevronUp, Maximize2,
 } from 'lucide-react';
@@ -275,7 +275,7 @@ export default function BottomToolbar({
     },
     {
       id: 'nudge',
-      icon: <Crosshair size={22} />,
+      icon: <Move size={22} />,
       label: 'Nudge',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'nudge' }),
       disabled: !hasSelection,

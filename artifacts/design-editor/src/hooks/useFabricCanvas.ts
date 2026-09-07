@@ -351,6 +351,14 @@ function objId(obj: FabricObject): string {
  * dark preview surface instead of baking a grey checkerboard into the image. */
 function renderLayerThumbnail(obj: FabricObject): string | undefined {
   try {
+    if (obj.type === 'group') {
+      const group = obj as FabricObject & {
+        toDataURL?: (options?: { format?: 'png'; multiplier?: number }) => string;
+      };
+      const groupThumbnail = group.toDataURL?.({ format: 'png', multiplier: 0.5 });
+      if (groupThumbnail) return groupThumbnail;
+    }
+
     const size = 96;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -397,7 +405,7 @@ function visualSignature(obj: FabricObject): string {
       imageSource = element?.currentSrc || element?.src || '';
     } catch { /* image may not be decoded yet */ }
   }
-  return [
+  const baseSignature = [
     objId(obj),
     obj.type,
     fill,
@@ -415,6 +423,10 @@ function visualSignature(obj: FabricObject): string {
     String(o.flipX ?? ''),
     String(o.flipY ?? ''),
   ].join('|');
+
+  if (obj.type !== 'group') return baseSignature;
+  const children = (o.getObjects as (() => FabricObject[]) | undefined)?.call(obj) ?? [];
+  return `${baseSignature}|children:${children.map(visualSignature).join('||')}`;
 }
 
 function tagObj(obj: FabricObject, nameKey: string) {
@@ -1854,8 +1866,8 @@ export function useFabricCanvas(
     const c = canvasRef.current; if (!c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (c as any).moveObjectTo(obj, Math.max(0, targetIndex));
-    c.renderAll(); syncObjects();
-  }, [syncObjects]);
+    c.renderAll(); pushUndo(); syncObjects();
+  }, [pushUndo, syncObjects]);
 
   /* ─── Crop Image (Fabric native cropX/cropY) ─── */
   const cropImage = useCallback((obj: FabricObject, cropX: number, cropY: number, cropW: number, cropH: number) => {
@@ -2693,14 +2705,26 @@ export function useFabricCanvas(
   const bringForward = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (c as any).bringObjectForward(obj); c.renderAll(); syncObjects();
-  }, [syncObjects]);
+    (c as any).bringObjectForward(obj); c.renderAll(); pushUndo(); syncObjects();
+  }, [pushUndo, syncObjects]);
 
   const sendBackward = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (c as any).sendObjectBackwards(obj); c.renderAll(); syncObjects();
-  }, [syncObjects]);
+    (c as any).sendObjectBackwards(obj); c.renderAll(); pushUndo(); syncObjects();
+  }, [pushUndo, syncObjects]);
+
+  const bringToFront = useCallback((obj: FabricObject) => {
+    const c = canvasRef.current; if (!c) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (c as any).bringObjectToFront(obj); c.renderAll(); pushUndo(); syncObjects();
+  }, [pushUndo, syncObjects]);
+
+  const sendToBack = useCallback((obj: FabricObject) => {
+    const c = canvasRef.current; if (!c) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (c as any).sendObjectToBack(obj); c.renderAll(); pushUndo(); syncObjects();
+  }, [pushUndo, syncObjects]);
 
   const toggleVisibility = useCallback((obj: FabricObject) => {
     obj.set('visible', !obj.visible); canvasRef.current?.renderAll(); syncObjects();
@@ -2819,7 +2843,8 @@ export function useFabricCanvas(
     // Mask (clipPath)
     applyMaskFromSelection, releaseMask,
     // Object ops
-    deleteSelected, duplicateSelected, copySelected, pasteSelected, bringForward, sendBackward,
+    deleteSelected, duplicateSelected, copySelected, pasteSelected,
+    bringForward, sendBackward, bringToFront, sendToBack,
     toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
     groupSelected, ungroupSelected,
     moveObjectToIndex,

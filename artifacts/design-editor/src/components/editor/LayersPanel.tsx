@@ -9,6 +9,10 @@ import {
   Pencil,
   Layers2,
   Ungroup,
+  ChevronsUp,
+  ChevronsDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -142,36 +146,57 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
 
   /* ─── Drag-and-drop state ─── */
   const dragFromIdx = useRef<number | null>(null);
-  const dragOverIdx = useRef<number | null>(null);
+  const dragToIdx = useRef<number | null>(null);
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
 
-  const handleDragStart = (idx: number) => {
+  const handleDragStart = (e: React.DragEvent, idx: number) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', objects[idx]?.id ?? '');
     dragFromIdx.current = idx;
+    dragToIdx.current = idx;
+    setDraggingIdx(idx);
+    setDropIdx(idx);
   };
 
   const handleDragOver = (e: React.DragEvent, idx: number) => {
     e.preventDefault();
-    dragOverIdx.current = idx;
+    e.dataTransfer.dropEffect = 'move';
+    const fromIdx = dragFromIdx.current;
+    if (fromIdx === null) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rawSlot = idx + (e.clientY >= rect.top + rect.height / 2 ? 1 : 0);
+    const destination = rawSlot > fromIdx ? rawSlot - 1 : rawSlot;
+    dragToIdx.current = destination;
+    setDropIdx(destination);
   };
 
-  const handleDrop = (toIdx: number) => {
+  const clearDragState = () => {
+    dragFromIdx.current = null;
+    dragToIdx.current = null;
+    setDraggingIdx(null);
+    setDropIdx(null);
+  };
+
+  const handleDrop = () => {
     const fromIdx = dragFromIdx.current;
-    if (fromIdx === null || fromIdx === toIdx) {
-      dragFromIdx.current = null;
-      dragOverIdx.current = null;
+    const toIdx = dragToIdx.current;
+    if (fromIdx === null || toIdx === null || fromIdx === toIdx) {
+      clearDragState();
       return;
     }
     const total = objects.length;
-    // Panel order is reversed relative to canvas stack.
+    // The panel is top-to-bottom while Fabric stores objects bottom-to-top.
+    // toIdx is the final panel index after removing the dragged row, so one
+    // drop can cross any number of layers without intermediate moves.
     const toCanvasIdx = total - 1 - toIdx;
     const obj = getObjectById(objects[fromIdx].id);
     if (obj) controller.moveObjectToIndex(obj, toCanvasIdx);
-    dragFromIdx.current = null;
-    dragOverIdx.current = null;
+    clearDragState();
   };
 
   const handleDragEnd = () => {
-    dragFromIdx.current = null;
-    dragOverIdx.current = null;
+    clearDragState();
   };
 
   const handleToggleVisibility = (obj: ObjectMeta) => {
@@ -195,6 +220,15 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
     const fabricObj = getObjectById(pendingDelete.id);
     if (fabricObj) controller.deleteObject(fabricObj);
     setPendingDelete(null);
+  };
+
+  const handleZOrder = (obj: ObjectMeta, action: 'front' | 'back' | 'forward' | 'backward') => {
+    const fabricObj = getObjectById(obj.id);
+    if (!fabricObj) return;
+    if (action === 'front') controller.bringToFront(fabricObj);
+    if (action === 'back') controller.sendToBack(fabricObj);
+    if (action === 'forward') controller.bringForward(fabricObj);
+    if (action === 'backward') controller.sendBackward(fabricObj);
   };
 
   const handleToggleSelected = (id: string, checked: boolean) => {
@@ -266,11 +300,8 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                 return (
                   <div
                     key={obj.id}
-                    draggable
-                    onDragStart={() => handleDragStart(idx)}
                     onDragOver={(e) => handleDragOver(e, idx)}
-                    onDrop={() => handleDrop(idx)}
-                    onDragEnd={handleDragEnd}
+                    onDrop={handleDrop}
                     onClick={() => handleCardClick(obj)}
                      className="mb-3 grid min-h-[154px] grid-cols-[28px_1fr] gap-4 rounded-2xl border p-4 transition-colors"
                     style={{
@@ -279,11 +310,23 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                       borderLeftWidth: isSelected ? 3 : 1,
                       borderLeftColor: isSelected ? '#00F5FF' : 'rgba(255,255,255,0.08)',
                       opacity: obj.visible ? 1 : 0.56,
+                      boxShadow: dropIdx === idx && draggingIdx !== null
+                        ? 'inset 0 3px 0 rgba(0,245,255,0.9)'
+                        : undefined,
                     }}
                     data-testid={`layer-item-${obj.id}`}
                   >
                     <div className="flex flex-col items-center justify-between py-1">
-                       <GripVertical size={20} className="cursor-grab text-muted-foreground" />
+                       <div
+                         draggable
+                         onDragStart={(e) => handleDragStart(e, idx)}
+                         onDragEnd={handleDragEnd}
+                         className="cursor-grab rounded-lg p-1 text-muted-foreground hover:bg-white/10 active:cursor-grabbing"
+                         title={`Drag ${obj.name} to reorder`}
+                         aria-label={`Drag ${obj.name} to reorder`}
+                       >
+                         <GripVertical size={20} />
+                       </div>
                       <Checkbox
                         checked={isSelected}
                         onCheckedChange={(checked) => handleToggleSelected(obj.id, checked === true)}
@@ -311,7 +354,51 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                         </div>
                       </div>
 
-                       <div className="flex items-center justify-end gap-2 border-t border-white/5 pt-3" onClick={(e) => e.stopPropagation()}>
+                       <div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-white/5 pt-3" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-xl"
+                          onClick={() => handleZOrder(obj, 'front')}
+                          aria-label={`Bring ${obj.name} to front`}
+                          title="Bring to front"
+                          data-testid={`layer-front-${obj.id}`}
+                        >
+                          <ChevronsUp size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-xl"
+                          onClick={() => handleZOrder(obj, 'forward')}
+                          aria-label={`Bring ${obj.name} forward`}
+                          title="Bring forward"
+                          data-testid={`layer-forward-${obj.id}`}
+                        >
+                          <ArrowUp size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-xl"
+                          onClick={() => handleZOrder(obj, 'backward')}
+                          aria-label={`Send ${obj.name} backward`}
+                          title="Send backward"
+                          data-testid={`layer-backward-${obj.id}`}
+                        >
+                          <ArrowDown size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-xl"
+                          onClick={() => handleZOrder(obj, 'back')}
+                          aria-label={`Send ${obj.name} to back`}
+                          title="Send to back"
+                          data-testid={`layer-back-${obj.id}`}
+                        >
+                          <ChevronsDown size={16} />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"

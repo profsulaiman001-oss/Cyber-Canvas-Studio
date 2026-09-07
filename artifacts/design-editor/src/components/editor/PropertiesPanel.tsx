@@ -90,7 +90,6 @@ export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelP
   const [gradStop1, setGradStop1] = useState('#00F5FF');
   const [gradStop2, setGradStop2] = useState('#7B2FFF');
 
-  const [opacity, setOpacity] = useState(100);
   /* rx stores the *visual* corner radius (in canvas pixels after scale) */
   const [rx, setRx] = useState(0);
   const [skewX, setSkewX] = useState(0);
@@ -128,8 +127,6 @@ export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelP
       setFillMode('solid');
       setFill(typeof o.fill === 'string' ? o.fill : '#00F5FF');
     }
-
-    setOpacity(typeof o.opacity === 'number' ? Math.round(o.opacity * 100) : 100);
 
     const glow = (o as Record<string, unknown>)._glow as { enabled?: boolean; color?: string; intensity?: number } | undefined;
     if (glow?.enabled) {
@@ -182,8 +179,6 @@ export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelP
     if (!obj) return;
     controller.applyGradientFill(obj, mode, [{ offset: 0, color: s1 }, { offset: 1, color: s2 }]);
   }, [obj, controller]);
-
-  const applyOpacity = (v: number) => { setOpacity(v); apply({ opacity: v / 100 }); };
 
   /**
    * Corner radius normalization:

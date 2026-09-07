@@ -1741,33 +1741,114 @@ export function useFabricCanvas(
   const applyFillOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
     if (!obj) return;
     const c = canvasRef.current; if (!c) return;
-    const fill = obj.fill;
-    if (typeof fill === 'string') {
-      obj.set('fill', withAlpha(fill, fraction));
-    } else if (fill && typeof fill === 'object' && 'colorStops' in (fill as object)) {
-      // Gradient: rebuild with opacity baked into each stop's alpha
-      const gf = fill as { type?: string; colorStops?: { offset: number; color: string }[]; coords?: Record<string, number>; gradientUnits?: string };
-      if (gf.colorStops && gf.type) {
-        const newStops = gf.colorStops.map((s) => ({ offset: s.offset, color: withAlpha(s.color, fraction) }));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        obj.set('fill', new Gradient({ type: gf.type as 'linear' | 'radial', coords: gf.coords ?? {}, colorStops: newStops, gradientUnits: (gf.gradientUnits ?? 'pixels') as 'pixels' | 'percentage' }) as any);
+    const alpha = Math.max(0, Math.min(1, fraction));
+
+    const applyToObject = (target: FabricObject) => {
+      const extended = target as FabricObject & {
+        _gradientConfig?: {
+          type?: GradientFillType;
+          stops?: { offset: number; color: string }[];
+          radialRadius?: number | null;
+          angleDeg?: number;
+          origin?: GradientOrigin;
+        };
+        getObjects?: () => FabricObject[];
+      };
+      const fill = target.fill;
+      const gradientConfig = extended._gradientConfig;
+      const children = extended.getObjects?.() ?? [];
+      let hasFill = false;
+
+      // Angular gradients are rendered as patterns, so use the editable source
+      // configuration to regenerate the pattern with alpha-baked stops.
+      if (gradientConfig?.stops?.length && gradientConfig.type) {
+        const newStops = gradientConfig.stops.map((stop) => ({
+          offset: stop.offset,
+          color: withAlpha(stop.color, alpha),
+        }));
+        applyGradientFill(
+          target,
+          gradientConfig.type,
+          newStops,
+          gradientConfig.radialRadius ?? undefined,
+          gradientConfig.angleDeg ?? 0,
+          gradientConfig.origin ?? { x: 0.5, y: 0.5 },
+          false,
+        );
+        hasFill = true;
+      } else if (typeof fill === 'string') {
+        target.set('fill', withAlpha(fill, alpha));
+        hasFill = true;
+      } else if (fill && typeof fill === 'object' && 'colorStops' in (fill as object)) {
+        // Gradient: rebuild with opacity baked into every stop.
+        const gf = fill as {
+          type?: string;
+          colorStops?: { offset: number; color: string }[];
+          coords?: Record<string, number>;
+          gradientUnits?: string;
+        };
+        if (gf.colorStops?.length && gf.type) {
+          const newStops = gf.colorStops.map((stop) => ({
+            offset: stop.offset,
+            color: withAlpha(stop.color, alpha),
+          }));
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          target.set('fill', new Gradient({
+            type: gf.type as 'linear' | 'radial',
+            coords: gf.coords ?? {},
+            colorStops: newStops,
+            gradientUnits: (gf.gradientUnits ?? 'pixels') as 'pixels' | 'percentage',
+          }) as any);
+          const currentConfig = extended._gradientConfig;
+          if (currentConfig) currentConfig.stops = newStops;
+          hasFill = true;
+        }
       }
-    }
-    // Keep obj.opacity = 1 so stroke is never dimmed by this fill-opacity change
-    obj.set('opacity', 1);
+
+      if (target.type === 'image' && !hasFill) {
+        // Fabric images do not expose a fill color. Keep their existing behavior
+        // as a fallback, while shape/text/vector strokes remain fill-independent.
+        target.set('opacity', alpha);
+      } else if (hasFill || children.length > 0) {
+        // A group/shape with a fill must stay fully opaque as a Fabric object so
+        // its stroke is not dimmed by the fill-opacity control.
+        target.set('opacity', 1);
+      } else {
+        target.set('opacity', 1);
+      }
+
+      children.forEach(applyToObject);
+    };
+
+    applyToObject(obj);
     c.requestRenderAll();
     pushUndo();
-  }, [pushUndo]);
+  }, [applyGradientFill, pushUndo]);
 
   const getFillOpacity = useCallback((obj: FabricObject | null): number => {
     if (!obj) return 1;
-    const fill = obj.fill;
-    if (typeof fill === 'string') return extractColorAlpha(fill);
-    if (fill && typeof fill === 'object' && 'colorStops' in (fill as object)) {
-      const gf = fill as { colorStops?: { offset: number; color: string }[] };
-      if (gf.colorStops?.length) return extractColorAlpha(gf.colorStops[0].color);
-    }
-    return 1;
+    const findOpacity = (target: FabricObject): number | null => {
+      const extended = target as FabricObject & {
+        _gradientConfig?: { stops?: { offset: number; color: string }[] };
+        getObjects?: () => FabricObject[];
+      };
+      const fill = target.fill;
+      if (typeof fill === 'string') return extractColorAlpha(fill);
+      if (fill && typeof fill === 'object' && 'colorStops' in (fill as object)) {
+        const stops = (fill as { colorStops?: { offset: number; color: string }[] }).colorStops;
+        if (stops?.length) return extractColorAlpha(stops[0].color);
+      }
+      if (extended._gradientConfig?.stops?.length) {
+        return extractColorAlpha(extended._gradientConfig.stops[0].color);
+      }
+      if (target.type === 'image') return target.opacity ?? 1;
+      for (const child of extended.getObjects?.() ?? []) {
+        const childOpacity = findOpacity(child);
+        if (childOpacity !== null) return childOpacity;
+      }
+      return null;
+    };
+    return findOpacity(obj) ?? 1;
   }, []);
 
   /* ─── Decoupled Stroke Opacity (encodes alpha into stroke color string) ─── */

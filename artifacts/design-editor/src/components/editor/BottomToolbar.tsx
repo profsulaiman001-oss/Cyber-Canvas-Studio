@@ -3,7 +3,7 @@ import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Crosshair,
   PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus,
-  Droplet, SquareRoundCorner, ChevronUp,
+  Droplet, SquareRoundCorner, ChevronUp, Maximize2,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
@@ -264,6 +264,13 @@ export default function BottomToolbar({
       icon: <SlidersVertical size={22} />,
       label: 'Adjust',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'adjust' }),
+      disabled: !hasSelection,
+    },
+    {
+      id: 'transform',
+      icon: <Maximize2 size={22} />,
+      label: 'Transform',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'transform' }),
       disabled: !hasSelection,
     },
     {

@@ -681,6 +681,47 @@ export function useFabricCanvas(
   // Vector node editor state
   const [selectedVectorAnchorIdx, setSelectedVectorAnchorIdx] = useState<number | null>(null);
 
+  const showTransformHud = useCallback((
+    target?: FabricObject | null,
+    clientX?: number,
+    clientY?: number,
+  ) => {
+    const c = canvasRef.current;
+    const t = target ?? c?.getActiveObject();
+    if (!c || !t) return;
+
+    const canvasRect = canvasEl.current?.getBoundingClientRect();
+    const bounds = t.getBoundingRect();
+    const canvasWidth = c.getWidth() || canvasRect?.width || 1;
+    const canvasHeight = c.getHeight() || canvasRect?.height || 1;
+    const cssScaleX = canvasRect ? canvasRect.width / canvasWidth : 1;
+    const cssScaleY = canvasRect ? canvasRect.height / canvasHeight : 1;
+    const fallbackX = canvasRect
+      ? canvasRect.left + (bounds.left + bounds.width / 2) * cssScaleX
+      : 0;
+    const fallbackY = canvasRect
+      ? canvasRect.top + (bounds.top + bounds.height / 2) * cssScaleY
+      : 0;
+    const pointerX = typeof clientX === 'number' && Number.isFinite(clientX) && clientX > 0
+      ? clientX
+      : fallbackX;
+    const pointerY = typeof clientY === 'number' && Number.isFinite(clientY) && clientY > 0
+      ? clientY
+      : fallbackY;
+
+    setDragInfo({
+      w: Math.round(t.getScaledWidth()),
+      h: Math.round(t.getScaledHeight()),
+      angle: Math.round(t.angle ?? 0),
+      clientX: pointerX,
+      clientY: pointerY,
+    });
+  }, [canvasEl]);
+
+  const hideTransformHud = useCallback(() => {
+    setDragInfo(null);
+  }, []);
+
   const syncObjects = useCallback(() => {
     const c = canvasRef.current;
     if (!c) return;
@@ -1119,15 +1160,15 @@ export function useFabricCanvas(
         });
       }
       const t = e.target;
-      if (t) setDragInfo({ w: Math.round(t.getScaledWidth()), h: Math.round(t.getScaledHeight()), angle: Math.round(t.angle ?? 0), clientX: (e.e as MouseEvent).clientX ?? 0, clientY: (e.e as MouseEvent).clientY ?? 0 });
+      if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
     });
     c.on('object:scaling', (e) => {
       const t = e.target;
-      if (t) setDragInfo({ w: Math.round(t.getScaledWidth()), h: Math.round(t.getScaledHeight()), angle: Math.round(t.angle ?? 0), clientX: (e.e as MouseEvent).clientX ?? 0, clientY: (e.e as MouseEvent).clientY ?? 0 });
+      if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
     });
     c.on('object:rotating', (e) => {
       const t = e.target;
-      if (t) setDragInfo({ w: Math.round(t.getScaledWidth()), h: Math.round(t.getScaledHeight()), angle: Math.round(t.angle ?? 0), clientX: (e.e as MouseEvent).clientX ?? 0, clientY: (e.e as MouseEvent).clientY ?? 0 });
+      if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
     });
 
     /* ─── After:render – thumbnail refresh + inner shadow + 3D extrusion ─── */
@@ -1281,7 +1322,7 @@ export function useFabricCanvas(
       }
       isPanning = false;
       if (!penActiveRef.current && !brushActiveRef.current) c.selection = true;
-      setDragInfo(null);
+      hideTransformHud();
     });
 
     /* ─── Pinch to zoom ─── */
@@ -1361,7 +1402,7 @@ export function useFabricCanvas(
       canvasRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasEl, getHistorySnapshot]);
+  }, [canvasEl, getHistorySnapshot, hideTransformHud, showTransformHud]);
 
   /* ─── Grid / snap setters ─── */
   const setGridOptions = useCallback((enabled: boolean, snap: boolean, size: number) => {
@@ -2920,6 +2961,7 @@ export function useFabricCanvas(
   return {
     getCanvas, objects, selectedObject, zoom, penPoints,
     dragInfo, isBrushActive, eyedropperActive,
+    showTransformHud, hideTransformHud,
     // Shapes
     addRect, addCircle, addTriangle, addLine, addText, addImageFromFile,
     addStar, addHexagon, addPentagon, addHeart, addRightTriangle, addArrow,

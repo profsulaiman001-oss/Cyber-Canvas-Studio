@@ -19,6 +19,7 @@ import TextPanel from '@/components/editor/TextPanel';
 import ShapeModifiersPanel from '@/components/editor/ShapeModifiersPanel';
 import NudgePanel from '@/components/editor/NudgePanel';
 import AdjustPanel from '@/components/editor/AdjustPanel';
+import TransformPanel from '@/components/editor/TransformPanel';
 import StrokePanel from '@/components/editor/StrokePanel';
 import ShadowsPanel from '@/components/editor/ShadowsPanel';
 import ThreeDPanel from '@/components/editor/ThreeDPanel';
@@ -778,6 +779,7 @@ export default function DesignEditor() {
         <ShadowsPanel controller={controller} />
         <ThreeDPanel controller={controller} />
         <AdjustPanel controller={controller} />
+        <TransformPanel controller={controller} />
 
         {/* Brush Color Picker overlay */}
         {brushActive && brushColorPickerOpen && (

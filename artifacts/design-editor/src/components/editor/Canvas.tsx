@@ -114,12 +114,51 @@ export default function CanvasWorkspace({
     if (sample) eyedropperSampleRef.current?.(clientX, clientY);
   };
 
-  /* ── Drag tooltip position ── */
-  let tooltipLeft = 0, tooltipTop = 0;
+  /* ── Transform HUD position ──
+     Prefer pasteboard space above or beside the artboard. The HUD is mounted
+     on the workspace rather than inside the printable page so it never covers
+     the design while an object is being transformed. */
+  let hudLeft = 0;
+  let hudTop = 0;
   if (dragInfo && containerRef.current) {
-    const rect = containerRef.current.getBoundingClientRect();
-    tooltipLeft = Math.min(dragInfo.clientX - rect.left + 14, rect.width - 130);
-    tooltipTop = Math.max(dragInfo.clientY - rect.top - 38, 4);
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const artboardRect = canvasRef.current?.getBoundingClientRect();
+    const hudWidth = 206;
+    const hudHeight = 30;
+    const gap = 10;
+
+    if (artboardRect) {
+      const artLeft = artboardRect.left - containerRect.left;
+      const artTop = artboardRect.top - containerRect.top;
+      const artRight = artboardRect.right - containerRect.left;
+      const artBottom = artboardRect.bottom - containerRect.top;
+      const candidates = [
+        { left: artLeft + (artRight - artLeft - hudWidth) / 2, top: artTop - hudHeight - gap },
+        { left: artRight + gap, top: artTop + 12 },
+        { left: artLeft - hudWidth - gap, top: artTop + 12 },
+        { left: artLeft + (artRight - artLeft - hudWidth) / 2, top: artBottom + gap },
+      ];
+      const isInsideWorkspace = (candidate: { left: number; top: number }) => (
+        candidate.left >= 8
+        && candidate.top >= 8
+        && candidate.left + hudWidth <= containerRect.width - 8
+        && candidate.top + hudHeight <= containerRect.height - 8
+      );
+      const staysOutsideArtboard = (candidate: { left: number; top: number }) => (
+        candidate.left + hudWidth <= artLeft
+        || candidate.left >= artRight
+        || candidate.top + hudHeight <= artTop
+        || candidate.top >= artBottom
+      );
+      const preferred = candidates.find((candidate) => (
+        isInsideWorkspace(candidate) && staysOutsideArtboard(candidate)
+      )) ?? candidates.find(staysOutsideArtboard) ?? candidates[0];
+      hudLeft = Math.max(8, Math.min(preferred.left, containerRect.width - hudWidth - 8));
+      hudTop = Math.max(8, Math.min(preferred.top, containerRect.height - hudHeight - 8));
+    } else {
+      hudLeft = Math.max(8, Math.min(dragInfo.clientX - containerRect.left + 14, containerRect.width - hudWidth - 8));
+      hudTop = Math.max(8, Math.min(dragInfo.clientY - containerRect.top - hudHeight - 8, containerRect.height - hudHeight - 8));
+    }
   }
 
   /* ── Vector anchor drag ── */
@@ -510,17 +549,18 @@ export default function CanvasWorkspace({
         </div>
       </div>
 
-      {/* Drag telemetry */}
+      {/* External transform HUD */}
       <div
         aria-hidden={!dragInfo}
         className="absolute pointer-events-none z-30 px-2 py-1 rounded-lg text-xs font-mono whitespace-nowrap"
         style={{
-          display: dragInfo ? 'block' : 'none', left: tooltipLeft, top: tooltipTop,
+          display: dragInfo ? 'block' : 'none', left: hudLeft, top: hudTop,
           background: 'rgba(0,0,0,0.92)', color: '#00F5FF',
           border: '1px solid rgba(0,245,255,0.4)', boxShadow: '0 0 10px rgba(0,245,255,0.25)',
         }}
+        data-testid="transform-hud"
       >
-        {dragInfo ? `${dragInfo.w} × ${dragInfo.h} px${dragInfo.angle !== 0 ? `  ·  ${dragInfo.angle}°` : ''}` : ''}
+        {dragInfo ? `W: ${dragInfo.w}px | H: ${dragInfo.h}px | ${dragInfo.angle}°` : ''}
       </div>
     </div>
   );

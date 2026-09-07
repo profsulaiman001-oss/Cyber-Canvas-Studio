@@ -6,6 +6,7 @@ export type ActivePanel =
   | 'canvasSize' | 'alignment' | 'canvasBg' | 'colorStudio'
   | 'text' | 'shapeModifiers' | 'adjust' | 'nudge'
   | 'stroke' | 'shadows' | 'threeD'
+  | 'transform'
   | 'vectors' | 'zoom'
   | 'opacity-tool' | 'radius-tool'
   | null;

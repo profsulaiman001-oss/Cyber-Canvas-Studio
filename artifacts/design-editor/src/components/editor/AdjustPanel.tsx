@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricImage, filters } from 'fabric';
-import { SlidersVertical } from 'lucide-react';
+import { Check, ChevronDown, SlidersVertical } from 'lucide-react';
 
 interface Adjustments {
   brightness: number;
@@ -18,22 +16,40 @@ interface Adjustments {
 
 interface AdjustPanelProps { controller: CanvasController }
 
-function SliderRow({ label, value, min, max, step = 0.01, onChange, displayValue }: {
+type AdjustmentKey = keyof Adjustments;
+
+const ADJUSTMENT_OPTIONS: Array<{
+  key: AdjustmentKey;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}> = [
+  { key: 'brightness', label: 'Brightness', min: -1, max: 1, step: 0.01 },
+  { key: 'contrast', label: 'Contrast', min: -1, max: 1, step: 0.01 },
+  { key: 'saturation', label: 'Saturation', min: -1, max: 1, step: 0.01 },
+  { key: 'hue', label: 'Hue Rotation', min: -180, max: 180, step: 1 },
+];
+
+function formatAdjustmentValue(key: AdjustmentKey, value: number) {
+  if (key === 'hue') return `${value > 0 ? '+' : ''}${Math.round(value)}°`;
+  return value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
+}
+
+function ActiveAdjustmentSlider({ label, value, min, max, step, onChange, displayValue }: {
   label: string;
   value: number;
   min: number;
   max: number;
-  step?: number;
+  step: number;
   onChange: (v: number) => void;
-  displayValue?: string;
+  displayValue: string;
 }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex justify-between items-center">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <span className="text-xs font-mono text-muted-foreground w-12 text-right">
-          {displayValue ?? (Math.round(value * 100) / 100)}
-        </span>
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold text-foreground">{label}</span>
+        <span className="text-xs font-mono tabular-nums text-primary">{displayValue}</span>
       </div>
       <Slider
         min={min} max={max} step={step}
@@ -43,10 +59,6 @@ function SliderRow({ label, value, min, max, step = 0.01, onChange, displayValue
       />
     </div>
   );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs font-semibold text-primary uppercase tracking-wider pt-1">{children}</p>;
 }
 
 function readFiltersFromImage(img: FabricImage): Adjustments {
@@ -81,6 +93,8 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
   const imgObj = isImage ? (obj as FabricImage) : null;
 
   const [adj, setAdj] = useState<Adjustments>({ brightness: 0, contrast: 0, saturation: 0, hue: 0 });
+  const [activeKey, setActiveKey] = useState<AdjustmentKey>('brightness');
+  const [selectorOpen, setSelectorOpen] = useState(false);
 
   const syncFromImage = useCallback(() => {
     if (!imgObj) { setAdj({ brightness: 0, contrast: 0, saturation: 0, hue: 0 }); return; }
@@ -88,6 +102,9 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
   }, [imgObj]);
 
   useEffect(() => { syncFromImage(); }, [syncFromImage]);
+  useEffect(() => {
+    if (!isOpen) setSelectorOpen(false);
+  }, [isOpen]);
 
   const applyFilters = useCallback((next: Adjustments) => {
     if (!imgObj) return;
@@ -110,6 +127,9 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
     setAdj(zero);
     applyFilters(zero);
   };
+
+  const activeOption = ADJUSTMENT_OPTIONS.find((option) => option.key === activeKey) ?? ADJUSTMENT_OPTIONS[0];
+  const activeValue = adj[activeOption.key];
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
@@ -142,46 +162,76 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
             <p className="text-sm text-muted-foreground">Select an image on the canvas to adjust it.</p>
           </div>
         ) : (
-          <div className="px-4 space-y-4" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+          <div className="px-4 space-y-3" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+            {selectorOpen && (
+              <div id="adjustment-selector" className="space-y-2" data-testid="adjustment-selector">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold text-primary uppercase tracking-wider">Select adjustment</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={resetAll}
+                    data-testid="button-reset-adjustments"
+                  >
+                    Reset All
+                  </Button>
+                </div>
 
-            <SectionLabel>Tone</SectionLabel>
+                <div className="grid grid-cols-2 gap-2">
+                  {ADJUSTMENT_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => {
+                        setActiveKey(option.key);
+                        setSelectorOpen(false);
+                      }}
+                      className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors"
+                      style={{
+                        borderColor: activeKey === option.key ? 'rgba(0,245,255,0.55)' : 'rgba(255,255,255,0.1)',
+                        background: activeKey === option.key ? 'rgba(0,245,255,0.1)' : 'rgba(255,255,255,0.03)',
+                        color: activeKey === option.key ? '#00F5FF' : undefined,
+                      }}
+                      data-testid={`adjustment-option-${option.key}`}
+                    >
+                      <span>{option.label}</span>
+                      {activeKey === option.key && <Check size={14} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-            <SliderRow
-              label="Brightness"
-              value={adj.brightness}
-              min={-1} max={1} step={0.01}
-              onChange={(v) => update('brightness', v)}
-              displayValue={adj.brightness > 0 ? `+${adj.brightness.toFixed(2)}` : adj.brightness.toFixed(2)}
-            />
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5 space-y-2.5" data-testid="adjustment-mini-bar">
+              <button
+                type="button"
+                onClick={() => setSelectorOpen((open) => !open)}
+                className="flex w-full items-center justify-between gap-3 text-left"
+                aria-expanded={selectorOpen}
+                aria-controls="adjustment-selector"
+                data-testid="button-toggle-adjustment-selector"
+              >
+                <span className="text-xs font-semibold text-foreground">{activeOption.label}</span>
+                <span className="ml-auto text-xs font-mono tabular-nums text-primary">
+                  {formatAdjustmentValue(activeKey, activeValue)}
+                </span>
+                <ChevronDown
+                  size={16}
+                  className={`text-muted-foreground transition-transform ${selectorOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
 
-            <SliderRow
-              label="Contrast"
-              value={adj.contrast}
-              min={-1} max={1} step={0.01}
-              onChange={(v) => update('contrast', v)}
-              displayValue={adj.contrast > 0 ? `+${adj.contrast.toFixed(2)}` : adj.contrast.toFixed(2)}
-            />
-
-            <Separator />
-            <SectionLabel>Color</SectionLabel>
-
-            <SliderRow
-              label="Saturation"
-              value={adj.saturation}
-              min={-1} max={1} step={0.01}
-              onChange={(v) => update('saturation', v)}
-              displayValue={adj.saturation > 0 ? `+${adj.saturation.toFixed(2)}` : adj.saturation.toFixed(2)}
-            />
-
-            <SliderRow
-              label="Hue Rotation"
-              value={adj.hue}
-              min={-180} max={180} step={1}
-              onChange={(v) => update('hue', v)}
-              displayValue={`${adj.hue > 0 ? '+' : ''}${adj.hue}°`}
-            />
-
-            <div className="h-1" />
+              <ActiveAdjustmentSlider
+                label={activeOption.label}
+                value={activeValue}
+                min={activeOption.min}
+                max={activeOption.max}
+                step={activeOption.step}
+                onChange={(value) => update(activeKey, value)}
+                displayValue={formatAdjustmentValue(activeKey, activeValue)}
+              />
+            </div>
           </div>
         )}
       </SheetContent>

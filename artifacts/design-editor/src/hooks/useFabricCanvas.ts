@@ -297,7 +297,6 @@ export interface VectorAnchor {
   mirrorYOff?: number;
 }
 
-const MAX_UNDO = 20;
 const HISTORY_ASSET_REF_PREFIX = '__cyber_studio_history_asset__:';
 const EXTRA_PROPS = [
   // Fabric/native and compatibility names used by serialized objects.
@@ -823,8 +822,10 @@ export function useFabricCanvas(
       return;
     }
     if (json === lastCommittedSnapshotRef.current) return;
+    // Keep the complete active-session history. Large data URLs are already
+    // interned by getHistorySnapshot, so each entry stores lightweight asset
+    // references instead of duplicating image bytes.
     undoStack.current.push(lastCommittedSnapshotRef.current);
-    if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
     redoStack.current = [];
     options.onUndoRedoChange(undoStack.current.length > 0, false);
     lastCommittedSnapshotRef.current = json;
@@ -2610,7 +2611,6 @@ export function useFabricCanvas(
     if (!restored) return;
     undoStack.current.pop();
     if (current) redoStack.current.push(current);
-    if (redoStack.current.length > MAX_UNDO) redoStack.current.shift();
     lastCommittedSnapshotRef.current = prev;
     pruneHistoryAssets();
     options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);
@@ -2630,7 +2630,6 @@ export function useFabricCanvas(
     if (!restored) return;
     redoStack.current.pop();
     if (current) undoStack.current.push(current);
-    if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
     lastCommittedSnapshotRef.current = next;
     pruneHistoryAssets();
     options.onUndoRedoChange(undoStack.current.length > 0, redoStack.current.length > 0);

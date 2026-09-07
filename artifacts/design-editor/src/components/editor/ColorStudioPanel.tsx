@@ -7,10 +7,10 @@ import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import ColorPicker from './ColorPicker';
 
-interface Stop { offset: number; color: string }
-type FillMode = 'solid' | 'linear' | 'radial' | 'angular';
+export interface Stop { offset: number; color: string }
+export type FillMode = 'solid' | 'linear' | 'radial' | 'angular';
 
-interface RecentColorEntry {
+export interface RecentColorEntry {
   kind: 'solid' | 'gradient';
   color?: string;
   mode?: Exclude<FillMode, 'solid'>;
@@ -63,7 +63,7 @@ function lerpStopColor(stops: Stop[], pos: number): string {
   return '#888888';
 }
 
-function recentEntryKey(entry: RecentColorEntry): string {
+export function recentEntryKey(entry: RecentColorEntry): string {
   if (entry.kind === 'solid') return `solid:${(entry.color ?? '').toLowerCase()}`;
   return JSON.stringify({
     kind: entry.kind,
@@ -83,7 +83,7 @@ function recentEntryKey(entry: RecentColorEntry): string {
   });
 }
 
-function readColorHistory(): RecentColorEntry[] {
+export function readColorHistory(): RecentColorEntry[] {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem('cs_color_history') || '[]');
     if (!Array.isArray(stored)) return [];
@@ -129,12 +129,12 @@ function readColorHistory(): RecentColorEntry[] {
     return [];
   }
 }
-function saveColorHistory(h: RecentColorEntry[]) {
+export function saveColorHistory(h: RecentColorEntry[]) {
   try { localStorage.setItem('cs_color_history', JSON.stringify(h)); } catch { /* ignore */ }
 }
 
 /* ─── Gradient bar with individually draggable stop markers ─── */
-function GradientBar({
+export function GradientBar({
   stops, selectedIdx, onSelectStop, onMoveStop, onAddStop,
 }: {
   stops: Stop[];
@@ -252,7 +252,7 @@ function GradientBar({
 }
 
 /* ─── Large live gradient preview with draggable origin + direction handles ─── */
-function GradientPreview({
+export function GradientPreview({
   mode,
   stops,
   angle,
@@ -405,7 +405,7 @@ function GradientPreview({
 }
 
 /* ─── Recent-color history swatches ─── */
-function ColorHistory({ history, label, onPick }: {
+export function ColorHistory({ history, label, onPick }: {
   history: RecentColorEntry[];
   label: string;
   onPick: (entry: RecentColorEntry) => void;

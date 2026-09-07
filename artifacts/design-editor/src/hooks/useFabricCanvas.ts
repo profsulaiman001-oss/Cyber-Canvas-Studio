@@ -249,8 +249,11 @@ export interface ObjectMeta {
 export interface CanvasBgConfig {
   type: 'solid' | 'transparent' | 'gradient';
   color: string;
-  gradientType: 'linear' | 'radial';
+  gradientType: 'linear' | 'radial' | 'angular';
   gradientStops: { offset: number; color: string }[];
+  gradientAngle: number;
+  gradientOrigin: { x: number; y: number };
+  radialRadius: number;
 }
 
 export type AlignType = 'left' | 'right' | 'top' | 'bottom' | 'centerH' | 'centerV';
@@ -1423,15 +1426,52 @@ export function useFabricCanvas(
       const w = designWidth.current;
       const h = designHeight.current;
       const stops = cfg.gradientStops.map((s) => ({ offset: s.offset, color: s.color }));
-      const grad = new Gradient({
-        type: cfg.gradientType === 'radial' ? 'radial' : 'linear',
-        coords: cfg.gradientType === 'radial'
-          ? { r1: 0, r2: Math.max(w, h) / 2, x1: w / 2, y1: h / 2, x2: w / 2, y2: h / 2 }
-          : { x1: 0, y1: 0, x2: w, y2: 0 },
-        colorStops: stops,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (c as any).backgroundColor = grad;
+      const origin = {
+        x: Math.max(0, Math.min(1, cfg.gradientOrigin?.x ?? 0.5)),
+        y: Math.max(0, Math.min(1, cfg.gradientOrigin?.y ?? 0.5)),
+      };
+      const angle = ((cfg.gradientAngle ?? 0) % 360 + 360) % 360;
+      if (cfg.gradientType === 'angular') {
+        const angularCanvas = createAngularGradientCanvas(w, h, stops, angle, origin);
+        const scaleX = angularCanvas.width > 0 ? w / angularCanvas.width : 1;
+        const scaleY = angularCanvas.height > 0 ? h / angularCanvas.height : 1;
+        const pattern = new Pattern({
+          source: angularCanvas,
+          repeat: 'no-repeat',
+          patternTransform: [scaleX, 0, 0, scaleY, 0, 0],
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c as any).backgroundColor = pattern;
+      } else {
+        const grad = new Gradient({
+          type: cfg.gradientType === 'radial' ? 'radial' : 'linear',
+          coords: cfg.gradientType === 'radial'
+            ? {
+                r1: 0,
+                r2: Math.max(1, cfg.radialRadius ?? Math.max(w, h) / 2),
+                x1: origin.x * w,
+                y1: origin.y * h,
+                x2: origin.x * w,
+                y2: origin.y * h,
+              }
+            : (() => {
+                const radians = (angle * Math.PI) / 180;
+                const cx = w / 2;
+                const cy = h / 2;
+                const halfLen = Math.abs(cx * Math.cos(radians)) + Math.abs(cy * Math.sin(radians));
+                return {
+                  x1: cx - halfLen * Math.cos(radians),
+                  y1: cy - halfLen * Math.sin(radians),
+                  x2: cx + halfLen * Math.cos(radians),
+                  y2: cy + halfLen * Math.sin(radians),
+                };
+              })(),
+          colorStops: stops,
+          gradientUnits: 'pixels',
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c as any).backgroundColor = grad;
+      }
     }
     c.requestRenderAll();
   }, []);

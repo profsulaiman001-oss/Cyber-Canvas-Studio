@@ -13,7 +13,7 @@ import ExportDialog from '@/components/editor/ExportDialog';
 import CanvasSizeDialog from '@/components/editor/CanvasSizeDialog';
 import ProjectManager from '@/components/editor/ProjectManager';
 import AlignmentPanel from '@/components/editor/AlignmentPanel';
-import CanvasBgDialog from '@/components/editor/CanvasBgDialog';
+import CanvasBgDialog, { type BackgroundEyedropperContext } from '@/components/editor/CanvasBgDialog';
 import ColorStudioPanel, { type ColorStudioEyedropperContext } from '@/components/editor/ColorStudioPanel';
 import TextPanel from '@/components/editor/TextPanel';
 import ShapeModifiersPanel from '@/components/editor/ShapeModifiersPanel';
@@ -52,7 +52,12 @@ export default function DesignEditor() {
   const [sampledColor, setSampledColor] = useState<string | null>(null);
   const [sampledColorCommitted, setSampledColorCommitted] = useState<string | null>(null);
   const eyedropperTargetRef = useRef<ReturnType<typeof useFabricCanvas>['selectedObject']>(null);
+  const eyedropperPanelRef = useRef<'colorStudio' | 'canvasBg'>('colorStudio');
   const eyedropperGradientContextRef = useRef<ColorStudioEyedropperContext>({
+    mode: 'solid',
+    selectedStop: 0,
+  });
+  const backgroundEyedropperContextRef = useRef<BackgroundEyedropperContext>({
     mode: 'solid',
     selectedStop: 0,
   });
@@ -395,6 +400,26 @@ export default function DesignEditor() {
 
   /* ── Eyedropper ── */
   const applyEyedropperColor = useCallback((color: string) => {
+    if (eyedropperPanelRef.current === 'canvasBg') {
+      const backgroundContext = backgroundEyedropperContextRef.current;
+      const currentBackground = editorStateRef.current.canvasBg;
+      const nextBackground = backgroundContext.mode === 'solid'
+        ? { ...currentBackground, type: 'solid' as const, color }
+        : {
+            ...currentBackground,
+            type: 'gradient' as const,
+            gradientType: backgroundContext.mode,
+            gradientStops: currentBackground.gradientStops.map((stop, index) => (
+              index === backgroundContext.selectedStop ? { ...stop, color } : { ...stop }
+            )),
+          };
+      lastEyedropperColorRef.current = color;
+      setSampledColor(color);
+      dispatch({ type: 'SET_CANVAS_BG', payload: nextBackground });
+      controller.setCanvasBackground(nextBackground);
+      return;
+    }
+
     const obj = eyedropperTargetRef.current ?? controller.selectedObject;
     const gradientContext = eyedropperGradientContextRef.current;
     lastEyedropperColorRef.current = color;
@@ -446,7 +471,8 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (eyedropperWasActiveRef.current && !controller.eyedropperActive) {
-      dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' });
+      const panel = eyedropperPanelRef.current;
+      dispatch({ type: 'TOGGLE_PANEL', payload: panel });
       const color = lastEyedropperColorRef.current;
       if (color) {
         setSampledColorCommitted(color);
@@ -456,15 +482,25 @@ export default function DesignEditor() {
           description: 'Sampled from the canvas',
         });
       }
+      eyedropperPanelRef.current = 'colorStudio';
     }
     eyedropperWasActiveRef.current = controller.eyedropperActive;
   }, [controller, dispatch, toast]);
 
-  const handleEyedropper = useCallback(async (context: ColorStudioEyedropperContext) => {
-    eyedropperGradientContextRef.current = context;
-    eyedropperTargetRef.current = controller.selectedObject
-      ?? controller.getCanvas()?.getActiveObject()
-      ?? null;
+  const handleEyedropper = useCallback(async (
+    context: ColorStudioEyedropperContext | BackgroundEyedropperContext,
+    panel: 'colorStudio' | 'canvasBg',
+  ) => {
+    eyedropperPanelRef.current = panel;
+    if (panel === 'canvasBg') {
+      backgroundEyedropperContextRef.current = context as BackgroundEyedropperContext;
+      eyedropperTargetRef.current = null;
+    } else {
+      eyedropperGradientContextRef.current = context as ColorStudioEyedropperContext;
+      eyedropperTargetRef.current = controller.selectedObject
+        ?? controller.getCanvas()?.getActiveObject()
+        ?? null;
+    }
     lastEyedropperColorRef.current = null;
     setSampledColor(null);
     setSampledColorCommitted(null);
@@ -482,7 +518,8 @@ export default function DesignEditor() {
       } catch {
         // Browser picker cancellation is intentionally silent.
       } finally {
-        dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' });
+        dispatch({ type: 'TOGGLE_PANEL', payload: panel });
+        eyedropperPanelRef.current = 'colorStudio';
       }
       return;
     }
@@ -495,6 +532,14 @@ export default function DesignEditor() {
     dispatch({ type: 'CLOSE_PANEL' });
     controller.activateEyedropper(applyEyedropperColor);
   }, [applyEyedropperColor, controller, dispatch]);
+
+  const handleColorStudioEyedropper = useCallback((context: ColorStudioEyedropperContext) => {
+    void handleEyedropper(context, 'colorStudio');
+  }, [handleEyedropper]);
+
+  const handleBackgroundEyedropper = useCallback((context: BackgroundEyedropperContext) => {
+    void handleEyedropper(context, 'canvasBg');
+  }, [handleEyedropper]);
 
   const handleVectorsPenStart = useCallback(() => {
     controller.activatePenTool();
@@ -995,7 +1040,7 @@ export default function DesignEditor() {
       <ColorStudioPanel
         controller={controller}
         eyedropperActive={controller.eyedropperActive}
-        onEyedropper={handleEyedropper}
+        onEyedropper={handleColorStudioEyedropper}
         sampledColor={sampledColor}
         sampledColorCommitted={sampledColorCommitted}
       />
@@ -1003,7 +1048,13 @@ export default function DesignEditor() {
       <ExportDialog controller={controller} />
       <CanvasSizeDialog controller={controller} />
       <AlignmentPanel controller={controller} />
-      <CanvasBgDialog controller={controller} />
+      <CanvasBgDialog
+        controller={controller}
+        eyedropperActive={controller.eyedropperActive}
+        onEyedropper={handleBackgroundEyedropper}
+        sampledColor={sampledColor}
+        sampledColorCommitted={sampledColorCommitted}
+      />
       <ProjectManager
         controller={controller}
         currentProjectId={currentProjectId}

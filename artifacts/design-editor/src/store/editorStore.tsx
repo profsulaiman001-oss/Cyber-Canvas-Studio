@@ -16,8 +16,11 @@ export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush' | 'zoom' | '3d';
 export interface CanvasBgConfig {
   type: 'solid' | 'transparent' | 'gradient';
   color: string;
-  gradientType: 'linear' | 'radial';
+  gradientType: 'linear' | 'radial' | 'angular';
   gradientStops: { offset: number; color: string }[];
+  gradientAngle: number;
+  gradientOrigin: { x: number; y: number };
+  radialRadius: number;
 }
 
 export interface EditorState {
@@ -99,6 +102,9 @@ const defaultBg: CanvasBgConfig = {
     { offset: 0, color: '#00F5FF' },
     { offset: 1, color: '#7B2FFF' },
   ],
+  gradientAngle: 0,
+  gradientOrigin: { x: 0.5, y: 0.5 },
+  radialRadius: 540,
 };
 
 function loadRecentFonts(): string[] {

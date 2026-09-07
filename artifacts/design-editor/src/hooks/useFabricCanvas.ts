@@ -650,6 +650,7 @@ export function useFabricCanvas(
   const eyedropperActiveRef = useRef(false);
   const eyedropperCallbackRef = useRef<((color: string) => void) | null>(null);
   const eyedropperPointerDownRef = useRef(false);
+  const eyedropperOriginalObjectRef = useRef<FabricObject | null>(null);
   const brushPresetRef = useRef<BrushPreset>('standard');
   const panModeRef = useRef(false);
   const vectorEditObjRef = useRef<FabricObject | null>(null);
@@ -1082,7 +1083,7 @@ export function useFabricCanvas(
 
     /* ─── Selection events ─── */
     const handleSelect = () => {
-      if (isHistoryProcessingRef.current) return;
+      if (isHistoryProcessingRef.current || eyedropperActiveRef.current) return;
       const active = c.getActiveObject();
       if (active) {
         setSelectedObject(active);
@@ -1090,7 +1091,7 @@ export function useFabricCanvas(
       }
     };
     const handleDeselect = () => {
-      if (isHistoryProcessingRef.current) return;
+      if (isHistoryProcessingRef.current || eyedropperActiveRef.current) return;
       setSelectedObject(null);
       options.onSelectionChange([]);
     };
@@ -2109,18 +2110,33 @@ export function useFabricCanvas(
     const c = canvasRef.current;
     if (!c) return;
     c.selection = true;
+    c.skipTargetFind = false;
+    const originalObject = eyedropperOriginalObjectRef.current;
+    eyedropperOriginalObjectRef.current = null;
+    if (originalObject) {
+      const canvasObjects = c.getObjects();
+      const canRestore = originalObject.type === 'activeSelection'
+        ? (originalObject as ActiveSelection).getObjects().every((child) => canvasObjects.includes(child))
+        : canvasObjects.includes(originalObject);
+      if (canRestore) c.setActiveObject(originalObject);
+    }
     c.requestRenderAll();
   }, []);
 
   const activateEyedropper = useCallback((callback: (color: string) => void) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    eyedropperOriginalObjectRef.current = c.getActiveObject() ?? null;
     eyedropperActiveRef.current = true;
     eyedropperCallbackRef.current = callback;
     eyedropperPointerDownRef.current = false;
     setEyedropperActive(true);
-    const c = canvasRef.current; if (!c) return;
-    // Keep the selected object in place so the sampled color can be applied
-    // to the object the user was editing when the tool started.
+    // Keep the selected object in the controller refs, but remove its active
+    // controls from the rendered composite so the eyedropper samples pixels
+    // from the artwork rather than Fabric's selection chrome.
     c.selection = false;
+    c.skipTargetFind = true;
+    c.discardActiveObject();
     c.requestRenderAll();
   }, []);
 

@@ -473,6 +473,7 @@ export default function ColorStudioPanel({
   const [gradientAngle, setGradientAngle] = useState(0);
   const [gradientOrigin, setGradientOrigin] = useState({ x: 0.5, y: 0.5 });
   const [colorHistory, setColorHistory] = useState<RecentColorEntry[]>(readColorHistory);
+  const eyedropperReturnContextRef = useRef<ColorStudioEyedropperContext | null>(null);
 
   const pushHistory = useCallback((entry: RecentColorEntry) => {
     setColorHistory((prev) => {
@@ -485,14 +486,21 @@ export default function ColorStudioPanel({
 
   useEffect(() => {
     if (!sampledColor) return;
+    const returnContext = eyedropperReturnContextRef.current;
+    const targetMode = returnContext?.mode ?? fillMode;
+    const targetStop = returnContext?.selectedStop ?? selectedStop;
+    if (returnContext) {
+      setFillMode(returnContext.mode);
+      setSelectedStop(returnContext.selectedStop);
+    }
     // A sampled color is a solid color value, but the destination remains the
     // currently active fill context. Gradient sampling edits only its focused
     // stop; it must never collapse the Color Studio back to Solid.
-    if (fillMode === 'solid') {
+    if (targetMode === 'solid') {
       setSolidColor(sampledColor);
     } else {
       setStops((previous) => previous.map((stop, index) => (
-        index === selectedStop ? { ...stop, color: sampledColor } : stop
+        index === targetStop ? { ...stop, color: sampledColor } : stop
       )));
     }
   }, [sampledColor, fillMode, selectedStop]);
@@ -517,12 +525,24 @@ export default function ColorStudioPanel({
     };
     const config = storedGradient._gradientConfig;
     if (config?.type) {
-      const gradientType = config.type;
+      const gradientType = eyedropperReturnContextRef.current?.mode !== 'solid'
+        ? (eyedropperReturnContextRef.current?.mode ?? config.type)
+        : config.type;
       setFillMode(gradientType);
       if (config.stops?.length) setStops(config.stops.map((stop) => ({ ...stop })));
       if (typeof config.radialRadius === 'number') setRadialRadius(config.radialRadius);
       if (typeof config.angleDeg === 'number') setGradientAngle(config.angleDeg);
       if (config.origin) setGradientOrigin({ ...config.origin });
+      if (eyedropperReturnContextRef.current) {
+        setSelectedStop(Math.max(
+          0,
+          Math.min(
+            eyedropperReturnContextRef.current.selectedStop,
+            (config.stops?.length ?? stops.length) - 1,
+          ),
+        ));
+        eyedropperReturnContextRef.current = null;
+      }
       return;
     }
     if (typeof fill === 'string') {
@@ -538,6 +558,11 @@ export default function ColorStudioPanel({
         if (cs.length >= 2) setStops(cs.map((s) => ({ offset: s.offset, color: s.color })));
         if (gt === 'radial' && fill.coords?.r2 > 0) setRadialRadius(fill.coords.r2);
       }
+    }
+    if (eyedropperReturnContextRef.current) {
+      setFillMode(eyedropperReturnContextRef.current.mode);
+      setSelectedStop(eyedropperReturnContextRef.current.selectedStop);
+      eyedropperReturnContextRef.current = null;
     }
   }, [isOpen, obj]);
 
@@ -714,7 +739,11 @@ export default function ColorStudioPanel({
           <div className="flex items-center justify-between" style={{ paddingRight: '2.75rem' }}>
             <SheetTitle className="text-sm font-semibold">Color Studio</SheetTitle>
             <button
-              onClick={() => onEyedropper({ mode: fillMode, selectedStop })}
+              onClick={() => {
+                const context = { mode: fillMode, selectedStop };
+                eyedropperReturnContextRef.current = context;
+                onEyedropper(context);
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0"
               style={{
                 background: eyedropperActive ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.06)',

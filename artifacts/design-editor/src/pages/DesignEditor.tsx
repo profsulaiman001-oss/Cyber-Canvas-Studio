@@ -451,8 +451,12 @@ export default function DesignEditor() {
 
   const handleEyedropper = useCallback(async (context: ColorStudioEyedropperContext) => {
     eyedropperGradientContextRef.current = context;
-    eyedropperTargetRef.current = controller.selectedObject;
+    eyedropperTargetRef.current = controller.selectedObject
+      ?? controller.getCanvas()?.getActiveObject()
+      ?? null;
     lastEyedropperColorRef.current = null;
+    setSampledColor(null);
+    setSampledColorCommitted(null);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ('EyeDropper' in window && typeof (window as any).EyeDropper === 'function') {

@@ -20,3 +20,4 @@
 - [Color Studio gradient context](color-studio-gradient-context.md) — solid color sources target the focused gradient stop; full gradient presets replace the whole fill; live edits commit only on Apply
 - [Layer panel ordering](layer-panel-ordering.md) — group thumbnails use Fabric toDataURL; layer drag targets are final panel slots; z-order commands must sync and commit
 - [Eyedropper state](eyedropper-state.md) — preserve active object and gradient context while sampling, then restore selection before callbacks resume
+- [Floating effect panels](floating-effect-panels.md) — effect tools belong inside the bottom-toolbar wrapper; use bottom-full floating pills, not modal sheets or scrims

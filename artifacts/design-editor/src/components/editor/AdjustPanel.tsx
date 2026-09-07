@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Slider } from '@/components/ui/slider';
-import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricImage, FabricObject, filters } from 'fabric';
-import { Check, ChevronDown, SlidersVertical } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, RotateCcw, SlidersVertical } from 'lucide-react';
 import {
   applyObjectColorAdjustment,
   ensureObjectColorBaseline,
@@ -38,25 +38,41 @@ function formatAdjustmentValue(key: AdjustmentKey, value: number) {
   return value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
 }
 
-function ActiveAdjustmentSlider({ label, value, min, max, step, onChange, displayValue }: {
-  label: string;
+function AdjustmentControl({
+  option,
+  value,
+  enabled,
+  onToggle,
+  onChange,
+}: {
+  option: typeof ADJUSTMENT_OPTIONS[number];
   value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-  displayValue: string;
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+  onChange: (value: number) => void;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 space-y-2.5">
+    <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold text-foreground">{label}</span>
-        <span className="text-xs font-mono tabular-nums text-primary">{displayValue}</span>
+        <Label className="text-[11px] text-muted-foreground">{option.label}</Label>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-mono tabular-nums text-primary">
+            {formatAdjustmentValue(option.key, value)}
+          </span>
+          <Switch
+            checked={enabled}
+            onCheckedChange={onToggle}
+            aria-label={`Toggle ${option.label}`}
+          />
+        </div>
       </div>
       <Slider
-        min={min} max={max} step={step}
+        min={option.min}
+        max={option.max}
+        step={option.step}
         value={[value]}
-        onValueChange={([v]) => onChange(v)}
+        onValueChange={([nextValue]) => onChange(nextValue)}
+        disabled={!enabled}
         className="w-full"
       />
     </div>
@@ -95,24 +111,42 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
   const [adj, setAdj] = useState<ColorAdjustments>({ brightness: 0, contrast: 0, saturation: 0, hue: 0 });
   const [activeKey, setActiveKey] = useState<AdjustmentKey>('brightness');
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const lastNonZeroValuesRef = useRef<Partial<ColorAdjustments>>({});
 
   const syncFromObject = useCallback(() => {
     if (!obj) {
       setAdj({ brightness: 0, contrast: 0, saturation: 0, hue: 0 });
+      lastNonZeroValuesRef.current = {};
       return;
     }
     if (obj.type === 'image') {
-      setAdj(readFiltersFromImage(obj as FabricImage));
+      const next = readFiltersFromImage(obj as FabricImage);
+      setAdj(next);
+      lastNonZeroValuesRef.current = Object.fromEntries(
+        ADJUSTMENT_OPTIONS
+          .filter((option) => next[option.key] !== 0)
+          .map((option) => [option.key, next[option.key]]),
+      );
       return;
     }
     walkObjectTree(obj, (child) => { ensureObjectColorBaseline(child); });
     const stored = (obj as FabricObject & { _adjustments?: ColorAdjustments })._adjustments;
-    setAdj(stored ? { ...stored } : { brightness: 0, contrast: 0, saturation: 0, hue: 0 });
+    const next = stored ? { ...stored } : { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
+    setAdj(next);
+    lastNonZeroValuesRef.current = Object.fromEntries(
+      ADJUSTMENT_OPTIONS
+        .filter((option) => next[option.key] !== 0)
+        .map((option) => [option.key, next[option.key]]),
+    );
   }, [obj]);
 
   useEffect(() => { syncFromObject(); }, [syncFromObject]);
   useEffect(() => {
-    if (!isOpen) setSelectorOpen(false);
+    if (!isOpen) {
+      setSelectorOpen(false);
+      setExpanded(false);
+    }
   }, [isOpen]);
 
   const applyFilters = useCallback((next: ColorAdjustments) => {
@@ -155,8 +189,18 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
 
   const update = (key: keyof ColorAdjustments, value: number) => {
     const next = { ...adj, [key]: value };
+    if (value !== 0) lastNonZeroValuesRef.current[key] = value;
     setAdj(next);
     applyFilters(next);
+  };
+
+  const toggleActiveAdjustment = (key: AdjustmentKey, enabled: boolean) => {
+    if (enabled) {
+      const fallback = key === 'hue' ? 45 : 0.25;
+      update(key, lastNonZeroValuesRef.current[key] ?? fallback);
+    } else {
+      update(key, 0);
+    }
   };
 
   const resetAll = () => {
@@ -193,116 +237,152 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
       delete (child as FabricObject & { _adjustments?: ColorAdjustments })._adjustments;
     });
     setAdj(zero);
+    lastNonZeroValuesRef.current = {};
     c?.requestRenderAll();
   };
 
   const activeOption = ADJUSTMENT_OPTIONS.find((option) => option.key === activeKey) ?? ADJUSTMENT_OPTIONS[0];
   const activeValue = adj[activeOption.key];
+  const activeEnabled = activeValue !== 0;
+
+  if (!isOpen || !obj) return null;
 
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
-        className="rounded-t-2xl p-0"
-        style={{ maxHeight: '70vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
-        data-testid="adjust-panel"
+    <div
+      className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(620px,calc(100vw-24px))] -translate-x-1/2"
+      data-testid="adjust-panel"
+    >
+      <div
+        className={`overflow-hidden rounded-2xl transition-all duration-300 ease-in-out ${
+          expanded ? 'max-h-[620px] opacity-100 mb-2' : 'pointer-events-none max-h-0 opacity-0'
+        }`}
+        style={{
+          background: '#11141A',
+          border: expanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent',
+          boxShadow: expanded ? '0 -8px 30px rgba(0,0,0,0.45)' : 'none',
+        }}
       >
-        <SheetHeader className="px-4 pt-4 pb-2 flex flex-row items-center justify-between">
-          <SheetTitle className="text-sm font-semibold flex items-center gap-2">
-            <SlidersVertical size={15} className="text-primary" />
-            Image Adjustments
-          </SheetTitle>
-          {obj && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs text-muted-foreground"
-              onClick={resetAll}
-            >
-              Reset All
-            </Button>
-          )}
-        </SheetHeader>
-
-        {!obj ? (
-          <div className="px-4 pb-8 flex flex-col items-center gap-3 text-center pt-4">
-            <SlidersVertical size={32} className="text-muted-foreground opacity-40" />
-            <p className="text-sm text-muted-foreground">Select an object on the canvas to adjust it.</p>
-          </div>
-        ) : (
-          <div className="px-4 space-y-3" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-            {selectorOpen && (
-              <div id="adjustment-selector" className="space-y-2" data-testid="adjustment-selector">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold text-primary uppercase tracking-wider">Select adjustment</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-muted-foreground"
-                    onClick={resetAll}
-                    data-testid="button-reset-adjustments"
-                  >
-                    Reset All
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {ADJUSTMENT_OPTIONS.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => {
-                        setActiveKey(option.key);
-                        setSelectorOpen(false);
-                      }}
-                      className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors"
-                      style={{
-                        borderColor: activeKey === option.key ? 'rgba(0,245,255,0.55)' : 'rgba(255,255,255,0.1)',
-                        background: activeKey === option.key ? 'rgba(0,245,255,0.1)' : 'rgba(255,255,255,0.03)',
-                        color: activeKey === option.key ? '#00F5FF' : undefined,
-                      }}
-                      data-testid={`adjustment-option-${option.key}`}
-                    >
-                      <span>{option.label}</span>
-                      {activeKey === option.key && <Check size={14} />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5 space-y-2.5" data-testid="adjustment-mini-bar">
-              <button
-                type="button"
-                onClick={() => setSelectorOpen((open) => !open)}
-                className="flex w-full items-center justify-between gap-3 text-left"
-                aria-expanded={selectorOpen}
-                aria-controls="adjustment-selector"
-                data-testid="button-toggle-adjustment-selector"
-              >
-                <span className="text-xs font-semibold text-foreground">{activeOption.label}</span>
-                <span className="ml-auto text-xs font-mono tabular-nums text-primary">
-                  {formatAdjustmentValue(activeKey, activeValue)}
-                </span>
-                <ChevronDown
-                  size={16}
-                  className={`text-muted-foreground transition-transform ${selectorOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-
-              <ActiveAdjustmentSlider
-                label={activeOption.label}
-                value={activeValue}
-                min={activeOption.min}
-                max={activeOption.max}
-                step={activeOption.step}
-                onChange={(value) => update(activeKey, value)}
-                displayValue={formatAdjustmentValue(activeKey, activeValue)}
-              />
+        <div className="space-y-3 px-4 pb-4 pt-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <SlidersVertical size={14} className="text-primary" />
+              <span className="text-xs font-semibold text-primary">Color Adjustments</span>
             </div>
+            <button
+              type="button"
+              onClick={resetAll}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-primary transition-colors hover:bg-primary/10"
+              data-testid="button-reset-adjustments"
+            >
+              <RotateCcw size={11} />
+              Reset All
+            </button>
           </div>
-        )}
-      </SheetContent>
-    </Sheet>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {ADJUSTMENT_OPTIONS.map((option) => (
+              <AdjustmentControl
+                key={option.key}
+                option={option}
+                value={adj[option.key]}
+                enabled={adj[option.key] !== 0}
+                onToggle={(enabled) => toggleActiveAdjustment(option.key, enabled)}
+                onChange={(value) => update(option.key, value)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="flex items-center gap-1.5 rounded-2xl px-3 py-2.5 transition-all duration-300 ease-in-out"
+        style={{
+          background: '#11141A',
+          border: '1px solid rgba(0,245,255,0.3)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)',
+        }}
+        data-testid="adjustment-mini-bar"
+      >
+        <div className="relative min-w-0 shrink-0">
+          <button
+            type="button"
+            onClick={() => setSelectorOpen((open) => !open)}
+            className="flex max-w-[145px] items-center gap-1.5 rounded-xl px-2 py-1.5 text-left text-xs font-semibold transition-colors hover:bg-white/10"
+            style={{ color: '#00F5FF', background: selectorOpen ? 'rgba(0,245,255,0.14)' : 'rgba(255,255,255,0.05)' }}
+            aria-expanded={selectorOpen}
+            aria-haspopup="listbox"
+            aria-controls="adjustment-selector"
+            data-testid="button-toggle-adjustment-selector"
+          >
+            <SlidersVertical size={13} />
+            <span className="truncate">{activeOption.label}</span>
+            <ChevronDown size={13} className={`shrink-0 transition-transform ${selectorOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {selectorOpen && (
+            <div
+              id="adjustment-selector"
+              role="listbox"
+              className="absolute bottom-full left-0 z-10 mb-2 w-48 rounded-xl border border-white/10 p-1.5 shadow-2xl"
+              style={{ background: '#11141A' }}
+              data-testid="adjustment-selector"
+            >
+              {ADJUSTMENT_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  role="option"
+                  aria-selected={activeKey === option.key}
+                  onClick={() => {
+                    setActiveKey(option.key);
+                    setSelectorOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-white/10"
+                  style={{
+                    color: activeKey === option.key ? '#00F5FF' : 'rgba(255,255,255,0.7)',
+                    background: activeKey === option.key ? 'rgba(0,245,255,0.1)' : 'transparent',
+                  }}
+                  data-testid={`adjustment-option-${option.key}`}
+                >
+                  <span>{option.label}</span>
+                  {activeKey === option.key && <Check size={13} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Switch
+          checked={activeEnabled}
+          onCheckedChange={(enabled) => toggleActiveAdjustment(activeKey, enabled)}
+          aria-label={`Toggle ${activeOption.label}`}
+        />
+
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <Slider
+            min={activeOption.min}
+            max={activeOption.max}
+            step={activeOption.step}
+            value={[activeValue]}
+            onValueChange={([value]) => update(activeKey, value)}
+            disabled={!activeEnabled}
+            className="min-w-0 flex-1"
+          />
+          <span className="w-12 shrink-0 text-right text-[10px] font-mono tabular-nums text-primary">
+            {formatAdjustmentValue(activeKey, activeValue)}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-white/10"
+          style={{ color: '#00F5FF', background: expanded ? 'rgba(0,245,255,0.12)' : 'rgba(255,255,255,0.05)' }}
+          aria-label={expanded ? 'Collapse adjustment controls' : 'Expand adjustment controls'}
+          data-testid="button-toggle-adjustment-expanded"
+        >
+          {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </button>
+      </div>
+    </div>
   );
 }

@@ -14,7 +14,7 @@ import CanvasSizeDialog from '@/components/editor/CanvasSizeDialog';
 import ProjectManager from '@/components/editor/ProjectManager';
 import AlignmentPanel from '@/components/editor/AlignmentPanel';
 import CanvasBgDialog from '@/components/editor/CanvasBgDialog';
-import ColorStudioPanel from '@/components/editor/ColorStudioPanel';
+import ColorStudioPanel, { type ColorStudioEyedropperContext } from '@/components/editor/ColorStudioPanel';
 import TextPanel from '@/components/editor/TextPanel';
 import ShapeModifiersPanel from '@/components/editor/ShapeModifiersPanel';
 import NudgePanel from '@/components/editor/NudgePanel';
@@ -42,6 +42,10 @@ export default function DesignEditor() {
   const [sampledColor, setSampledColor] = useState<string | null>(null);
   const [sampledColorCommitted, setSampledColorCommitted] = useState<string | null>(null);
   const eyedropperTargetRef = useRef<ReturnType<typeof useFabricCanvas>['selectedObject']>(null);
+  const eyedropperGradientContextRef = useRef<ColorStudioEyedropperContext>({
+    mode: 'solid',
+    selectedStop: 0,
+  });
   const lastEyedropperColorRef = useRef<string | null>(null);
   const eyedropperWasActiveRef = useRef(false);
   const { saveProject: persistProject } = useProjects();
@@ -271,6 +275,7 @@ export default function DesignEditor() {
   /* ── Eyedropper ── */
   const applyEyedropperColor = useCallback((color: string) => {
     const obj = eyedropperTargetRef.current ?? controller.selectedObject;
+    const gradientContext = eyedropperGradientContextRef.current;
     lastEyedropperColorRef.current = color;
     setSampledColor(color);
     if (!obj) return;
@@ -281,6 +286,34 @@ export default function DesignEditor() {
       || (strokeWidth > 0 && (!fill || fill === 'transparent'));
     if (strokeOnly) {
       obj.set('stroke', color);
+    } else if (gradientContext.mode !== 'solid') {
+      const gradientConfig = (obj as typeof obj & {
+        _gradientConfig?: {
+          type?: 'linear' | 'radial' | 'angular';
+          stops?: { offset: number; color: string }[];
+          radialRadius?: number | null;
+          angleDeg?: number;
+          origin?: { x: number; y: number };
+        };
+      })._gradientConfig;
+      const existingStops = gradientConfig?.stops
+        ?? (fill && typeof fill === 'object' && 'colorStops' in fill
+          ? (fill as { colorStops?: { offset: number; color: string }[] }).colorStops
+          : undefined);
+      if (existingStops && existingStops.length >= 2) {
+        const stops = existingStops.map((stop, index) => (
+          index === gradientContext.selectedStop ? { ...stop, color } : { ...stop }
+        ));
+        controller.applyGradientFill(
+          obj,
+          gradientContext.mode,
+          stops,
+          gradientConfig?.radialRadius ?? undefined,
+          gradientConfig?.angleDeg ?? 0,
+          gradientConfig?.origin ?? { x: 0.5, y: 0.5 },
+          false,
+        );
+      }
     } else {
       obj.set('fill', color);
       // A sampled pixel is a solid replacement for an existing gradient.
@@ -288,7 +321,6 @@ export default function DesignEditor() {
       delete (obj as any)._gradientConfig;
     }
     controller.getCanvas()?.requestRenderAll();
-    controller.commitChange();
   }, [controller]);
 
   useEffect(() => {
@@ -297,6 +329,7 @@ export default function DesignEditor() {
       const color = lastEyedropperColorRef.current;
       if (color) {
         setSampledColorCommitted(color);
+        controller.commitChange();
         toast({
           title: `Color applied: ${color.toUpperCase()}`,
           description: 'Sampled from the canvas',
@@ -304,9 +337,10 @@ export default function DesignEditor() {
       }
     }
     eyedropperWasActiveRef.current = controller.eyedropperActive;
-  }, [controller.eyedropperActive, dispatch, toast]);
+  }, [controller, dispatch, toast]);
 
-  const handleEyedropper = useCallback(async () => {
+  const handleEyedropper = useCallback(async (context: ColorStudioEyedropperContext) => {
+    eyedropperGradientContextRef.current = context;
     eyedropperTargetRef.current = controller.selectedObject;
     lastEyedropperColorRef.current = null;
 
@@ -319,6 +353,7 @@ export default function DesignEditor() {
         const result: { sRGBHex: string } = await eyeDropper.open();
         applyEyedropperColor(result.sRGBHex);
         setSampledColorCommitted(result.sRGBHex);
+        controller.commitChange();
       } catch {
         // Browser picker cancellation is intentionally silent.
       } finally {

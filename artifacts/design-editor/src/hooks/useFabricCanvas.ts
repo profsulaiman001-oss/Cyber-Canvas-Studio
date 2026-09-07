@@ -1634,6 +1634,7 @@ export function useFabricCanvas(
     radialRadius?: number,
     angleDeg?: number,
     origin: GradientOrigin = { x: 0.5, y: 0.5 },
+    commit = true,
   ) => {
     if (!obj) return;
     const c = canvasRef.current; if (!c) return;
@@ -1714,7 +1715,7 @@ export function useFabricCanvas(
         origin: { ...safeOrigin },
       };
       c.requestRenderAll();
-      pushUndo();
+      if (commit) pushUndo();
     } catch {
       // A malformed stop or unsupported Fabric fill must not take down the
       // editor. Leave the previous fill intact and keep the canvas responsive.

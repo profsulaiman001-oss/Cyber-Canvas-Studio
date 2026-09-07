@@ -20,10 +20,15 @@ interface RecentColorEntry {
   origin?: { x: number; y: number };
 }
 
+export interface ColorStudioEyedropperContext {
+  mode: FillMode;
+  selectedStop: number;
+}
+
 interface ColorStudioProps {
   controller: CanvasController;
   eyedropperActive: boolean;
-  onEyedropper: () => void;
+  onEyedropper: (context: ColorStudioEyedropperContext) => void;
   sampledColor?: string | null;
   sampledColorCommitted?: string | null;
 }
@@ -400,14 +405,15 @@ function GradientPreview({
 }
 
 /* ─── Recent-color history swatches ─── */
-function ColorHistory({ history, onPick }: {
+function ColorHistory({ history, label, onPick }: {
   history: RecentColorEntry[];
+  label: string;
   onPick: (entry: RecentColorEntry) => void;
 }) {
   if (!history.length) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Recent</p>
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{label}</p>
       <div className="flex flex-wrap gap-1.5">
         {history.map((entry) => {
           const isGradient = entry.kind === 'gradient';
@@ -479,12 +485,17 @@ export default function ColorStudioPanel({
 
   useEffect(() => {
     if (!sampledColor) return;
-    // Sampling always produces a solid color. Syncing this through the same
-    // local state as the picker keeps the spectrum, preview, and HEX input
-    // aligned when the sheet is restored after a canvas pick.
-    setFillMode('solid');
-    setSolidColor(sampledColor);
-  }, [sampledColor]);
+    // A sampled color is a solid color value, but the destination remains the
+    // currently active fill context. Gradient sampling edits only its focused
+    // stop; it must never collapse the Color Studio back to Solid.
+    if (fillMode === 'solid') {
+      setSolidColor(sampledColor);
+    } else {
+      setStops((previous) => previous.map((stop, index) => (
+        index === selectedStop ? { ...stop, color: sampledColor } : stop
+      )));
+    }
+  }, [sampledColor, fillMode, selectedStop]);
 
   useEffect(() => {
     if (!sampledColorCommitted) return;
@@ -537,6 +548,7 @@ export default function ColorStudioPanel({
     rr: number,
     angle: number,
     origin: { x: number; y: number },
+    commit = true,
   ) => {
     if (!obj) return;
     try {
@@ -547,7 +559,7 @@ export default function ColorStudioPanel({
         controller.getCanvas()?.renderAll();
         controller.syncObjects();
       } else {
-        controller.applyGradientFill(obj, mode, ss, rr, angle, origin);
+        controller.applyGradientFill(obj, mode, ss, rr, angle, origin, commit);
       }
     } catch {
       // Keep a malformed color or a Fabric renderer edge case from locking the
@@ -557,15 +569,22 @@ export default function ColorStudioPanel({
 
   const handleSolidChange = useCallback((color: string) => {
     setSolidColor(color);
-    pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
+    pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin, false);
   }, [pushFill, stops, radialRadius, gradientAngle, gradientOrigin]);
 
   const handleHistoryPick = useCallback((entry: RecentColorEntry) => {
     if (entry.kind === 'solid') {
       const color = entry.color ?? '#00F5FF';
-      setSolidColor(color);
-      setFillMode('solid');
-      pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
+      if (fillMode === 'solid') {
+        setSolidColor(color);
+        pushFill('solid', color, stops, radialRadius, gradientAngle, gradientOrigin);
+      } else {
+        const ns = stops.map((stop, index) => (
+          index === selectedStop ? { ...stop, color } : stop
+        ));
+        setStops(ns);
+        pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
+      }
     } else if (entry.mode && entry.stops?.length) {
       setFillMode(entry.mode);
       setStops(entry.stops.map((stop) => ({ ...stop })));
@@ -587,6 +606,8 @@ export default function ColorStudioPanel({
   }, [
     pushFill,
     stops,
+    selectedStop,
+    fillMode,
     radialRadius,
     gradientAngle,
     gradientOrigin,
@@ -598,7 +619,7 @@ export default function ColorStudioPanel({
   const handleStopColorChange = useCallback((color: string) => {
     const ns = stops.map((s, i) => i === selectedStop ? { ...s, color } : s);
     setStops(ns);
-    pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin);
+    pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin, false);
   }, [stops, selectedStop, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill]);
 
   const handleMoveStop = useCallback((idx: number, offset: number) => {
@@ -663,14 +684,21 @@ export default function ColorStudioPanel({
         }
   ), [fillMode, solidColor, stops, radialRadius, gradientAngle, gradientOrigin]);
 
+  const currentStopColor = stops[selectedStop]?.color ?? '#00F5FF';
+
   const handleApplyColor = useCallback(() => {
-    pushHistory(currentRecentEntry());
+    const entry = currentRecentEntry();
+    if (entry.kind === 'gradient') {
+      // Applying a stop is also a deliberate solid-color action, while the
+      // complete gradient is retained as a reusable Recent Gradient preset.
+      pushHistory({ kind: 'solid', color: currentStopColor });
+    }
+    pushHistory(entry);
     // Live edits are previewed immediately; Apply creates the undo/history
     // boundary and marks the current canvas state as an intentional change.
     controller.commitChange();
-  }, [controller, currentRecentEntry, pushHistory]);
+  }, [controller, currentRecentEntry, currentStopColor, pushHistory]);
 
-  const currentStopColor = stops[selectedStop]?.color ?? '#00F5FF';
   const isGradient = fillMode !== 'solid';
 
   return (
@@ -686,7 +714,7 @@ export default function ColorStudioPanel({
           <div className="flex items-center justify-between" style={{ paddingRight: '2.75rem' }}>
             <SheetTitle className="text-sm font-semibold">Color Studio</SheetTitle>
             <button
-              onClick={onEyedropper}
+              onClick={() => onEyedropper({ mode: fillMode, selectedStop })}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0"
               style={{
                 background: eyedropperActive ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.06)',
@@ -724,7 +752,16 @@ export default function ColorStudioPanel({
           {fillMode === 'solid' && (
             <>
               <ColorPicker value={solidColor} onChange={handleSolidChange} />
-              <ColorHistory history={colorHistory} onPick={handleHistoryPick} />
+              <ColorHistory
+                history={colorHistory.filter((entry) => entry.kind === 'solid')}
+                label="Recent Colors"
+                onPick={handleHistoryPick}
+              />
+              <ColorHistory
+                history={colorHistory.filter((entry) => entry.kind === 'gradient')}
+                label="Recent Gradients"
+                onPick={handleHistoryPick}
+              />
             </>
           )}
 
@@ -776,7 +813,16 @@ export default function ColorStudioPanel({
                 Stop {selectedStop + 1} — Color
               </p>
               <ColorPicker value={currentStopColor} onChange={handleStopColorChange} />
-              <ColorHistory history={colorHistory} onPick={handleHistoryPick} />
+              <ColorHistory
+                history={colorHistory.filter((entry) => entry.kind === 'solid')}
+                label="Recent Colors"
+                onPick={handleHistoryPick}
+              />
+              <ColorHistory
+                history={colorHistory.filter((entry) => entry.kind === 'gradient')}
+                label="Recent Gradients"
+                onPick={handleHistoryPick}
+              />
 
               <GradientPreview
                 mode={fillMode}

@@ -17,3 +17,4 @@
 - [Pre-fill crop flow](pre-fill-crop.md) — FillCropModal intercepts fill-with-image in DesignEditor; pendingFillTargetRef stores target shape; onApply receives HTMLCanvasElement cropped region then calls fillShapeWithImage(obj, canvas)
 - [Workspace dependency install](workspace-dependencies.md) — use a package-scoped install when workspace links are missing; the generic package helper may target the root incorrectly
 - [Editor persistence](editor-persistence.md) — image sources must remain data URLs and undo entries store the prior committed canvas state
+- [Color Studio gradient context](color-studio-gradient-context.md) — solid color sources target the focused gradient stop; full gradient presets replace the whole fill; live edits commit only on Apply

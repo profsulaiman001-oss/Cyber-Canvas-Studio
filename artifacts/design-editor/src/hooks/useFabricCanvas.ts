@@ -538,14 +538,50 @@ function drawInnerShadow(
 }
 
 /* ─── True 3D extrusion renderer ─── */
+type Depth3DRenderConfig = {
+  steps: number;
+  color: string;
+  angle?: number;
+  depthAngle?: number;
+  bevel?: boolean;
+  bevelTaper?: number;
+  lightAngle?: number;
+  lightIntensity?: number;
+  shadowDepth?: number;
+  shadowFalloff?: number;
+  specularHardness?: number;
+  darkenIntensity?: number;
+};
+
+function mixExtrusionColor(from: string, to: string, amount: number): string {
+  const a = cssColorToRgba(from);
+  const b = cssColorToRgba(to);
+  const t = Math.max(0, Math.min(1, amount));
+  const mix = (first: number, second: number) => Math.round(first + (second - first) * t);
+  return `rgba(${mix(a[0], b[0])},${mix(a[1], b[1])},${mix(a[2], b[2])},${Math.max(0, Math.min(1, a[3] + (b[3] - a[3]) * t)).toFixed(3)})`;
+}
+
 function draw3DLayer(
   ctx: CanvasRenderingContext2D,
   obj: FabricObject,
-  cfg: { steps: number; color: string; angle: number; bevel?: boolean; bevelTaper?: number },
+  cfg: Depth3DRenderConfig,
   vp: number[]
 ) {
-  const { steps, color, angle, bevel = false, bevelTaper = 20 } = cfg;
-  const ar = (angle * Math.PI) / 180;
+  const {
+    steps,
+    color,
+    bevel = false,
+    bevelTaper = 20,
+    lightIntensity = 72,
+    shadowDepth = 55,
+    shadowFalloff = 60,
+    specularHardness = 45,
+    darkenIntensity = 40,
+  } = cfg;
+  const depthAngle = cfg.depthAngle ?? cfg.angle ?? 225;
+  const lightAngle = cfg.lightAngle ?? ((depthAngle + 180) % 360);
+  const ar = (depthAngle * Math.PI) / 180;
+  const lightRad = (lightAngle * Math.PI) / 180;
   const baseOpacity = obj.opacity ?? 1;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const o = obj as any;
@@ -566,19 +602,82 @@ function draw3DLayer(
 
   // Each step = 2px offset so depth is visible on large shapes; paint farthest first
   const PX_PER_STEP = 2;
+  const totalDepth = Math.max(1, steps) * PX_PER_STEP;
   // Bevel: object center in design-space coordinates for scale pivot
   const center = bevel ? obj.getCenterPoint() : null;
   // bevelTaper is 0–50 (percentage); farthest layer shrinks by that fraction
   const taperFraction = bevelTaper / 100;
+  const directionalLight = Math.max(0, Math.min(1, (Math.cos(lightRad - ar) + 1) / 2));
+  const lightFactor = Math.max(0, Math.min(1, (lightIntensity / 100) * (0.22 + directionalLight * 0.78)));
+  const specularExponent = 1 + specularHardness / 16;
+  const width = Math.max(1, obj.width ?? 100);
+  const height = Math.max(1, obj.height ?? 100);
+  const gradientHalfLength = Math.abs(width * Math.cos(lightRad)) / 2 + Math.abs(height * Math.sin(lightRad)) / 2;
+  const gradientCenterX = width / 2;
+  const gradientCenterY = height / 2;
+  const gradientCoords = {
+    x1: gradientCenterX - gradientHalfLength * Math.cos(lightRad),
+    y1: gradientCenterY - gradientHalfLength * Math.sin(lightRad),
+    x2: gradientCenterX + gradientHalfLength * Math.cos(lightRad),
+    y2: gradientCenterY + gradientHalfLength * Math.sin(lightRad),
+  };
+
+  // A soft cast shadow follows the extrusion direction and fades according to
+  // the selected falloff. It is drawn before the slabs so depth remains behind
+  // the front face instead of reading as a second object.
+  if (shadowDepth > 0) {
+    const shadowAlpha = baseOpacity * (shadowDepth / 100) * 0.38;
+    o.fill = '#05070A';
+    o.stroke = '#05070A';
+    o.shadow = new Shadow({
+      color: `rgba(0,0,0,${shadowAlpha.toFixed(3)})`,
+      blur: Math.max(1, totalDepth * (0.08 + shadowFalloff / 100 * 0.42)),
+      offsetX: Math.cos(ar) * totalDepth * 0.42,
+      offsetY: Math.sin(ar) * totalDepth * 0.42,
+    });
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = baseOpacity * (shadowDepth / 100) * 0.34;
+    ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
+    ctx.translate(Math.cos(ar) * totalDepth * 0.22, Math.sin(ar) * totalDepth * 0.22);
+    obj.render(ctx);
+    ctx.restore();
+    o.shadow = null;
+  }
 
   for (let i = steps; i >= 1; i--) {
     const t = i / steps; // 1 = farthest, near 0 = closest
     const ox = Math.cos(ar) * i * PX_PER_STEP;
     const oy = Math.sin(ar) * i * PX_PER_STEP;
+    const depthShade = Math.max(
+      0,
+      Math.min(0.92, (darkenIntensity / 100) * (0.35 + t * 0.65) + (shadowFalloff / 100) * t * 0.16),
+    );
+    const layerLight = Math.max(0, Math.min(1, lightFactor * (1 - t * 0.24)));
+    const specular = Math.pow(Math.max(0, directionalLight), specularExponent)
+      * (lightIntensity / 100)
+      * (1 - t * 0.78);
+    const shaded = mixExtrusionColor(color, '#05070A', depthShade);
+    const mid = mixExtrusionColor(shaded, '#182331', layerLight * 0.36);
+    const highlight = mixExtrusionColor(mid, '#D8F7FF', layerLight * 0.5);
+    const specularColor = mixExtrusionColor(highlight, '#FFFFFF', specular * 0.8);
+    const layerGradient = new Gradient({
+      type: 'linear',
+      coords: gradientCoords,
+      colorStops: [
+        { offset: 0, color: shaded },
+        { offset: Math.max(0.18, 0.46 - specularHardness / 260), color: mid },
+        { offset: Math.min(0.9, 0.72 + specularHardness / 360), color: specularColor },
+        { offset: 1, color: highlight },
+      ],
+      gradientUnits: 'pixels',
+    });
+    o.fill = layerGradient;
+    o.stroke = layerGradient;
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
-    // Fade far slabs to 40%, near slabs to 85% — creates visible depth gradient
-    ctx.globalAlpha = baseOpacity * (0.4 + 0.45 * (1 - t));
+    // Far slabs are quieter while near slabs retain the directional highlight.
+    ctx.globalAlpha = baseOpacity * (0.34 + 0.52 * (1 - t) + layerLight * 0.12);
     ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
     ctx.translate(ox, oy);
     if (bevel && center) {
@@ -1193,7 +1292,7 @@ export function useFabricCanvas(
         if (cfg?.enabled) drawInnerShadow(ctx, obj, cfg, vp);
         // True 3D extrusion
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const depth3d = (obj as any)._depth3d as { enabled: boolean; steps: number; color: string; angle: number } | undefined;
+        const depth3d = (obj as any)._depth3d as ({ enabled: boolean } & Depth3DRenderConfig) | undefined;
         if (depth3d?.enabled) draw3DLayer(ctx, obj, depth3d, vp);
       });
     });
@@ -1745,7 +1844,22 @@ export function useFabricCanvas(
   );
 
   /* ─── True 3D Extrusion ─── */
-  const apply3DDepth = useCallback((obj: FabricObject | null, cfg: { enabled: boolean; steps: number; color: string; angle: number; bevel?: boolean; bevelTaper?: number; darkenIntensity?: number; autoShade?: boolean } | null) => {
+  const apply3DDepth = useCallback((obj: FabricObject | null, cfg: {
+    enabled: boolean;
+    steps: number;
+    color: string;
+    angle?: number;
+    depthAngle?: number;
+    bevel?: boolean;
+    bevelTaper?: number;
+    darkenIntensity?: number;
+    autoShade?: boolean;
+    lightAngle?: number;
+    lightIntensity?: number;
+    shadowDepth?: number;
+    shadowFalloff?: number;
+    specularHardness?: number;
+  } | null) => {
     if (!obj) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any)._depth3d = cfg;

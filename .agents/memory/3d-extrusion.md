@@ -3,11 +3,10 @@ name: True 3D extrusion rendering
 description: How the 3D depth effect renders successive offset layers behind objects
 ---
 
-- `_depth3d` property stored on FabricObject: `{ enabled, steps, color, angle }`
+- `_depth3d` property stored on FabricObject; legacy `angle` remains the extrusion direction while newer configs may also carry `depthAngle`, `lightAngle`, `lightIntensity`, `shadowDepth`, `shadowFalloff`, `specularHardness`, `darkenIntensity`, `bevel`, and `bevelTaper`
 - Rendered in `after:render` event via `draw3DLayer(ctx, obj, cfg, vp)`
-- Algorithm: temporarily override obj.fill=color, shadow=null, strokeWidth=0; iterate i=1..steps; each step translates by (cos(angle)*i, sin(angle)*i); uses `destination-over` composite so layers go behind the object
-- Opacity tapers: `baseOpacity * max(0.25, 1 - 0.65 * (i/steps))`
-- After loop, original fill/shadow/strokeWidth are restored
+- Algorithm: temporarily override the object, draw a soft cast shadow, then paint back-to-front offset slabs with per-layer directional gradients and restore the original front face on top
+- Lighting is intentionally Canvas2D/Fabric-native: light angle controls directional gradients, intensity controls the highlight, shadow depth/falloff control the cast shadow, specular hardness tightens the highlight, and darken intensity shades the far slabs
 
-**Why:** Using canvas destination-over compositing (not Fabric shadows) gives true directional 3D stacking with the correct visual illusion. Tried shadows in v1 but they couldn't achieve the multi-layer directional look.
-**How to apply:** Call `apply3DDepth(obj, { enabled: true, steps: 8, color: '#333', angle: 225 })` from PropertiesPanel.
+**Why:** Back-to-front `source-over` rendering keeps the extrusion behind the face while allowing each wall layer and the cast shadow to respond to separate lighting controls; destination-over becomes invisible when the background is opaque.
+**How to apply:** Preserve `angle` when loading older projects, and write both `angle` and `depthAngle` when creating new configs so existing files keep their depth direction.

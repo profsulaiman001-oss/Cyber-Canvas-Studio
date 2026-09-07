@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Undo2, Redo2, LayoutTemplate, Menu, Grid3x3, Magnet, AlignCenter, Palette, Settings2, Copy, ClipboardPaste } from 'lucide-react';
+import { Undo2, Redo2, LayoutTemplate, Menu, Grid3x3, Magnet, AlignCenter, Palette, Settings2, Copy, ClipboardPaste, Lock, Unlock, RotateCcw } from 'lucide-react';
 import { useEditor } from '@/store/editorStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,17 +34,11 @@ export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onOpenProjects
     filter: active ? 'drop-shadow(0 0 4px #00F5FF80)' : undefined,
   });
 
-  const cols = Math.max(1, Math.round(state.canvasSize.width / state.gridSize));
-  const rows = Math.max(1, Math.round(state.canvasSize.height / state.gridSize));
-
-  const setCols = (v: number) => {
-    const n = Math.max(1, v);
-    dispatch({ type: 'SET_GRID_SIZE', payload: Math.round(state.canvasSize.width / n) });
+  const setGridNumber = (type: 'SET_GRID_COLUMNS' | 'SET_GRID_ROWS', value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) dispatch({ type, payload: parsed });
   };
-  const setRows = (v: number) => {
-    const n = Math.max(1, v);
-    dispatch({ type: 'SET_GRID_SIZE', payload: Math.round(state.canvasSize.height / n) });
-  };
+  const gridSwatches = ['#00F5FF', '#FFFFFF', '#111827', '#FF4D6D', '#FFD166', '#94A3B8'];
 
   return (
     <div
@@ -158,46 +152,150 @@ export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onOpenProjects
 
           {gridSettingsOpen && (
             <div
-              className="absolute top-full right-0 mt-1 z-50 rounded-xl shadow-2xl p-3 space-y-3 w-48"
+              className="absolute top-full right-0 mt-1 z-50 rounded-xl shadow-2xl p-3 space-y-3 w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100vh-4.5rem)] overflow-y-auto"
               style={{ background: '#11141A', border: '1px solid rgba(0,245,255,0.2)' }}
             >
-              <p className="text-xs font-semibold" style={{ color: '#00F5FF' }}>Grid Settings</p>
-
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Cell Size (px)</Label>
-                <Input
-                  type="number" min={4} max={200} value={state.gridSize}
-                  onChange={(e) => dispatch({ type: 'SET_GRID_SIZE', payload: Math.max(4, parseInt(e.target.value) || 20) })}
-                  className="h-7 text-xs"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Columns ({cols})</Label>
-                <Input type="number" min={1} max={200} value={cols}
-                  onChange={(e) => setCols(parseInt(e.target.value) || 1)} className="h-7 text-xs" />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Rows ({rows})</Label>
-                <Input type="number" min={1} max={200} value={rows}
-                  onChange={(e) => setRows(parseInt(e.target.value) || 1)} className="h-7 text-xs" />
-              </div>
-
               <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Lock Guides</Label>
+                <div>
+                  <p className="text-xs font-semibold" style={{ color: '#00F5FF' }}>Grid Studio</p>
+                  <p className="text-[10px] text-muted-foreground">{state.gridColumns} × {state.gridRows} alignment mesh</p>
+                </div>
                 <button
                   type="button"
+                  aria-label={state.gridLocked ? 'Unlock grid dividers' : 'Lock grid dividers'}
                   onClick={() => dispatch({ type: 'TOGGLE_GRID_LOCKED' })}
-                  className="text-xs px-2 py-0.5 rounded"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-medium"
                   style={{
-                    background: state.gridLocked ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.06)',
-                    color: state.gridLocked ? '#FFD700' : '#9ca3af',
-                    border: `1px solid ${state.gridLocked ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.15)'}`,
+                    background: state.gridLocked ? 'rgba(255,255,255,0.06)' : 'rgba(0,245,255,0.12)',
+                    color: state.gridLocked ? '#cbd5e1' : '#00F5FF',
+                    border: `1px solid ${state.gridLocked ? 'rgba(255,255,255,0.14)' : 'rgba(0,245,255,0.35)'}`,
                   }}
                 >
-                  {state.gridLocked ? '🔒 Locked' : '🔓 Free'}
+                  {state.gridLocked ? <Lock size={11} /> : <Unlock size={11} />}
+                  {state.gridLocked ? 'Locked' : 'Unlocked'}
                 </button>
+              </div>
+
+              <div className="rounded-lg p-2 space-y-2" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Layout</p>
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'RESET_GRID_POSITIONS' })}
+                    className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                    title="Reset custom divider positions"
+                  >
+                    <RotateCcw size={10} /> Reset dividers
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Columns</Label>
+                    <Input type="number" min={1} max={200} value={state.gridColumns}
+                      onChange={(e) => setGridNumber('SET_GRID_COLUMNS', e.target.value)} className="h-7 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Rows</Label>
+                    <Input type="number" min={1} max={200} value={state.gridRows}
+                      onChange={(e) => setGridNumber('SET_GRID_ROWS', e.target.value)} className="h-7 text-xs" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Column gap ({state.gridGapUnit})</Label>
+                    <Input type="number" min={0} max={state.gridGapUnit === 'percent' ? 40 : 500} step={state.gridGapUnit === 'percent' ? 0.5 : 1}
+                      value={state.gridColumnGap}
+                      onChange={(e) => dispatch({ type: 'SET_GRID_GAP', payload: { axis: 'x', value: Number(e.target.value) || 0 } })}
+                      className="h-7 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Row gap ({state.gridGapUnit})</Label>
+                    <Input type="number" min={0} max={state.gridGapUnit === 'percent' ? 40 : 500} step={state.gridGapUnit === 'percent' ? 0.5 : 1}
+                      value={state.gridRowGap}
+                      onChange={(e) => dispatch({ type: 'SET_GRID_GAP', payload: { axis: 'y', value: Number(e.target.value) || 0 } })}
+                      className="h-7 text-xs" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {(['px', 'percent'] as const).map((unit) => (
+                    <button key={unit} type="button" onClick={() => dispatch({ type: 'SET_GRID_GAP_UNIT', payload: unit })}
+                      className="flex-1 rounded py-1 text-[10px] uppercase"
+                      style={{
+                        background: state.gridGapUnit === unit ? 'rgba(0,245,255,0.14)' : 'rgba(255,255,255,0.04)',
+                        color: state.gridGapUnit === unit ? '#00F5FF' : '#94a3b8',
+                        border: `1px solid ${state.gridGapUnit === unit ? 'rgba(0,245,255,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                      }}
+                    >{unit === 'percent' ? '%' : 'px'}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg p-2 space-y-2" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Appearance</p>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-1">
+                    <input aria-label="Grid color" type="color" value={state.gridColor}
+                      onChange={(e) => dispatch({ type: 'SET_GRID_COLOR', payload: e.target.value })}
+                      className="h-7 w-8 rounded border-0 bg-transparent p-0 cursor-pointer" />
+                    <Input aria-label="Grid color HEX" value={state.gridColor}
+                      onChange={(e) => dispatch({ type: 'SET_GRID_COLOR', payload: e.target.value })}
+                      className="h-7 text-xs font-mono uppercase" />
+                  </div>
+                </div>
+                <div className="flex gap-1.5">
+                  {gridSwatches.map((swatch) => (
+                    <button key={swatch} type="button" aria-label={`Use ${swatch} grid color`}
+                      onClick={() => dispatch({ type: 'SET_GRID_COLOR', payload: swatch })}
+                      className="h-5 w-5 rounded-full border transition-transform hover:scale-110"
+                      style={{ background: swatch, borderColor: state.gridColor.toLowerCase() === swatch.toLowerCase() ? '#00F5FF' : 'rgba(255,255,255,0.35)', boxShadow: state.gridColor.toLowerCase() === swatch.toLowerCase() ? '0 0 0 1px #00F5FF' : 'none' }}
+                    />
+                  ))}
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] text-muted-foreground">Opacity</Label>
+                    <span className="text-[10px] font-mono text-foreground/70">{Math.round(state.gridOpacity * 100)}%</span>
+                  </div>
+                  <input type="range" min={5} max={100} value={Math.round(state.gridOpacity * 100)}
+                    onChange={(e) => dispatch({ type: 'SET_GRID_OPACITY', payload: Number(e.target.value) / 100 })}
+                    className="w-full accent-cyan-400" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] text-muted-foreground">Line weight</Label>
+                    <span className="text-[10px] font-mono text-foreground/70">{state.gridLineWeight}px</span>
+                  </div>
+                  <input type="range" min={0.5} max={6} step={0.5} value={state.gridLineWeight}
+                    onChange={(e) => dispatch({ type: 'SET_GRID_LINE_WEIGHT', payload: Number(e.target.value) })}
+                    className="w-full accent-cyan-400" />
+                </div>
+              </div>
+
+              <div className="rounded-lg p-2 space-y-2" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Slant / isometric</p>
+                    <p className="text-[10px] text-muted-foreground/70">Angle the mesh for perspective guides</p>
+                  </div>
+                  <button type="button" onClick={() => dispatch({ type: 'TOGGLE_GRID_SLANT' })}
+                    className="rounded px-2 py-1 text-[10px]"
+                    style={{ background: state.gridSlanted ? 'rgba(0,245,255,0.14)' : 'rgba(255,255,255,0.05)', color: state.gridSlanted ? '#00F5FF' : '#94a3b8', border: `1px solid ${state.gridSlanted ? 'rgba(0,245,255,0.4)' : 'rgba(255,255,255,0.1)'}` }}
+                  >{state.gridSlanted ? 'On' : 'Off'}</button>
+                </div>
+                <div className="space-y-1" style={{ opacity: state.gridSlanted ? 1 : 0.45 }}>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] text-muted-foreground">Angle</Label>
+                    <span className="text-[10px] font-mono text-foreground/70">{state.gridSlantAngle}°</span>
+                  </div>
+                  <input type="range" min={-60} max={60} value={state.gridSlantAngle} disabled={!state.gridSlanted}
+                    onChange={(e) => dispatch({ type: 'SET_GRID_SLANT_ANGLE', payload: Number(e.target.value) })}
+                    className="w-full accent-cyan-400" />
+                  <div className="flex justify-between text-[9px] text-muted-foreground"><span>-60°</span><span>0°</span><span>+60°</span></div>
+                </div>
+              </div>
+
+              <div className="rounded-md px-2 py-1.5 text-[10px]" style={{ color: state.gridLocked ? '#94a3b8' : '#00F5FF', background: state.gridLocked ? 'rgba(255,255,255,0.035)' : 'rgba(0,245,255,0.07)' }}>
+                {state.gridLocked ? 'Unlock dividers to drag individual rows and columns on the canvas.' : 'Drag the cyan handles on any divider to reposition it. Lock when finished.'}
               </div>
 
               <div className="space-y-1">

@@ -383,6 +383,16 @@ export default function DesignEditor() {
     dispatch({ type: 'SET_GUIDES', payload: { ...g, [axis]: g[axis].map((p: number, i: number) => i === idx ? newPos : p) } });
   }, [state.guides, dispatch]);
 
+  const handleGridPositionMove = useCallback((
+    axis: 'h' | 'v',
+    _idx: number,
+    _newPos: number,
+    positions: number[],
+  ) => {
+    dispatch({ type: 'SET_GRID_POSITIONS', payload: { axis, positions } });
+    dispatch({ type: 'SET_DIRTY', payload: true });
+  }, [dispatch]);
+
   /* ── Eyedropper ── */
   const applyEyedropperColor = useCallback((color: string) => {
     const obj = eyedropperTargetRef.current ?? controller.selectedObject;
@@ -757,6 +767,19 @@ export default function DesignEditor() {
         guides={state.guides}
         gridLocked={state.gridLocked}
         onGuideMove={handleGuideMove}
+        gridColumns={state.gridColumns}
+        gridRows={state.gridRows}
+        gridColumnGap={state.gridColumnGap}
+        gridRowGap={state.gridRowGap}
+        gridGapUnit={state.gridGapUnit}
+        gridColor={state.gridColor}
+        gridOpacity={state.gridOpacity}
+        gridLineWeight={state.gridLineWeight}
+        gridSlanted={state.gridSlanted}
+        gridSlantAngle={state.gridSlantAngle}
+        gridColumnPositions={state.gridColumnPositions}
+        gridRowPositions={state.gridRowPositions}
+        onGridPositionMove={handleGridPositionMove}
         panActive={panActive}
         penLiveHandle={controller.penLiveHandle}
         selectedAnchorIdx={controller.selectedVectorAnchorIdx}

@@ -36,6 +36,18 @@ export interface EditorState {
   gridSize: number;
   gridLocked: boolean;
   guides: { h: number[]; v: number[] };
+  gridColumns: number;
+  gridRows: number;
+  gridColumnGap: number;
+  gridRowGap: number;
+  gridGapUnit: 'px' | 'percent';
+  gridColor: string;
+  gridOpacity: number;
+  gridLineWeight: number;
+  gridSlanted: boolean;
+  gridSlantAngle: number;
+  gridColumnPositions: number[];
+  gridRowPositions: number[];
   canvasBg: CanvasBgConfig;
   brushPreset: BrushPreset;
   brushColor: string;
@@ -59,6 +71,17 @@ type EditorAction =
   | { type: 'TOGGLE_SNAP' }
   | { type: 'SET_GRID_SIZE'; payload: number }
   | { type: 'TOGGLE_GRID_LOCKED' }
+  | { type: 'SET_GRID_COLUMNS'; payload: number }
+  | { type: 'SET_GRID_ROWS'; payload: number }
+  | { type: 'SET_GRID_GAP'; payload: { axis: 'x' | 'y'; value: number } }
+  | { type: 'SET_GRID_GAP_UNIT'; payload: 'px' | 'percent' }
+  | { type: 'SET_GRID_COLOR'; payload: string }
+  | { type: 'SET_GRID_OPACITY'; payload: number }
+  | { type: 'SET_GRID_LINE_WEIGHT'; payload: number }
+  | { type: 'TOGGLE_GRID_SLANT' }
+  | { type: 'SET_GRID_SLANT_ANGLE'; payload: number }
+  | { type: 'SET_GRID_POSITIONS'; payload: { axis: 'h' | 'v'; positions: number[] } }
+  | { type: 'RESET_GRID_POSITIONS' }
   | { type: 'SET_GUIDES'; payload: { h: number[]; v: number[] } }
   | { type: 'ADD_GUIDE'; payload: { axis: 'h' | 'v'; pos: number } }
   | { type: 'REMOVE_GUIDE'; payload: { axis: 'h' | 'v'; idx: number } }
@@ -96,8 +119,20 @@ const initialState: EditorState = {
   gridEnabled: false,
   snapToGrid: false,
   gridSize: 20,
-  gridLocked: false,
+  gridLocked: true,
   guides: { h: [], v: [] },
+  gridColumns: 12,
+  gridRows: 12,
+  gridColumnGap: 24,
+  gridRowGap: 24,
+  gridGapUnit: 'px',
+  gridColor: '#00F5FF',
+  gridOpacity: 0.3,
+  gridLineWeight: 1,
+  gridSlanted: false,
+  gridSlantAngle: 30,
+  gridColumnPositions: [],
+  gridRowPositions: [],
   canvasBg: defaultBg,
   brushPreset: 'standard',
   brushColor: '#00F5FF',
@@ -141,6 +176,32 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, gridSize: action.payload };
     case 'TOGGLE_GRID_LOCKED':
       return { ...state, gridLocked: !state.gridLocked };
+    case 'SET_GRID_COLUMNS':
+      return { ...state, gridColumns: Math.max(1, Math.min(200, Math.round(action.payload))), gridColumnPositions: [] };
+    case 'SET_GRID_ROWS':
+      return { ...state, gridRows: Math.max(1, Math.min(200, Math.round(action.payload))), gridRowPositions: [] };
+    case 'SET_GRID_GAP':
+      return action.payload.axis === 'x'
+        ? { ...state, gridColumnGap: Math.max(0, Math.min(99, action.payload.value)), gridColumnPositions: [] }
+        : { ...state, gridRowGap: Math.max(0, Math.min(99, action.payload.value)), gridRowPositions: [] };
+    case 'SET_GRID_GAP_UNIT':
+      return { ...state, gridGapUnit: action.payload, gridColumnPositions: [], gridRowPositions: [] };
+    case 'SET_GRID_COLOR':
+      return { ...state, gridColor: action.payload };
+    case 'SET_GRID_OPACITY':
+      return { ...state, gridOpacity: Math.max(0.05, Math.min(1, action.payload)) };
+    case 'SET_GRID_LINE_WEIGHT':
+      return { ...state, gridLineWeight: Math.max(0.5, Math.min(6, action.payload)) };
+    case 'TOGGLE_GRID_SLANT':
+      return { ...state, gridSlanted: !state.gridSlanted };
+    case 'SET_GRID_SLANT_ANGLE':
+      return { ...state, gridSlantAngle: Math.max(-60, Math.min(60, action.payload)) };
+    case 'SET_GRID_POSITIONS':
+      return action.payload.axis === 'v'
+        ? { ...state, gridColumnPositions: action.payload.positions }
+        : { ...state, gridRowPositions: action.payload.positions };
+    case 'RESET_GRID_POSITIONS':
+      return { ...state, gridColumnPositions: [], gridRowPositions: [] };
     case 'SET_GUIDES':
       return { ...state, guides: action.payload };
     case 'ADD_GUIDE': {

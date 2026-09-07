@@ -23,6 +23,17 @@ function buildSvgBezierPath(
   return d;
 }
 
+function getGridGap(value: number, unit: 'px' | 'percent', size: number): number {
+  return unit === 'percent' ? size * (value / 100) : value;
+}
+
+function buildDividerPositions(count: number, size: number, gapValue: number, gapUnit: 'px' | 'percent'): number[] {
+  if (count <= 1) return [];
+  const gap = Math.min(Math.max(0, getGridGap(gapValue, gapUnit, size)), Math.max(0, (size - 1) / (count - 1)));
+  const track = Math.max(1, (size - gap * (count - 1)) / count);
+  return Array.from({ length: count - 1 }, (_, index) => (index + 1) * track + index * gap);
+}
+
 export interface DragInfo {
   w: number;
   h: number;
@@ -55,6 +66,19 @@ interface CanvasProps {
   guides?: { h: number[]; v: number[] };
   gridLocked?: boolean;
   onGuideMove?: (axis: 'h' | 'v', idx: number, newDesignPos: number) => void;
+  gridColumns?: number;
+  gridRows?: number;
+  gridColumnGap?: number;
+  gridRowGap?: number;
+  gridGapUnit?: 'px' | 'percent';
+  gridColor?: string;
+  gridOpacity?: number;
+  gridLineWeight?: number;
+  gridSlanted?: boolean;
+  gridSlantAngle?: number;
+  gridColumnPositions?: number[];
+  gridRowPositions?: number[];
+  onGridPositionMove?: (axis: 'h' | 'v', idx: number, newDesignPos: number, positions: number[]) => void;
   panActive?: boolean;
   onEyedropperSample?: (clientX: number, clientY: number) => void;
   onEyedropperFinish?: () => void;
@@ -84,14 +108,35 @@ export default function CanvasWorkspace({
   guides,
   gridLocked = false,
   onGuideMove,
+  gridColumns = 12,
+  gridRows = 12,
+  gridColumnGap = 24,
+  gridRowGap = 24,
+  gridGapUnit = 'px',
+  gridColor = '#00F5FF',
+  gridOpacity = 0.3,
+  gridLineWeight = 1,
+  gridSlanted = false,
+  gridSlantAngle = 30,
+  gridColumnPositions = [],
+  gridRowPositions = [],
+  onGridPositionMove,
   panActive = false,
   penLiveHandle = null,
   selectedAnchorIdx = null,
   onEyedropperSample,
   onEyedropperFinish,
 }: CanvasProps) {
-  const tileSize = gridSize * zoom;
   const showPenSvg = penActive && penPoints.length > 0;
+  const gridColumnsResolved = gridColumnPositions.length === Math.max(0, gridColumns - 1)
+    ? gridColumnPositions
+    : buildDividerPositions(gridColumns, canvasWidth, gridColumnGap, gridGapUnit);
+  const gridRowsResolved = gridRowPositions.length === Math.max(0, gridRows - 1)
+    ? gridRowPositions
+    : buildDividerPositions(gridRows, canvasHeight, gridRowGap, gridGapUnit);
+  const gridAngleRadians = (gridSlanted ? gridSlantAngle : 0) * Math.PI / 180;
+  const gridSlantOffset = Math.tan(gridAngleRadians);
+  const safeGridColor = /^#[\da-f]{3}([\da-f]{3})?$/i.test(gridColor) ? gridColor : '#00F5FF';
 
   const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : panActive ? 'grab' : 'default';
   const [eyedropperPoint, setEyedropperPoint] = useState<{ x: number; y: number } | null>(null);
@@ -191,6 +236,47 @@ export default function CanvasWorkspace({
   const guideDragRef = useRef<{ axis: 'h' | 'v'; idx: number; startClient: number; startDesign: number } | null>(null);
   const onGuideMoveRef = useRef(onGuideMove);
   useEffect(() => { onGuideMoveRef.current = onGuideMove; }, [onGuideMove]);
+
+  const gridDragRef = useRef<{
+    axis: 'h' | 'v';
+    idx: number;
+    startClient: number;
+    startDesign: number;
+    positions: number[];
+    pointerId: number;
+  } | null>(null);
+  const onGridPositionMoveRef = useRef(onGridPositionMove);
+  useEffect(() => { onGridPositionMoveRef.current = onGridPositionMove; }, [onGridPositionMove]);
+
+  useEffect(() => {
+    if (gridLocked) {
+      gridDragRef.current = null;
+      return;
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      const drag = gridDragRef.current;
+      if (!drag) return;
+      const delta = (drag.axis === 'h' ? e.clientY : e.clientX) - drag.startClient;
+      const size = drag.axis === 'h' ? canvasHeight : canvasWidth;
+      const previous = drag.positions[drag.idx - 1];
+      const next = drag.positions[drag.idx + 1];
+      const minimum = previous === undefined ? 4 : previous + 4;
+      const maximum = next === undefined ? size - 4 : next - 4;
+      const newDesignPos = Math.max(minimum, Math.min(maximum, Math.round(drag.startDesign + delta / zoom)));
+      const positions = drag.positions.map((position, index) => index === drag.idx ? newDesignPos : position);
+      drag.positions = positions;
+      onGridPositionMoveRef.current?.(drag.axis, drag.idx, newDesignPos, positions);
+    };
+    const onPointerUp = () => { gridDragRef.current = null; };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [canvasHeight, canvasWidth, gridLocked, zoom]);
 
   useEffect(() => {
     if (gridLocked) return;
@@ -344,22 +430,90 @@ export default function CanvasWorkspace({
             </div>
           )}
 
-          {/* High-contrast grid overlay */}
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 pointer-events-none"
+          {/* Non-exportable grid guide layer. It sits above Fabric but outside its
+              bitmap, so it remains an editing aid and never enters exports. */}
+          <svg
+            aria-label="Canvas alignment grid"
+            className="absolute z-10"
+            viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+            preserveAspectRatio="none"
             style={{
-              opacity: gridEnabled ? 1 : 0,
-              backgroundImage: `
-                linear-gradient(rgba(0,0,0,0.3) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,0,0,0.3) 1px, transparent 1px),
-                linear-gradient(rgba(255,255,255,0.25) 1.5px, transparent 1.5px),
-                linear-gradient(90deg, rgba(255,255,255,0.25) 1.5px, transparent 1.5px)
-              `,
-              backgroundSize: `${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px, ${tileSize}px ${tileSize}px`,
-              backgroundPosition: `${vpX % tileSize - 0.5}px ${vpY % tileSize - 0.5}px, ${vpX % tileSize - 0.5}px ${vpY % tileSize - 0.5}px, ${vpX % tileSize}px ${vpY % tileSize}px, ${vpX % tileSize}px ${vpY % tileSize}px`,
+              left: vpX,
+              top: vpY,
+              width: canvasWidth * zoom,
+              height: canvasHeight * zoom,
+              display: gridEnabled ? 'block' : 'none',
+              overflow: 'visible',
+              pointerEvents: gridLocked ? 'none' : 'auto',
             }}
-          />
+          >
+            <g
+              fill="none"
+              stroke={safeGridColor}
+              strokeOpacity={gridOpacity}
+              strokeWidth={gridLineWeight / Math.max(zoom, 0.01)}
+            >
+              {gridColumnsResolved.map((x, index) => {
+                const x2 = x + gridSlantOffset * canvasHeight;
+                const midX = x + gridSlantOffset * canvasHeight / 2;
+                return (
+                  <g key={`grid-v-${index}`}>
+                    <line x1={x} y1={0} x2={x2} y2={canvasHeight} />
+                    <line
+                      x1={x} y1={0} x2={x2} y2={canvasHeight}
+                      stroke="transparent" strokeWidth={12 / Math.max(zoom, 0.01)}
+                      pointerEvents="stroke"
+                      onPointerDown={(e) => {
+                        if (gridLocked) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
+                        gridDragRef.current = {
+                          axis: 'v', idx: index, startClient: e.clientX,
+                          startDesign: (e.clientX - e.currentTarget.ownerSVGElement!.getBoundingClientRect().left) / zoom
+                            - gridSlantOffset * ((e.clientY - e.currentTarget.ownerSVGElement!.getBoundingClientRect().top) / zoom),
+                          positions: [...gridColumnsResolved], pointerId: e.pointerId,
+                        };
+                      }}
+                    />
+                    {!gridLocked && (
+                      <circle cx={midX} cy={canvasHeight / 2} r={5 / Math.max(zoom, 0.01)}
+                        fill={safeGridColor} fillOpacity={Math.min(1, gridOpacity + 0.25)} stroke="#0B0C10" strokeWidth={1 / Math.max(zoom, 0.01)} pointerEvents="none" />
+                    )}
+                  </g>
+                );
+              })}
+              {gridRowsResolved.map((y, index) => {
+                const offset = gridSlantOffset * y;
+                const midX = (canvasWidth / 2) + offset;
+                return (
+                  <g key={`grid-h-${index}`}>
+                    <line x1={offset} y1={y} x2={canvasWidth + offset} y2={y} />
+                    <line
+                      x1={offset} y1={y} x2={canvasWidth + offset} y2={y}
+                      stroke="transparent" strokeWidth={12 / Math.max(zoom, 0.01)}
+                      pointerEvents="stroke"
+                      onPointerDown={(e) => {
+                        if (gridLocked) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
+                        gridDragRef.current = {
+                          axis: 'h', idx: index, startClient: e.clientY,
+                          startDesign: (e.clientY - e.currentTarget.ownerSVGElement!.getBoundingClientRect().top) / zoom,
+                          positions: [...gridRowsResolved], pointerId: e.pointerId,
+                        };
+                      }}
+                    />
+                    {!gridLocked && (
+                      <circle cx={midX} cy={y} r={5 / Math.max(zoom, 0.01)}
+                        fill={safeGridColor} fillOpacity={Math.min(1, gridOpacity + 0.25)} stroke="#0B0C10" strokeWidth={1 / Math.max(zoom, 0.01)} pointerEvents="none" />
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          </svg>
 
           {/* Horizontal guide lines */}
           {guides?.h.map((pos, i) => {

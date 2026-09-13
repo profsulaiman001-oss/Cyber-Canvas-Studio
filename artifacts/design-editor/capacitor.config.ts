@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.cybercanvasstudio.app',
-  appName: 'Cyber Canvas Studio',
+  appId: 'com.spiexel.app',
+  appName: 'Spiexel',
   // Points at the Vite build output directory (relative to this file)
   webDir: 'dist',
   server: {

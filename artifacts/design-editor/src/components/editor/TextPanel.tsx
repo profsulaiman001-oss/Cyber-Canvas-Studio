@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -15,6 +15,7 @@ import FontPicker from './FontPicker';
 import { useToast } from '@/hooks/use-toast';
 import { Type } from 'lucide-react';
 import localforage from 'localforage';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 
 const SYSTEM_FONTS = ['Inter', 'Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Impact'];
 
@@ -208,8 +209,7 @@ export default function TextPanel({ controller }: TextPanelProps) {
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
+      <ResponsiveDrawerWrapper
         className="rounded-t-2xl p-0"
         style={{ maxHeight: '82vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="text-panel"
@@ -387,7 +387,7 @@ export default function TextPanel({ controller }: TextPanelProps) {
             <div className="h-2" />
           </div>
         )}
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { Separator } from '@/components/ui/separator';
 import { Pipette, FlipHorizontal2, Trash2, Plus, Move, RotateCw } from 'lucide-react';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import ColorPicker from './ColorPicker';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 
 export interface Stop { offset: number; color: string }
 export type FillMode = 'solid' | 'linear' | 'radial' | 'angular';
@@ -728,9 +729,8 @@ export default function ColorStudioPanel({
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
-        className="w-full rounded-t-2xl p-0 sm:max-w-2xl sm:mx-auto sm:left-0 sm:right-0 sm:bottom-4 sm:rounded-2xl sm:shadow-2xl"
+      <ResponsiveDrawerWrapper
+        className="rounded-t-2xl p-0"
         style={{ maxHeight: '90vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="color-studio-panel"
       >
@@ -935,7 +935,7 @@ export default function ColorStudioPanel({
             </p>
           </div>
         </div>
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

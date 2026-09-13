@@ -139,7 +139,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
   if (!isOpen || !obj) return null;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 z-50" data-testid="stroke-panel">
+    <div className="absolute bottom-full left-0 right-0 z-50 w-full sm:left-1/2 sm:right-auto sm:max-w-2xl sm:-translate-x-1/2 sm:mb-4 sm:rounded-2xl sm:shadow-2xl" data-testid="stroke-panel">
       <div
         className="border-t"
         style={{

@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController, FABRIC_EDITOR_CLONE_PROPS } from '@/hooks/useFabricCanvas';
 import { FabricObject, Path as FabricPath, Canvas } from 'fabric';
 import { useToast } from '@/hooks/use-toast';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 import { Layers2 } from 'lucide-react';
 
 type BoolOp = 'unite' | 'subtract' | 'intersect' | 'exclude' | 'divide' | 'trim' | 'weld' | 'compound';
@@ -343,8 +344,7 @@ export default function ShapeModifiersPanel({ controller }: ShapeModifiersPanelP
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
+      <ResponsiveDrawerWrapper
         className="rounded-t-2xl p-0"
         style={{ maxHeight: '70vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="shape-modifiers-panel"
@@ -372,7 +372,7 @@ export default function ShapeModifiersPanel({ controller }: ShapeModifiersPanelP
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {OPS.map((op) => (
               <button
                 key={op.id}
@@ -400,7 +400,7 @@ export default function ShapeModifiersPanel({ controller }: ShapeModifiersPanelP
             Works on all shape types. Non-path geometry is auto-converted before the operation.
           </p>
         </div>
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

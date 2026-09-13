@@ -14,7 +14,7 @@ import {
   ArrowUp,
   ArrowDown,
 } from 'lucide-react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController, ObjectMeta } from '@/hooks/useFabricCanvas';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 
 interface LayersPanelProps {
   controller: CanvasController;
@@ -248,9 +249,8 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   return (
     <>
       <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-        <SheetContent
-          side="bottom"
-          className="w-full rounded-t-2xl p-0 sm:max-w-2xl sm:mx-auto sm:left-0 sm:right-0 sm:bottom-4 sm:rounded-2xl sm:shadow-2xl"
+        <ResponsiveDrawerWrapper
+          className="rounded-t-2xl p-0"
           style={{ maxHeight: '82vh', background: '#11141A', border: 'none' }}
           data-testid="layers-panel"
         >
@@ -446,7 +446,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
               })}
             </div>
           )}
-        </SheetContent>
+        </ResponsiveDrawerWrapper>
       </Sheet>
 
       <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>

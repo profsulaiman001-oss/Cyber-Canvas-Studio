@@ -57,6 +57,10 @@ pnpm workspace monorepo using TypeScript. Contains a full-featured offline Graph
 - **Route**: `/api`
 - Shared Express 5 backend (currently minimal, app uses IndexedDB only)
 
+### Responsive panel architecture
+
+MANDATORY UI RULE: All new and existing bottom sheets, studio drawers, and modals MUST use `<ResponsiveDrawerWrapper>` or include `w-full sm:max-w-2xl sm:mx-auto sm:rounded-2xl`. Drawers must NEVER stretch full-width across desktop viewports (`>=640px`).
+
 ## Key Commands
 
 - `pnpm install --frozen-lockfile` — install the workspace dependencies after import

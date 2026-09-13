@@ -1,8 +1,9 @@
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useEditor } from '@/store/editorStore';
 import { Lock, Unlock, RotateCcw } from 'lucide-react';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 
 interface GridSettingsSheetProps {
   open: boolean;
@@ -21,9 +22,8 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        className="w-full rounded-t-2xl p-0 sm:max-w-2xl sm:mx-auto sm:left-0 sm:right-0 sm:bottom-4 sm:rounded-2xl sm:shadow-2xl"
+      <ResponsiveDrawerWrapper
+        className="rounded-t-2xl p-0"
         style={{
           maxHeight: 'min(78vh, 720px)',
           background: '#11141A',
@@ -303,7 +303,7 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
             })}
           </section>
         </div>
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

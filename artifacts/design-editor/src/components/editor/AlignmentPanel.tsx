@@ -1,7 +1,8 @@
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController, AlignType } from '@/hooks/useFabricCanvas';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 import {
   AlignStartVertical, AlignEndVertical, AlignCenterVertical,
   AlignStartHorizontal, AlignEndHorizontal, AlignCenterHorizontal,
@@ -104,8 +105,7 @@ export default function AlignmentPanel({ controller }: AlignmentPanelProps) {
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
+      <ResponsiveDrawerWrapper
         className="rounded-t-2xl p-0"
         style={{ maxHeight: '55vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
       >
@@ -168,7 +168,7 @@ export default function AlignmentPanel({ controller }: AlignmentPanelProps) {
             </div>
           </div>
         </div>
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { Pipette, FlipHorizontal2, Trash2, Plus } from 'lucide-react';
 import { useEditor, CanvasBgConfig } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import ColorPicker from './ColorPicker';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 import {
   ColorHistory,
   GradientBar,
@@ -282,8 +283,7 @@ export default function CanvasBgDialog({
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
+      <ResponsiveDrawerWrapper
         className="rounded-t-2xl p-0"
         style={{ maxHeight: '90vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="canvas-background-panel"
@@ -481,7 +481,7 @@ export default function CanvasBgDialog({
             Live preview updates immediately; Apply saves this background to Recent.
           </p>
         </div>
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

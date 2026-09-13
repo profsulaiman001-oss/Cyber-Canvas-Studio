@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { PenTool, Minus, Spline, GitBranch, Scissors, Unlink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 
 interface VectorsPanelProps {
   controller: CanvasController;
@@ -100,8 +101,7 @@ export default function VectorsPanel({ controller, onPenStart }: VectorsPanelPro
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
+      <ResponsiveDrawerWrapper
         className="rounded-t-2xl p-0"
         style={{ maxHeight: '72vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="vectors-panel"
@@ -118,7 +118,7 @@ export default function VectorsPanel({ controller, onPenStart }: VectorsPanelPro
           {/* ── Path Creation Tools ── */}
           <div>
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-2">Path Creation</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <ToolCard
                 icon={<PenTool size={18} />}
                 label="Pen Tool"
@@ -164,7 +164,7 @@ export default function VectorsPanel({ controller, onPenStart }: VectorsPanelPro
               (the topmost becomes the clip shape). Works on images, shapes, text, and vector paths.
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <ToolCard
                 icon={<Scissors size={18} />}
                 label="Apply Mask"
@@ -211,7 +211,7 @@ export default function VectorsPanel({ controller, onPenStart }: VectorsPanelPro
           )}
 
         </div>
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

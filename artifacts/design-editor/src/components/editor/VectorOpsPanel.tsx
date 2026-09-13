@@ -1,10 +1,11 @@
 import { useState, useCallback } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject, Path as FabricPath, Canvas } from 'fabric';
 import { useToast } from '@/hooks/use-toast';
+import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 import { GitMerge } from 'lucide-react';
 
 type BoolOp = 'unite' | 'subtract' | 'intersect' | 'exclude' | 'divide' | 'trim' | 'weld' | 'compound';
@@ -254,8 +255,7 @@ export default function VectorOpsPanel({ controller }: VectorOpsPanelProps) {
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
+      <ResponsiveDrawerWrapper
         className="rounded-t-2xl p-0"
         style={{ maxHeight: '70vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="vector-ops-panel"
@@ -279,7 +279,7 @@ export default function VectorOpsPanel({ controller }: VectorOpsPanelProps) {
             <span>{canOperate ? `✓ ${pathObjs.length} paths selected — ready` : 'Select 2 or more path objects to enable operations'}</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {OPS.map((op) => (
               <button
                 key={op.id}
@@ -307,7 +307,7 @@ export default function VectorOpsPanel({ controller }: VectorOpsPanelProps) {
             Operations work on selected Path objects. Results are new vector paths.
           </p>
         </div>
-      </SheetContent>
+      </ResponsiveDrawerWrapper>
     </Sheet>
   );
 }

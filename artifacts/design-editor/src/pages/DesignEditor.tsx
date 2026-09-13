@@ -27,6 +27,8 @@ import VectorsPanel from '@/components/editor/VectorsPanel';
 import VectorNodePanel from '@/components/editor/VectorNodePanel';
 import CropModal from '@/components/editor/CropModal';
 import ColorPicker from '@/components/editor/ColorPicker';
+import KeyboardShortcutsDialog from '@/components/editor/KeyboardShortcutsDialog';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Slider } from '@/components/ui/slider';
 import {
   AlertDialog,
@@ -80,6 +82,8 @@ export default function DesignEditor() {
   const [vpY, setVpY] = useState(0);
 
   const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
+  const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   /* ── Unified crop modal state ── */
   type CropMode = 'image' | 'fill' | 'raster';
@@ -182,6 +186,33 @@ export default function DesignEditor() {
     currentProjectIdRef.current = project.id;
     setCurrentProjectId(project.id);
     dispatch({ type: 'SET_DIRTY', payload: false });
+  }, [controller, dispatch, persistProject]);
+
+  const createNewProject = useCallback(async () => {
+    if (!window.confirm('Create a new project? Any unsaved changes will be replaced.')) return;
+    const activeController = controllerRef.current ?? controller;
+    const canvas = activeController.getCanvas();
+    if (!canvas) return;
+    const latestState = editorStateRef.current;
+    await activeController.loadFromJSON({ version: '7.3.1', objects: [], background: '#ffffff' });
+    canvas.renderAll();
+    const project = await persistProject(
+      null,
+      'Untitled Design',
+      activeController.getJSON(),
+      canvas.toDataURL({
+        format: 'jpeg',
+        quality: 0.3,
+        multiplier: Math.min(200 / latestState.canvasSize.width, 200 / latestState.canvasSize.height),
+      }),
+      latestState.canvasSize.width,
+      latestState.canvasSize.height,
+    );
+    currentProjectIdRef.current = project.id;
+    setCurrentProjectId(project.id);
+    dispatch({ type: 'SET_PROJECT_NAME', payload: 'Untitled Design' });
+    dispatch({ type: 'SET_DIRTY', payload: false });
+    dispatch({ type: 'CLOSE_PANEL' });
   }, [controller, dispatch, persistProject]);
 
   const discardUnsavedChanges = useCallback(async () => {
@@ -546,6 +577,43 @@ export default function DesignEditor() {
     dispatch({ type: 'SET_TOOL', payload: 'pen' });
   }, [controller, dispatch]);
 
+  const handleQuickExport = useCallback(() => {
+    const dataUrl = controller.exportCanvas('png', 1, 1);
+    if (!dataUrl) return;
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `${state.projectName || 'untitled'}_design.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [controller, state.projectName]);
+
+  const handleKeyboardEyedropper = useCallback(() => {
+    void handleEyedropper({ mode: 'solid', selectedStop: 0 }, 'colorStudio');
+  }, [handleEyedropper]);
+
+  const toggleGridStudio = useCallback(() => {
+    setGridSettingsOpen((open) => !open);
+  }, []);
+
+  const setActiveTool = useCallback((tool: import('@/store/editorStore').ActiveTool) => {
+    dispatch({ type: 'SET_TOOL', payload: tool });
+  }, [dispatch]);
+
+  useKeyboardShortcuts({
+    controller,
+    activeTool: state.activeTool,
+    setTool: setActiveTool,
+    toggleGrid: toggleGridStudio,
+    onSave: saveCurrentProject,
+    onNewProject: createNewProject,
+    onOpenProject: requestProjectManager,
+    onQuickExport: handleQuickExport,
+    onEyedropper: handleKeyboardEyedropper,
+    onShowHelp: () => setShortcutsOpen(true),
+    onNudge: handleNudgeElement,
+  });
+
   const zoomPercent = Math.round(controller.zoom * 100);
 
   /* ── Quick-tray: fill opacity + corner radius ── */
@@ -784,6 +852,8 @@ export default function DesignEditor() {
         onCopy={controller.copySelected}
         onPaste={controller.pasteSelected}
         onOpenProjects={requestProjectManager}
+        gridSettingsOpen={gridSettingsOpen}
+        onGridSettingsOpenChange={setGridSettingsOpen}
       />
 
       <CanvasWorkspace
@@ -1068,6 +1138,7 @@ export default function DesignEditor() {
         }}
         onRequestNavigation={requestProjectNavigation}
       />
+      <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <TextPanel controller={controller} />
       <ShapeModifiersPanel controller={controller} />
       <VectorsPanel controller={controller} onPenStart={handleVectorsPenStart} />

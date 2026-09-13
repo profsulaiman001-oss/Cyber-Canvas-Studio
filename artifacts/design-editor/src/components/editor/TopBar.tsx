@@ -23,13 +23,22 @@ interface TopBarProps {
   onCopy: () => void;
   onPaste: () => void;
   onOpenProjects?: () => void;
+  gridSettingsOpen: boolean;
+  onGridSettingsOpenChange: (open: boolean) => void;
 }
 
-export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onOpenProjects }: TopBarProps) {
+export default function TopBar({
+  onUndo,
+  onRedo,
+  onCopy,
+  onPaste,
+  onOpenProjects,
+  gridSettingsOpen,
+  onGridSettingsOpenChange,
+}: TopBarProps) {
   const { state, dispatch } = useEditor();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(state.projectName);
-  const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleNameClick = () => {
@@ -147,7 +156,7 @@ export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onOpenProjects
               variant="ghost"
               size="icon"
               className="h-8 w-8 shrink-0"
-              onClick={() => setGridSettingsOpen(true)}
+              onClick={() => onGridSettingsOpenChange(true)}
               style={iconBtn(state.gridEnabled)}
               data-testid="button-grid"
             >
@@ -164,7 +173,7 @@ export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onOpenProjects
               size="icon"
               className="h-8 w-8 shrink-0"
               style={iconBtn(gridSettingsOpen)}
-              onClick={() => setGridSettingsOpen(true)}
+              onClick={() => onGridSettingsOpenChange(true)}
               data-testid="button-grid-settings"
             >
               <Settings2 size={13} />
@@ -222,7 +231,7 @@ export default function TopBar({ onUndo, onRedo, onCopy, onPaste, onOpenProjects
         </Tooltip>
       </div>
 
-      <GridSettingsSheet open={gridSettingsOpen} onOpenChange={setGridSettingsOpen} />
+      <GridSettingsSheet open={gridSettingsOpen} onOpenChange={onGridSettingsOpenChange} />
     </div>
   );
 }

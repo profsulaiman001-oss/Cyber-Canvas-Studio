@@ -2999,45 +2999,95 @@ export function useFabricCanvas(
 
   const deleteSelected = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
-    c.getActiveObjects().forEach((o) => c.remove(o));
+    const selected = c.getActiveObjects();
+    if (selected.length === 0) return;
+    selected.forEach((o) => c.remove(o));
     c.discardActiveObject(); c.renderAll();
-  }, []);
+    setSelectedObject(null);
+    options.onSelectionChange([]);
+    pushUndo();
+    syncObjects();
+  }, [options, pushUndo, syncObjects]);
 
-  const duplicateSelected = useCallback(() => {
+  const duplicateSelected = useCallback((offset = 20) => {
     const c = canvasRef.current; if (!c) return;
-    const active = c.getActiveObject(); if (!active) return;
-    cloneObjectWithEditorState(active).then((cloned) => {
-      cloned.set({ left: (cloned.left || 0) + 20, top: (cloned.top || 0) + 20 });
-      (cloned as FabricObject & { _name: string })._name = `${(active as FabricObject & { _name?: string })._name || 'Object'} copy`;
-      (cloned as FabricObject & { _uid: string })._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      c.add(cloned); c.setActiveObject(cloned); c.renderAll();
+    const selected = c.getActiveObjects();
+    if (selected.length === 0) return;
+    Promise.all(selected.map((source) => cloneObjectWithEditorState(source))).then((clones) => {
+      clones.forEach((cloned, index) => {
+        const source = selected[index];
+        cloned.set({ left: (cloned.left || 0) + offset, top: (cloned.top || 0) + offset });
+        (cloned as FabricObject & { _name: string })._name = `${(source as FabricObject & { _name?: string })._name || 'Object'} copy`;
+        (cloned as FabricObject & { _uid: string })._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        c.add(cloned);
+      });
+      c.discardActiveObject();
+      if (clones.length === 1) {
+        c.setActiveObject(clones[0]);
+      } else {
+        c.setActiveObject(new ActiveSelection(clones, { canvas: c }));
+      }
+      c.renderAll();
+      pushUndo();
+      syncObjects();
     });
-  }, [cloneObjectWithEditorState]);
+  }, [cloneObjectWithEditorState, pushUndo, syncObjects]);
 
   /* ─── Copy / Paste (internal canvas clipboard) ─── */
-  const clipboardRef = useRef<FabricObject | null>(null);
+  const clipboardRef = useRef<FabricObject[]>([]);
 
   const copySelected = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
-    const active = c.getActiveObject(); if (!active) return;
-    cloneObjectWithEditorState(active).then((cloned) => {
-      clipboardRef.current = cloned;
+    const selected = c.getActiveObjects();
+    if (selected.length === 0) return;
+    Promise.all(selected.map((source) => cloneObjectWithEditorState(source))).then((clones) => {
+      clipboardRef.current = clones;
     });
   }, [cloneObjectWithEditorState]);
 
-  const pasteSelected = useCallback(() => {
+  const pasteSelected = useCallback((offset = 20) => {
     const c = canvasRef.current; if (!c) return;
-    const src = clipboardRef.current; if (!src) return;
-    cloneObjectWithEditorState(src).then((cloned) => {
-      cloned.set({ left: (cloned.left || 0) + 20, top: (cloned.top || 0) + 20 });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (cloned as any)._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (cloned as any)._name = `${(src as any)._name || 'Object'} copy`;
-      c.add(cloned); c.setActiveObject(cloned); c.renderAll();
+    const sources = clipboardRef.current;
+    if (sources.length === 0) return;
+    Promise.all(sources.map((source) => cloneObjectWithEditorState(source))).then((clones) => {
+      clones.forEach((cloned, index) => {
+        const source = sources[index];
+        cloned.set({ left: (cloned.left || 0) + offset, top: (cloned.top || 0) + offset });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (cloned as any)._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (cloned as any)._name = `${(source as any)._name || 'Object'} copy`;
+        c.add(cloned);
+      });
+      c.discardActiveObject();
+      if (clones.length === 1) {
+        c.setActiveObject(clones[0]);
+      } else {
+        c.setActiveObject(new ActiveSelection(clones, { canvas: c }));
+      }
+      c.renderAll();
       pushUndo(); syncObjects();
     });
   }, [cloneObjectWithEditorState, pushUndo, syncObjects]);
+
+  const selectAll = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const selectable = c.getObjects().filter((obj) => obj.selectable !== false);
+    if (selectable.length === 0) return;
+    c.discardActiveObject();
+    c.setActiveObject(selectable.length === 1
+      ? selectable[0]
+      : new ActiveSelection(selectable, { canvas: c }));
+    c.requestRenderAll();
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    c.discardActiveObject();
+    c.requestRenderAll();
+    setSelectedObject(null);
+    options.onSelectionChange([]);
+  }, [options]);
 
   const bringForward = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
@@ -3071,8 +3121,8 @@ export function useFabricCanvas(
     const locked = !obj.selectable;
     obj.set({ selectable: locked, evented: locked });
     if (!locked) canvasRef.current?.discardActiveObject();
-    canvasRef.current?.renderAll(); syncObjects();
-  }, [syncObjects]);
+    canvasRef.current?.renderAll(); pushUndo(); syncObjects();
+  }, [pushUndo, syncObjects]);
 
   const deleteObject = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
@@ -3181,7 +3231,7 @@ export function useFabricCanvas(
     // Mask (clipPath)
     applyMaskFromSelection, releaseMask,
     // Object ops
-    deleteSelected, duplicateSelected, copySelected, pasteSelected,
+    deleteSelected, duplicateSelected, copySelected, pasteSelected, selectAll, clearSelection,
     bringForward, sendBackward, bringToFront, sendToBack,
     toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
     groupSelected, ungroupSelected,

@@ -10,13 +10,14 @@
     "build:cap": "CAPACITOR_BUILD=true vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "cap:build": "pnpm run build:cap && npx cap copy android && npx cap sync android",
+    "cap:assets": "npx @capacitor/assets generate --android",
+    "cap:build": "pnpm run cap:assets && pnpm run build:cap && npx cap copy android && npx cap sync android",
     "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android"
   },
   "build": {
-    "appId": "com.cybercanvas.studio",
-    "productName": "Cyber Canvas Studio",
+    "appId": "com.spiexel.app",
+    "productName": "Spiexel",
     "electronVersion": "34.0.0",
     "directories": {
       "output": "dist-electron"
@@ -32,6 +33,7 @@
     }
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.4.2",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",

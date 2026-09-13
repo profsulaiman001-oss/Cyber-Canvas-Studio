@@ -9,6 +9,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    title: 'Spiexel',
+    icon: path.join(__dirname, 'public', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,

@@ -34,7 +34,7 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
       <SheetContent
         side="bottom"
-        className="rounded-t-2xl p-0"
+        className="w-full rounded-t-2xl p-0 sm:max-w-2xl sm:mx-auto sm:left-0 sm:right-0 sm:bottom-4 sm:rounded-2xl sm:shadow-2xl"
         style={{ maxHeight: '80vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="add-element-sheet"
       >
@@ -47,7 +47,7 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
           {/* ── Basic Shapes ── */}
           <div>
             <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">Basic Shapes</p>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <ShapeCard label="Square" onClick={() => add(controller.addRect)} testId="add-rect">
                 <svg viewBox="0 0 24 24" className="w-7 h-7 fill-current"><rect x="3" y="3" width="18" height="18" rx="1" /></svg>
               </ShapeCard>
@@ -66,7 +66,7 @@ export default function AddElementSheet({ controller }: AddElementSheetProps) {
           {/* ── More Shapes ── */}
           <div>
             <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">More Shapes</p>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <ShapeCard label="Star" onClick={() => add(controller.addStar)} testId="add-star">
                 <svg viewBox="-70 -70 140 140" className="w-7 h-7 fill-current">
                   <polygon points="0,-60 14,-20 56,-20 22,8 34,48 0,24 -34,48 -22,8 -56,-20 -14,-20" />

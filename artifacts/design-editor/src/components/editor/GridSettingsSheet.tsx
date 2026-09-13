@@ -23,7 +23,7 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-2xl p-0"
+        className="w-full rounded-t-2xl p-0 sm:max-w-2xl sm:mx-auto sm:left-0 sm:right-0 sm:bottom-4 sm:rounded-2xl sm:shadow-2xl"
         style={{
           maxHeight: 'min(78vh, 720px)',
           background: '#11141A',
@@ -86,7 +86,7 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
                 <RotateCcw size={10} /> Reset dividers
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Columns</Label>
                 <Input
@@ -110,7 +110,7 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Column spacing ({state.gridGapUnit})</Label>
                 <Input
@@ -263,7 +263,7 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
               : 'Drag the cyan handles on any divider to reposition it. Lock when finished.'}
           </div>
 
-          <section className="grid grid-cols-2 gap-3 rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}>
             {(['h', 'v'] as const).map((axis) => {
               const label = axis === 'h' ? 'H Guides' : 'V Guides';
               const guidePositions = state.guides[axis];

@@ -219,7 +219,7 @@ export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelP
     <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
       <SheetContent
         side="bottom"
-        className="rounded-t-2xl p-0"
+        className="w-full rounded-t-2xl p-0 sm:max-w-2xl sm:mx-auto sm:left-0 sm:right-0 sm:bottom-4 sm:rounded-2xl sm:shadow-2xl"
         style={{ maxHeight: '80vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
         data-testid="properties-panel"
       >

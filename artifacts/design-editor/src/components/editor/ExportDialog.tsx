@@ -55,7 +55,7 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
         // Android 13+ when gallery mode is enabled.
         await Filesystem.requestPermissions();
 
-        const albumName = 'Cyber Canvas Studio';
+        const albumName = 'Spiexel';
         let albums = (await Media.getAlbums()).albums;
         let album = albums.find((candidate) => candidate.name === albumName);
         if (!album) {
@@ -70,7 +70,7 @@ export default function ExportDialog({ controller }: ExportDialogProps) {
         }
 
         if (!album?.identifier) {
-          throw new Error('The Cyber Canvas Studio album could not be created');
+          throw new Error('The Spiexel album could not be created');
         }
 
         const fileName = filename.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]+/g, '_');

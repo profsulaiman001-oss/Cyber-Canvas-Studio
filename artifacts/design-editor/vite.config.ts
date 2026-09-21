@@ -44,7 +44,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
+      includeAssets: ['favicon.svg', 'icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'manifest.json'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,svg,png,jpg,jpeg,woff,woff2,ttf,otf}'],
         navigateFallback: 'index.html',
@@ -69,9 +69,9 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: 'Graphic Design Studio',
-        short_name: 'DesignStudio',
-        description: 'Offline Graphic Design Editor — Cyber-Studio',
+        name: 'Spiexel - Shape Your Vision',
+        short_name: 'Spiexel',
+        description: 'Offline graphic design editor for shaping your vision.',
         theme_color: '#00F5FF',
         background_color: '#0B0C10',
         display: 'standalone',

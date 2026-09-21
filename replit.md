@@ -2,7 +2,7 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Contains a full-featured offline Graphic Design Editor PWA (Cyber-Studio) and a shared API server.
+pnpm workspace monorepo using TypeScript. Contains a full-featured offline Graphic Design Editor PWA (Spiexel) and a shared API server.
 
 ## Stack
 
@@ -18,7 +18,7 @@ pnpm workspace monorepo using TypeScript. Contains a full-featured offline Graph
 
 ## Artifacts
 
-### Cyber-Studio Design Editor (`artifacts/design-editor`)
+### Spiexel Design Editor (`artifacts/design-editor`)
 - **Route**: `/` (root)
 - **Type**: React + Vite PWA
 - **Description**: A 100% offline graphic design editor inspired by mobile design apps
@@ -41,7 +41,7 @@ pnpm workspace monorepo using TypeScript. Contains a full-featured offline Graph
 - **Pinch-to-zoom & pan**: Touch and mouse wheel zoom
 - **Auto-save**: Debounced 3s auto-save
 
-#### Theme: Cyber-Studio Dark
+#### Theme: Spiexel Dark
 - Background: `#0B0C10`
 - Toolbars: `#11141A`
 - Accent: Cyan `#00F5FF` / Electric Blue
@@ -74,7 +74,7 @@ MANDATORY UI RULE: All new and existing bottom sheets, studio drawers, and modal
 
 The registered artifact workflows provide the running services:
 
-- `artifacts/design-editor: web` — Cyber-Studio at `/`
+- `artifacts/design-editor: web` — Spiexel at `/`
 - `artifacts/api-server: API Server` — API at `/api`
 - `artifacts/mockup-sandbox: Component Preview Server` — component previews at `/__mockup`
 

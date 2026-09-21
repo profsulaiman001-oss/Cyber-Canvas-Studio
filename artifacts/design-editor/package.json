@@ -23,7 +23,8 @@
     },
     "files": [
       "dist/**/*",
-      "electron-main.js"
+      "electron-main.js",
+      "public/icon.png"
     ],
     "win": {
       "target": [

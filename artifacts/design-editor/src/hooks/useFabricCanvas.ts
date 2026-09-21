@@ -300,7 +300,7 @@ export interface VectorAnchor {
   mirrorYOff?: number;
 }
 
-const HISTORY_ASSET_REF_PREFIX = '__cyber_studio_history_asset__:';
+const HISTORY_ASSET_REF_PREFIX = '__spiexel_history_asset__:';
 const EXTRA_PROPS = [
   // Fabric/native and compatibility names used by serialized objects.
   'id',

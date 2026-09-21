@@ -9,7 +9,7 @@ export function FigmaDark() {
           <div className="w-6 h-6 bg-[#4F8EF7] rounded flex items-center justify-center">
             <span className="font-mono text-[11px] font-bold text-white">CS</span>
           </div>
-          <span className="text-[12px] font-semibold tracking-[0.12em] text-[#F2F3F5]">CYBER STUDIO</span>
+          <span className="text-[12px] font-semibold tracking-[0.12em] text-[#F2F3F5]">SPIEXEL</span>
         </div>
         <button className="w-[22px] h-[22px] bg-[#252830] rounded flex items-center justify-center">
           <Settings className="w-3.5 h-3.5 text-[#6E7280]" />

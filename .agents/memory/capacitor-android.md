@@ -25,8 +25,8 @@ All Capacitor files live inside `artifacts/design-editor/`:
 - `cap:open` — open in Android Studio
 
 ## Config values
-- appId: `com.pylab.graphicdesign`
-- appName: `Graphic Design Studio`
+- appId: `com.spiexel.app`
+- appName: `Spiexel`
 - webDir: `dist/public`
 - androidScheme: `https`
 - minSdk: 24, targetSdk: 36

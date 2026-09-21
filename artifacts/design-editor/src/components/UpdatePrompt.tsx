@@ -131,7 +131,7 @@ export default function UpdatePrompt() {
                       New update available
                     </p>
                     <p className="text-[12px] mt-1 leading-relaxed" style={{ color: '#4A5568' }}>
-                      A new version of Cyber Studio is ready to install.
+                      A new version of Spiexel is ready to install.
                       The app will reload instantly — your projects are safe.
                     </p>
                     {(updateState as { phase: string; bundle?: BundleInfo }).bundle?.version && (

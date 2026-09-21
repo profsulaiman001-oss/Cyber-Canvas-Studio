@@ -11,8 +11,8 @@ export interface Project {
   updatedAt: number;
 }
 
-const PROJECTS_KEY = 'cyber_studio_projects';
-const ACTIVE_PROJECT_KEY = 'cyber_studio_active_project';
+const PROJECTS_KEY = 'spiexel_projects';
+const ACTIVE_PROJECT_KEY = 'spiexel_active_project';
 
 async function getAll(): Promise<Project[]> {
   const data = await localforage.getItem<Project[]>(PROJECTS_KEY);

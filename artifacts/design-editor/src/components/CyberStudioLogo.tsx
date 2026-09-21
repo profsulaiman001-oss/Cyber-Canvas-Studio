@@ -1,5 +1,5 @@
 /**
- * Cyber Studio brand mark — "The Node"
+ * Spiexel brand mark — "The Node"
  *
  * A bezier anchor point: the fundamental unit of vector design.
  * A filled diamond (anchor node) flanked by circular control handles on
@@ -24,7 +24,7 @@ export function CsLogoMark({
       viewBox="0 0 32 32"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="Cyber Studio"
+      aria-label="Spiexel"
     >
       {/* ── Left control arm ── */}
       <line
@@ -85,7 +85,7 @@ export function CsIconBadge({
 }
 
 /** Full header lockup: icon badge + wordmark */
-export function CyberStudioWordmark({
+export function SpiexelWordmark({
   color = '#00F5FF',
 }: {
   color?: string;
@@ -102,7 +102,7 @@ export function CyberStudioWordmark({
           fontFamily: 'system-ui, sans-serif',
         }}
       >
-        CYBER STUDIO
+        SPIEXEL
       </span>
     </div>
   );

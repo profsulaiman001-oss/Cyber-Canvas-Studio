@@ -73,7 +73,7 @@ function dataUrlToFile(dataUrl: string, filename: string): File {
 }
 
 function safeFilename(name: string): string {
-  return name.trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'cyber-studio-project';
+  return name.trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'spiexel-project';
 }
 
 export default function ProjectManager({
@@ -295,7 +295,7 @@ export default function ProjectManager({
         const { uri } = await Filesystem.getUri({ path: sharePath, directory: Directory.Cache });
         await Share.share({
           title: project.name,
-          text: `${project.name} — Cyber Canvas Studio`,
+          text: `${project.name} — Spiexel`,
           files: [uri],
           dialogTitle: 'Share project preview',
         });
@@ -304,11 +304,11 @@ export default function ProjectManager({
         if (!navigator.canShare || navigator.canShare({ files: [file] })) {
           await navigator.share({
             title: project.name,
-            text: `${project.name} — Cyber Canvas Studio`,
+          text: `${project.name} — Spiexel`,
             files: [file],
           });
         } else {
-          await navigator.share({ title: project.name, text: `${project.name} — Cyber Canvas Studio` });
+          await navigator.share({ title: project.name, text: `${project.name} — Spiexel` });
         }
       } else {
         const link = document.createElement('a');

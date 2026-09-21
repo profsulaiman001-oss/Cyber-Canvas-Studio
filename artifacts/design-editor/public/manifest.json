@@ -3,6 +3,12 @@
   "name": "Spiexel - Shape Your Vision",
   "icons": [
     {
+      "src": "icon.png",
+      "type": "image/png",
+      "sizes": "1080x1080",
+      "purpose": "any maskable"
+    },
+    {
       "src": "pwa-192x192.png",
       "type": "image/png",
       "sizes": "192x192"
@@ -11,12 +17,6 @@
       "src": "pwa-512x512.png",
       "type": "image/png",
       "sizes": "512x512"
-    },
-    {
-      "src": "icon.png",
-      "type": "image/png",
-      "sizes": "1080x1080",
-      "purpose": "any maskable"
     }
   ],
   "start_url": ".",

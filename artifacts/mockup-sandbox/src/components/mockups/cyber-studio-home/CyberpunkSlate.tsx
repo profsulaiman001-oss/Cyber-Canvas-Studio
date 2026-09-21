@@ -10,7 +10,7 @@ export function CyberpunkSlate() {
           <div className="w-6 h-6 flex items-center justify-center font-mono text-[11px] bg-[#101318] text-[#00F0FF] rounded" style={{ border: '1px solid #00F0FF', boxShadow: '0 0 0 1px rgba(0,240,255,0.1)' }}>
             CS
           </div>
-          <span className="font-semibold text-[12px] tracking-[0.15em] text-[#E4E8EF]">CYBER STUDIO</span>
+          <span className="font-semibold text-[12px] tracking-[0.15em] text-[#E4E8EF]">SPIEXEL</span>
         </div>
         <Settings size={15} color="#556070" />
       </header>

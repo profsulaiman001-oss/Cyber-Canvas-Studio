@@ -5,7 +5,7 @@ import { useEditor } from '@/store/editorStore';
 import { useToast } from '@/hooks/use-toast';
 import localforage from 'localforage';
 
-export const FONTS_STORE_KEY = 'cyber_studio_custom_fonts';
+export const FONTS_STORE_KEY = 'spiexel_custom_fonts';
 
 export interface StoredFont {
   name: string;

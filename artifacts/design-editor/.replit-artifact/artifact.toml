@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Cyber-Studio Design Editor"
+title = "Spiexel Design Editor"
 version = "1.0.0"
 id = "artifacts/design-editor"
 router = "path"

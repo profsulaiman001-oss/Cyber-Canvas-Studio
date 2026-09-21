@@ -30,7 +30,7 @@ export function CommandCenter() {
           letterSpacing: '0.18em',
           color: '#D1D5DB'
         }}>
-          <span style={{ textDecoration: 'underline', textDecorationColor: '#22C55E' }}>CYBER</span> STUDIO
+          <span style={{ textDecoration: 'underline', textDecorationColor: '#22C55E' }}>SPIEXEL</span>
         </div>
 
         {/* Status Pills */}

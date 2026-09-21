@@ -5,7 +5,16 @@ import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricImage, filters } from 'fabric';
-import { ChevronDown, RotateCcw, SlidersVertical } from 'lucide-react';
+import {
+  ChevronDown,
+  Contrast as ContrastIcon,
+  Droplets,
+  Palette,
+  RotateCcw,
+  SlidersVertical,
+  Sun,
+  type LucideIcon,
+} from 'lucide-react';
 
 interface Adjustments {
   brightness: number;
@@ -21,14 +30,15 @@ type AdjustmentKey = keyof Adjustments;
 const ADJUSTMENTS: Array<{
   key: AdjustmentKey;
   label: string;
+  icon: LucideIcon;
   min: number;
   max: number;
   step: number;
 }> = [
-  { key: 'brightness', label: 'Brightness', min: -1, max: 1, step: 0.01 },
-  { key: 'contrast', label: 'Contrast', min: -1, max: 1, step: 0.01 },
-  { key: 'saturation', label: 'Saturation', min: -1, max: 1, step: 0.01 },
-  { key: 'hue', label: 'Hue Rotation', min: -180, max: 180, step: 1 },
+  { key: 'brightness', label: 'Brightness', icon: Sun, min: -1, max: 1, step: 0.01 },
+  { key: 'contrast', label: 'Contrast', icon: ContrastIcon, min: -1, max: 1, step: 0.01 },
+  { key: 'saturation', label: 'Saturation', icon: Droplets, min: -1, max: 1, step: 0.01 },
+  { key: 'hue', label: 'Hue Rotation', icon: Palette, min: -180, max: 180, step: 1 },
 ];
 
 function formatValue(key: AdjustmentKey, value: number) {
@@ -168,7 +178,10 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
                         aria-pressed={isActive}
                         data-testid={`adjustment-option-${adjustment.key}`}
                       >
-                        <span className="text-sm font-medium">{adjustment.label}</span>
+                        <span className="flex items-center gap-2 text-sm font-medium">
+                          <adjustment.icon size={16} aria-hidden="true" />
+                          {adjustment.label}
+                        </span>
                         <span className={`font-mono text-xs ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>
                           {formatValue(adjustment.key, adj[adjustment.key])}
                         </span>
@@ -183,35 +196,43 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
               className="rounded-xl border border-primary/20 bg-primary/[0.04] p-3 shadow-[0_0_24px_rgba(0,245,255,0.04)]"
               data-testid="adjustment-mini-bar"
             >
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {activeAdjustment.label}
-                  </p>
-                  <p className="font-mono text-xs text-primary" data-testid="adjustment-active-value">
-                    {formatValue(activeAdjustment.key, activeValue)}
-                  </p>
-                </div>
+              <div className="flex min-w-0 items-center gap-2">
                 <button
                   type="button"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex h-9 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] text-primary transition-colors hover:border-primary/40 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => setSelectorOpen((open) => !open)}
                   aria-expanded={selectorOpen}
-                  aria-label={selectorOpen ? 'Hide adjustment options' : 'Choose adjustment parameter'}
+                  aria-label={selectorOpen ? 'Hide adjustment options' : `Choose adjustment parameter, currently ${activeAdjustment.label}`}
                   data-testid="adjustment-selector-toggle"
+                  title={activeAdjustment.label}
                 >
-                  <ChevronDown size={18} className={`transition-transform ${selectorOpen ? 'rotate-180 text-primary' : ''}`} />
+                  <activeAdjustment.icon size={17} aria-hidden="true" />
+                  <ChevronDown
+                    size={11}
+                    strokeWidth={2.5}
+                    className={`transition-transform ${selectorOpen ? 'rotate-180' : ''}`}
+                    aria-hidden="true"
+                  />
                 </button>
+                <div className="min-w-0 flex-1">
+                  <Slider
+                    min={activeAdjustment.min}
+                    max={activeAdjustment.max}
+                    step={activeAdjustment.step}
+                    value={[activeValue]}
+                    onValueChange={([value]) => update(activeAdjustment.key, value)}
+                    aria-label={`${activeAdjustment.label} value`}
+                    className="w-full"
+                    data-testid={`adjustment-slider-${activeAdjustment.key}`}
+                  />
+                </div>
+                <span
+                  className="min-w-[52px] shrink-0 rounded-md border border-primary/20 bg-primary/[0.08] px-2 py-1 text-right font-mono text-xs tabular-nums text-primary"
+                  data-testid="adjustment-active-value"
+                >
+                  {formatValue(activeAdjustment.key, activeValue)}
+                </span>
               </div>
-              <Slider
-                min={activeAdjustment.min}
-                max={activeAdjustment.max}
-                step={activeAdjustment.step}
-                value={[activeValue]}
-                onValueChange={([value]) => update(activeAdjustment.key, value)}
-                aria-label={`${activeAdjustment.label} value`}
-                data-testid={`adjustment-slider-${activeAdjustment.key}`}
-              />
             </div>
           </div>
         )}

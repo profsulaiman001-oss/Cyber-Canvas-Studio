@@ -3,7 +3,7 @@ import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Move,
   PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus,
-  Droplet, SquareRoundCorner, ChevronUp, Maximize2,
+  Droplet, SquareRoundCorner, Maximize2,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
 import { Slider } from '@/components/ui/slider';
@@ -191,7 +191,7 @@ export default function BottomToolbar({
   }
 
   /* ── Normal Toolbar ── */
-  type ToolId = ActivePanel | 'select' | 'pan-tool' | 'zoom-tool';
+  type ToolId = ActivePanel | 'select' | 'pan-tool' | 'zoom-tool' | 'photos' | 'fill-image' | 'brush' | 'crop';
 
   const tools: {
     id: ToolId;
@@ -229,6 +229,7 @@ export default function BottomToolbar({
       accent: '#00F5FF',
     },
     { id: 'add', icon: <Plus size={24} />, label: 'Add', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }) },
+    { id: 'text', icon: <Type size={22} />, label: 'Text', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }) },
     {
       id: 'vectors',
       icon: <GitBranch size={22} />,
@@ -236,7 +237,61 @@ export default function BottomToolbar({
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'vectors' }),
       accent: '#7B2FFF',
     },
-    { id: 'text', icon: <Type size={22} />, label: 'Text', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }) },
+    {
+      id: 'photos',
+      icon: <ImagePlus size={22} />,
+      label: 'Photos',
+      action: () => onImportImages?.(),
+    },
+    {
+      id: 'fill-image',
+      icon: <Image size={22} />,
+      label: 'Fill Img',
+      action: () => onFillWithImage?.(),
+      disabled: !hasSelection || selectedIsImage,
+    },
+    {
+      id: 'brush',
+      icon: <Paintbrush size={22} />,
+      label: 'Brush',
+      action: () => {
+        setBrushMenuOpen((open) => !open);
+        dispatch({ type: 'CLOSE_PANEL' });
+      },
+    },
+    {
+      id: 'transform',
+      icon: <Maximize2 size={22} />,
+      label: 'Transform',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'transform' }),
+      disabled: !hasSelection,
+    },
+    {
+      id: 'nudge',
+      icon: <Move size={22} />,
+      label: 'Nudge',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'nudge' }),
+      disabled: !hasSelection,
+    },
+    {
+      id: 'colorStudio',
+      icon: <Palette size={22} />,
+      label: 'Colors',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' }),
+    },
+    {
+      id: 'crop',
+      icon: <Crop size={22} />,
+      label: 'Crop',
+      action: () => onCropImage?.(),
+    },
+    {
+      id: 'stroke',
+      icon: <PenLine size={22} />,
+      label: 'Stroke',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'stroke' }),
+      disabled: !hasSelection,
+    },
     {
       id: 'opacity-tool',
       icon: <Droplet size={22} />,
@@ -254,33 +309,12 @@ export default function BottomToolbar({
       accent: '#00F5FF',
     },
     {
-      id: 'shapeModifiers',
-      icon: <Layers2 size={22} />,
-      label: 'Modifiers',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'shapeModifiers' }),
-    },
-    {
       id: 'adjust',
       icon: <SlidersVertical size={22} />,
       label: 'Adjust',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'adjust' }),
       disabled: !hasSelection,
     },
-    {
-      id: 'transform',
-      icon: <Maximize2 size={22} />,
-      label: 'Transform',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'transform' }),
-      disabled: !hasSelection,
-    },
-    {
-      id: 'nudge',
-      icon: <Move size={22} />,
-      label: 'Nudge',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'nudge' }),
-      disabled: !hasSelection,
-    },
-    { id: 'layers', icon: <Layers size={22} />, label: 'Layers', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'layers' }) },
     {
       id: 'properties',
       icon: <SlidersHorizontal size={22} />,
@@ -289,11 +323,10 @@ export default function BottomToolbar({
       disabled: !hasSelection,
     },
     {
-      id: 'stroke',
-      icon: <PenLine size={22} />,
-      label: 'Stroke',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'stroke' }),
-      disabled: !hasSelection,
+      id: 'shapeModifiers',
+      icon: <Layers2 size={22} />,
+      label: 'Modifiers',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'shapeModifiers' }),
     },
     {
       id: 'shadows',
@@ -311,12 +344,7 @@ export default function BottomToolbar({
         dispatch({ type: 'TOGGLE_PANEL', payload: 'threeD' });
       },
     },
-    {
-      id: 'colorStudio',
-      icon: <Palette size={22} />,
-      label: 'Colors',
-      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' }),
-    },
+    { id: 'layers', icon: <Layers size={22} />, label: 'Layers', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'layers' }) },
     { id: 'export', icon: <Download size={22} />, label: 'Export', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'export' }) },
   ];
 
@@ -387,6 +415,8 @@ export default function BottomToolbar({
                 ? state.activeTool === 'pan'
                 : tool.id === 'zoom-tool'
                 ? state.activePanel === 'zoom'
+                : tool.id === 'brush'
+                ? brushMenuOpen
                 : state.activePanel === tool.id;
 
             const activeColor = tool.accent ?? '#00F5FF';
@@ -415,26 +445,6 @@ export default function BottomToolbar({
             );
           })}
 
-          {/* Brush tool button */}
-          <button
-            onClick={() => { setBrushMenuOpen((o) => !o); dispatch({ type: 'CLOSE_PANEL' }); }}
-            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-            style={{
-              color: brushMenuOpen ? '#00F5FF' : '#6b7280',
-              filter: brushMenuOpen ? 'drop-shadow(0 0 6px #00F5FF80)' : 'none',
-            }}
-            data-testid="toolbar-brush"
-          >
-            <Paintbrush size={22} />
-            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Brush</span>
-            {brushMenuOpen && (
-              <>
-                <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{ background: '#00F5FF', boxShadow: '0 0 4px #00F5FF' }} />
-                <ChevronUp size={10} className="absolute top-1 right-1 opacity-60" style={{ color: '#00F5FF' }} />
-              </>
-            )}
-          </button>
-
           {/* Vector anchor editor — only shown when a path object is selected */}
           {selectedIsPath && hasSelection && (
             <button
@@ -447,41 +457,6 @@ export default function BottomToolbar({
               <span className="text-[10px] font-medium leading-none whitespace-nowrap">Points</span>
             </button>
           )}
-
-          {/* Image tools */}
-          <button
-            onClick={onImportImages}
-            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-            style={{ color: '#6b7280' }}
-            title="Import images"
-          >
-            <ImagePlus size={22} />
-            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Photos</span>
-          </button>
-
-          {hasSelection && !selectedIsImage && (
-            <button
-              onClick={onFillWithImage}
-              className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-              style={{ color: '#6b7280' }}
-              title="Fill shape with image"
-            >
-              <Image size={22} />
-              <span className="text-[10px] font-medium leading-none whitespace-nowrap">Fill Img</span>
-            </button>
-          )}
-
-          {/* Crop supports images plus rasterized shapes, vectors, text, and groups.
-              Keep it visible even when there is no active selection. */}
-          <button
-            onClick={() => onCropImage?.()}
-            className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 flex-shrink-0 min-w-[60px]"
-            style={{ color: '#6b7280' }}
-            title="Crop selected object"
-          >
-            <Crop size={22} />
-            <span className="text-[10px] font-medium leading-none whitespace-nowrap">Crop</span>
-          </button>
         </div>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useEditor } from '@/store/editorStore';
-import { CanvasController, extractColorAlpha, withAlpha, opaqueColor } from '@/hooks/useFabricCanvas';
+import { CanvasController, extractColorAlpha, withAlpha } from '@/hooks/useFabricCanvas';
 import { FabricObject } from 'fabric';
 import { ChevronDown, ChevronUp, PenLine } from 'lucide-react';
 import ColorPicker from './ColorPicker';
@@ -68,6 +68,29 @@ function extractGap(da: number[] | null | undefined): number {
   return da[1] ?? 8;
 }
 
+function colorToHex(cssColor: string): string {
+  const value = cssColor.trim();
+  const hexMatch = value.match(/^#([0-9a-f]{3,8})$/i);
+  if (hexMatch) {
+    const raw = hexMatch[1];
+    const rgbPart = raw.length === 4 || raw.length === 8 ? raw.slice(0, raw.length === 4 ? 3 : 6) : raw;
+    const expanded = rgbPart.length === 3
+      ? rgbPart.split('').map((channel) => channel + channel).join('')
+      : rgbPart;
+    return `#${expanded.slice(0, 6).toLowerCase()}`;
+  }
+
+  const rgbMatch = value.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (rgbMatch) {
+    const channels = rgbMatch.slice(1, 4).map((channel) => (
+      Math.max(0, Math.min(255, Math.round(Number(channel))))
+    ));
+    return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  return '#000000';
+}
+
 export default function StrokePanel({ controller }: StrokePanelProps) {
   const { state, dispatch } = useEditor();
   const isOpen = state.activePanel === 'stroke';
@@ -91,7 +114,9 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
     setWidth(sw > 0 ? sw : 2);
     // Separate the stored stroke color into RGB part + alpha part
     const rawStroke = typeof o.stroke === 'string' && o.stroke ? o.stroke : '#000000';
-    setColor(opaqueColor(rawStroke));
+    // ColorPicker consumes hex values; passing `rgb(...)` here makes its
+    // hex parser fall back to its red default on the next pointer event.
+    setColor(colorToHex(rawStroke));
     setStrokeOpacity(Math.round(extractColorAlpha(rawStroke) * 100));
     const da = (o as FabricObject & { strokeDashArray?: number[] | null }).strokeDashArray;
     setDashPreset(detectPresetId(da));
@@ -126,6 +151,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
       strokeWidth: en ? w : 0,
       strokeDashArray: dashArr,
     });
+    obj.setCoords();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any).setDirty?.(true);
     controller.getCanvas()?.requestRenderAll();
@@ -267,10 +293,9 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                   <ColorPicker
                     value={color}
                     onChange={(v) => {
-                      // v arrives as an opaque color from the picker
-                      const rgb = opaqueColor(v);
-                      setColor(rgb);
-                      applyStroke(true, rgb, width, dashPreset, gapWidth, strokeOpacity);
+                      const hex = colorToHex(v);
+                      setColor(hex);
+                      applyStroke(true, hex, width, dashPreset, gapWidth, strokeOpacity);
                     }}
                   />
                 )}

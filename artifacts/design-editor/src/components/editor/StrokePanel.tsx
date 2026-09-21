@@ -8,6 +8,15 @@ import { CanvasController, extractColorAlpha, withAlpha } from '@/hooks/useFabri
 import { FabricObject } from 'fabric';
 import { ChevronDown, ChevronUp, PenLine } from 'lucide-react';
 import ColorPicker from './ColorPicker';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface StrokePanelProps { controller: CanvasController }
 
@@ -45,6 +54,13 @@ const DASH_PRESETS: { id: string; label: string; dashLen: number | null; dotLen:
   { id: 'dot',     label: 'Dot',    dashLen: 2,    dotLen: null },
   { id: 'mix',     label: 'Mix',    dashLen: 12,   dotLen: 2   },
 ];
+
+type StrokeParameter = 'width' | 'dash' | 'capJoin';
+const STROKE_PARAMETER_LABELS: Record<StrokeParameter, string> = {
+  width: 'Stroke Width',
+  dash: 'Dash Array',
+  capJoin: 'Cap / Join Style',
+};
 
 function buildDashArray(presetId: string, gap: number): number[] | null {
   const p = DASH_PRESETS.find((x) => x.id === presetId);
@@ -92,18 +108,21 @@ function colorToHex(cssColor: string): string {
 }
 
 export default function StrokePanel({ controller }: StrokePanelProps) {
-  const { state, dispatch } = useEditor();
+  const { state } = useEditor();
   const isOpen = state.activePanel === 'stroke';
   const obj = controller.selectedObject;
 
   const [enabled, setEnabled] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [activeParameter, setActiveParameter] = useState<StrokeParameter>('width');
   // color stores only the opaque RGB — alpha is tracked separately via strokeOpacity
   const [color, setColor] = useState('#000000');
   const [strokeOpacity, setStrokeOpacity] = useState(100); // 0–100
   const [width, setWidth] = useState(2);
   const [dashPreset, setDashPreset] = useState('solid');
   const [gapWidth, setGapWidth] = useState(8);
+  const [lineCap, setLineCap] = useState<'butt' | 'round' | 'square'>('round');
+  const [lineJoin, setLineJoin] = useState<'miter' | 'round' | 'bevel'>('round');
   const [colorOpen, setColorOpen] = useState(false);
 
   const syncFromObj = useCallback(() => {
@@ -121,6 +140,8 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
     const da = (o as FabricObject & { strokeDashArray?: number[] | null }).strokeDashArray;
     setDashPreset(detectPresetId(da));
     setGapWidth(extractGap(da));
+    setLineCap(((o as FabricObject & { strokeLineCap?: 'butt' | 'round' | 'square' }).strokeLineCap) || 'round');
+    setLineJoin(((o as FabricObject & { strokeLineJoin?: 'miter' | 'round' | 'bevel' }).strokeLineJoin) || 'round');
   }, [obj]);
 
   useEffect(() => {
@@ -142,6 +163,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
   const applyStroke = useCallback((
     en: boolean, c: string, w: number, preset: string, gap: number, opacityPct: number,
+    cap = lineCap, join = lineJoin,
   ) => {
     if (!obj) return;
     const dashArr = en ? buildDashArray(preset, gap) : null;
@@ -150,13 +172,15 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
       stroke: finalStroke,
       strokeWidth: en ? w : 0,
       strokeDashArray: dashArr,
+      strokeLineCap: cap,
+      strokeLineJoin: join,
     });
     obj.setCoords();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (obj as any).setDirty?.(true);
     controller.getCanvas()?.requestRenderAll();
     controller.commitChange();
-  }, [obj, controller]);
+  }, [obj, controller, lineCap, lineJoin]);
 
   const isDashed = dashPreset !== 'solid';
   const previewDash = buildDashArray(dashPreset, gapWidth);
@@ -165,65 +189,119 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
   if (!isOpen || !obj) return null;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 z-50 w-full sm:left-1/2 sm:right-auto sm:max-w-2xl sm:-translate-x-1/2 sm:mb-4 sm:rounded-2xl sm:shadow-2xl" data-testid="stroke-panel">
-      <div
-        className="border-t"
-        style={{
-          background: '#11141A',
-          borderTopColor: 'rgba(0,245,255,0.4)',
-          boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
-        }}
-      >
+    <div
+      className="absolute bottom-full left-1/2 z-50 mb-3 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2"
+      data-testid="stroke-panel"
+    >
+      <div className="overflow-hidden rounded-2xl border border-cyan-500/30 bg-[#12161A] shadow-[0_-8px_28px_rgba(0,0,0,0.45)]">
         {!expanded ? (
           /* ── Compact quick bar ── */
-          <div className="flex items-center gap-2 px-4 py-3">
-            <PenLine size={14} style={{ color: '#00F5FF', flexShrink: 0 }} />
-            <span className="text-xs font-semibold tracking-wider shrink-0" style={{ color: '#00F5FF' }}>
-              STROKE
-            </span>
-            <span
-              className="text-[10px] font-medium tabular-nums shrink-0"
-              style={{ color: '#00F5FF', minWidth: '38px', textAlign: 'right' }}
-            >
-              {widthLabel}px
-            </span>
-            <Slider
-              min={0}
-              max={40}
-              step={0.05}
-              value={[width]}
-              onValueChange={([v]) => {
-                setWidth(v);
-                applyStroke(true, color, v, dashPreset, gapWidth, strokeOpacity);
+          <div className="flex min-w-0 items-center gap-2 p-2.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-9 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-cyan-500/30 bg-cyan-400/10 text-cyan-300 transition-colors hover:bg-cyan-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+                  aria-label={`Choose stroke parameter, currently ${STROKE_PARAMETER_LABELS[activeParameter]}`}
+                  title={STROKE_PARAMETER_LABELS[activeParameter]}
+                >
+                  <PenLine size={17} aria-hidden="true" />
+                  <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="min-w-44 border-cyan-500/20 bg-[#12161A]">
+                <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Stroke control
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-white/10" />
+                <DropdownMenuRadioGroup
+                  value={activeParameter}
+                  onValueChange={(value) => setActiveParameter(value as StrokeParameter)}
+                >
+                  {(Object.keys(STROKE_PARAMETER_LABELS) as StrokeParameter[]).map((parameter) => (
+                    <DropdownMenuRadioItem key={parameter} value={parameter} className="text-xs">
+                      {STROKE_PARAMETER_LABELS[parameter]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Switch
+              checked={enabled}
+              onCheckedChange={(value) => {
+                setEnabled(value);
+                applyStroke(value, color, width, dashPreset, gapWidth, strokeOpacity);
               }}
-              className="flex-1"
-              aria-label="Stroke Width"
+              aria-label="Toggle stroke"
+              className="shrink-0 data-[state=checked]:bg-cyan-400"
             />
+
+            {activeParameter === 'capJoin' ? (
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                <select
+                  value={lineCap}
+                  onChange={(event) => {
+                    const value = event.target.value as typeof lineCap;
+                    setLineCap(value);
+                    applyStroke(enabled, color, width, dashPreset, gapWidth, strokeOpacity, value, lineJoin);
+                  }}
+                  className="h-8 min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-cyan-300/60"
+                  aria-label="Stroke cap"
+                >
+                  <option value="butt">Butt cap</option>
+                  <option value="round">Round cap</option>
+                  <option value="square">Square cap</option>
+                </select>
+                <select
+                  value={lineJoin}
+                  onChange={(event) => {
+                    const value = event.target.value as typeof lineJoin;
+                    setLineJoin(value);
+                    applyStroke(enabled, color, width, dashPreset, gapWidth, strokeOpacity, lineCap, value);
+                  }}
+                  className="h-8 min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-cyan-300/60"
+                  aria-label="Stroke join"
+                >
+                  <option value="miter">Miter join</option>
+                  <option value="round">Round join</option>
+                  <option value="bevel">Bevel join</option>
+                </select>
+              </div>
+            ) : (
+              <>
+                <span className="min-w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-cyan-300">
+                  {activeParameter === 'width' ? `${widthLabel}px` : `${Math.round(gapWidth)}px`}
+                </span>
+                <Slider
+                  min={activeParameter === 'width' ? 0 : 1}
+                  max={activeParameter === 'width' ? 40 : 60}
+                  step={activeParameter === 'width' ? 0.05 : 1}
+                  value={[activeParameter === 'width' ? width : gapWidth]}
+                  onValueChange={([value]) => {
+                    if (activeParameter === 'width') {
+                      setWidth(value);
+                      applyStroke(enabled, color, value, dashPreset, gapWidth, strokeOpacity);
+                    } else {
+                      setGapWidth(value);
+                      applyStroke(enabled, color, width, dashPreset, value, strokeOpacity);
+                    }
+                  }}
+                  className="w-full flex-1"
+                  aria-label={STROKE_PARAMETER_LABELS[activeParameter]}
+                  disabled={!enabled}
+                />
+              </>
+            )}
+
             <button
               type="button"
               onClick={() => setExpanded(true)}
-              className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-              style={{
-                color: '#00F5FF',
-                background: 'rgba(0,245,255,0.12)',
-                border: '1px solid rgba(0,245,255,0.35)',
-              }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-400/10 text-cyan-300 transition-colors hover:bg-cyan-400/15"
               aria-label="Expand stroke settings"
               title="Advanced stroke settings"
             >
               <ChevronUp size={16} />
-            </button>
-            <button
-              type="button"
-              onClick={() => dispatch({ type: 'CLOSE_PANEL' })}
-              className="text-[10px] px-2.5 py-1.5 rounded-lg shrink-0 font-medium"
-              style={{
-                background: 'rgba(0,245,255,0.12)',
-                color: '#00F5FF',
-                border: '1px solid rgba(0,245,255,0.4)',
-              }}
-            >
-              Done
             </button>
           </div>
         ) : (

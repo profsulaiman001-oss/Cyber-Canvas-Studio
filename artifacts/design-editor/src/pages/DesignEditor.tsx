@@ -40,7 +40,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Droplet, SquareRoundCorner } from 'lucide-react';
+import { ChevronDown, Eye, SquareRoundCorner } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 /* Pixel multiplier used when rasterising any non-image canvas object for crop */
 const RASTER_MULT = 2;
@@ -84,6 +93,8 @@ export default function DesignEditor() {
   const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
   const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  type RadiusTarget = 'all' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  const [radiusTarget, setRadiusTarget] = useState<RadiusTarget>('all');
 
   /* ── Unified crop modal state ── */
   type CropMode = 'image' | 'fill' | 'raster';
@@ -1023,58 +1034,93 @@ export default function DesignEditor() {
 
         {/* Opacity Tool overlay — compact micro-panel, only shown when eligible object is selected */}
         {state.activePanel === 'opacity-tool' && hasSelection && !brushActive && !penActive && !vectorEditActive && (
-          <div
-            className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
-            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
-          >
-            <div className="flex items-center gap-3">
-              <Droplet size={14} style={{ color: '#00F5FF', flexShrink: 0 }} />
-              <span className="text-xs font-semibold tracking-wider shrink-0" style={{ color: '#00F5FF' }}>OPACITY</span>
-              <span className="text-[10px] font-medium tabular-nums shrink-0" style={{ color: '#00F5FF', minWidth: '30px', textAlign: 'right' }}>
-                {quickFillOpacity}%
-              </span>
-              <Slider
-                min={0} max={100} step={1}
-                value={[quickFillOpacity]}
-                onValueChange={([v]) => handleFillOpacityChange(v)}
-                className="flex-1"
-              />
-              <button
-                onClick={() => dispatch({ type: 'CLOSE_PANEL' })}
-                className="text-[10px] px-2 py-1 rounded-lg shrink-0"
-                style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
-              >
-                Done
-              </button>
+          <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2">
+            <div className="rounded-2xl border border-cyan-500/30 bg-[#12161A] p-2.5 shadow-[0_-8px_28px_rgba(0,0,0,0.45)]">
+              <div className="flex min-w-0 items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-9 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-cyan-500/30 bg-cyan-400/10 text-cyan-300 transition-colors hover:bg-cyan-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+                      aria-label="Choose opacity mode"
+                      title="Opacity"
+                    >
+                      <Eye size={17} aria-hidden="true" />
+                      <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top" className="min-w-44 border-cyan-500/20 bg-[#12161A]">
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                      Opacity
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator className="bg-white/10" />
+                    <DropdownMenuRadioGroup value="selected-object">
+                      <DropdownMenuRadioItem value="selected-object" className="text-xs">
+                        Selected object
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Slider
+                  min={0} max={100} step={1}
+                  value={[quickFillOpacity]}
+                  onValueChange={([v]) => handleFillOpacityChange(v)}
+                  className="w-full flex-1"
+                  aria-label="Opacity"
+                />
+                <span className="min-w-[52px] shrink-0 rounded-md border border-cyan-500/20 bg-cyan-400/10 px-2 py-1 text-right font-mono text-xs tabular-nums text-cyan-300">
+                  {quickFillOpacity}%
+                </span>
+              </div>
             </div>
           </div>
         )}
 
         {/* Corner Radius Tool overlay — compact micro-panel, only shown for rect objects */}
         {state.activePanel === 'radius-tool' && hasSelection && selectedType === 'rect' && !brushActive && !penActive && !vectorEditActive && (
-          <div
-            className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
-            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.3)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
-          >
-            <div className="flex items-center gap-3">
-              <SquareRoundCorner size={14} style={{ color: '#00F5FF', flexShrink: 0 }} />
-              <span className="text-xs font-semibold tracking-wider shrink-0" style={{ color: '#00F5FF' }}>RADIUS</span>
-              <span className="text-[10px] font-medium tabular-nums shrink-0" style={{ color: '#00F5FF', minWidth: '24px', textAlign: 'right' }}>
-                {quickCornerRadius}
-              </span>
-              <Slider
-                min={0} max={quickCornerRadiusMax} step={1}
-                value={[quickCornerRadius]}
-                onValueChange={([v]) => handleCornerRadiusChange(v)}
-                className="flex-1"
-              />
-              <button
-                onClick={() => dispatch({ type: 'CLOSE_PANEL' })}
-                className="text-[10px] px-2 py-1 rounded-lg shrink-0"
-                style={{ background: 'rgba(0,245,255,0.1)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
-              >
-                Done
-              </button>
+          <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2">
+            <div className="rounded-2xl border border-cyan-500/30 bg-[#12161A] p-2.5 shadow-[0_-8px_28px_rgba(0,0,0,0.45)]">
+              <div className="flex min-w-0 items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-9 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-cyan-500/30 bg-cyan-400/10 text-cyan-300 transition-colors hover:bg-cyan-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+                      aria-label={`Choose radius corner, currently ${radiusTarget}`}
+                      title="Corner radius"
+                    >
+                      <SquareRoundCorner size={17} aria-hidden="true" />
+                      <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top" className="min-w-48 border-cyan-500/20 bg-[#12161A]">
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                      Radius corner
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator className="bg-white/10" />
+                    <DropdownMenuRadioGroup
+                      value={radiusTarget}
+                      onValueChange={(value) => setRadiusTarget(value as RadiusTarget)}
+                    >
+                      <DropdownMenuRadioItem value="all" className="text-xs">All Corners</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="top-left" className="text-xs">Top-Left</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="top-right" className="text-xs">Top-Right</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="bottom-left" className="text-xs">Bottom-Left</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="bottom-right" className="text-xs">Bottom-Right</DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Slider
+                  min={0} max={quickCornerRadiusMax} step={1}
+                  value={[quickCornerRadius]}
+                  onValueChange={([v]) => handleCornerRadiusChange(v)}
+                  className="w-full flex-1"
+                  aria-label={`${radiusTarget} corner radius`}
+                />
+                <span className="min-w-[52px] shrink-0 rounded-md border border-cyan-500/20 bg-cyan-400/10 px-2 py-1 text-right font-mono text-xs tabular-nums text-cyan-300">
+                  {quickCornerRadius}px
+                </span>
+              </div>
             </div>
           </div>
         )}

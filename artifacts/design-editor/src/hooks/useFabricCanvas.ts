@@ -2245,6 +2245,28 @@ export function useFabricCanvas(
     c.renderAll(); pushUndo(); syncObjects();
   }, [pushUndo, syncObjects]);
 
+  /* ─── Apply a complete layer-panel order in one Fabric/history update ─── */
+  const reorderObjects = useCallback((orderedObjects: FabricObject[]) => {
+    const c = canvasRef.current; if (!c || orderedObjects.length === 0) return;
+    const canvasObjects = c.getObjects();
+    const visibleObjects = orderedObjects.filter((obj) => canvasObjects.includes(obj));
+    const moveTo = (c as any).moveObjectTo ?? (c as any).moveTo;
+    if (typeof moveTo !== 'function') return;
+
+    // The layer panel is top-to-bottom while Fabric's stack is bottom-to-top.
+    // Moving the desired bottom object first makes every following index
+    // deterministic, including a drag that crossed several cards.
+    visibleObjects
+      .slice()
+      .reverse()
+      .forEach((obj, index) => moveTo.call(c, obj, index));
+
+    c.requestRenderAll();
+    c.renderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
   /* ─── Crop Image (Fabric native cropX/cropY) ─── */
   const cropImage = useCallback((obj: FabricObject, cropX: number, cropY: number, cropW: number, cropH: number) => {
     const c = canvasRef.current; if (!c) return;
@@ -3291,7 +3313,7 @@ export function useFabricCanvas(
     bringForward, sendBackward, bringToFront, sendToBack,
     toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
     groupSelected, ungroupSelected,
-    moveObjectToIndex,
+    moveObjectToIndex, reorderObjects,
     // Image transforms
     flipHorizontal, flipVertical, rotate90,
     // Alignment

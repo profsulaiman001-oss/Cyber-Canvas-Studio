@@ -145,58 +145,88 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   const selectedIds = state.selectedObjectIds;
   const [pendingDelete, setPendingDelete] = useState<ObjectMeta | null>(null);
 
-  /* ─── Drag-and-drop state ─── */
-  const dragFromIdx = useRef<number | null>(null);
-  const dragToIdx = useRef<number | null>(null);
+  /* ─── Pointer drag-and-drop state ─── */
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const dragIdRef = useRef<string | null>(null);
+  const dragOrderIdsRef = useRef<string[] | null>(null);
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [dragOrderIds, setDragOrderIds] = useState<string[] | null>(null);
 
-  const handleDragStart = (e: React.DragEvent, idx: number) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', objects[idx]?.id ?? '');
-    dragFromIdx.current = idx;
-    dragToIdx.current = idx;
-    setDraggingIdx(idx);
-    setDropIdx(idx);
-  };
-
-  const handleDragOver = (e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const fromIdx = dragFromIdx.current;
-    if (fromIdx === null) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const rawSlot = idx + (e.clientY >= rect.top + rect.height / 2 ? 1 : 0);
-    const destination = rawSlot > fromIdx ? rawSlot - 1 : rawSlot;
-    dragToIdx.current = destination;
-    setDropIdx(destination);
-  };
+  const orderedObjects = dragOrderIds
+    ? dragOrderIds
+      .map((id) => objects.find((item) => item.id === id))
+      .filter((item): item is ObjectMeta => Boolean(item))
+    : objects;
 
   const clearDragState = () => {
-    dragFromIdx.current = null;
-    dragToIdx.current = null;
+    dragIdRef.current = null;
+    dragOrderIdsRef.current = null;
     setDraggingIdx(null);
     setDropIdx(null);
+    setDragOrderIds(null);
   };
 
-  const handleDrop = () => {
-    const fromIdx = dragFromIdx.current;
-    const toIdx = dragToIdx.current;
-    if (fromIdx === null || toIdx === null || fromIdx === toIdx) {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    const ids = objects.map((item) => item.id);
+    dragIdRef.current = id;
+    dragOrderIdsRef.current = ids;
+    setDragOrderIds(ids);
+    setDraggingIdx(ids.indexOf(id));
+    setDropIdx(ids.indexOf(id));
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const draggedId = dragIdRef.current;
+    const currentIds = dragOrderIdsRef.current;
+    if (!draggedId || !currentIds) return;
+    e.preventDefault();
+
+    const remainingIds = currentIds.filter((id) => id !== draggedId);
+    let insertionIndex = remainingIds.length;
+    for (let index = 0; index < remainingIds.length; index += 1) {
+      const card = cardRefs.current[remainingIds[index]];
+      if (!card) continue;
+      const rect = card.getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        insertionIndex = index;
+        break;
+      }
+    }
+
+    const nextIds = [...remainingIds];
+    nextIds.splice(insertionIndex, 0, draggedId);
+    const changed = nextIds.some((id, index) => id !== currentIds[index]);
+    if (!changed) return;
+
+    dragOrderIdsRef.current = nextIds;
+    setDragOrderIds(nextIds);
+    setDraggingIdx(insertionIndex);
+    setDropIdx(insertionIndex);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const finalIds = dragOrderIdsRef.current;
+    const draggedId = dragIdRef.current;
+    if (!finalIds || !draggedId) {
       clearDragState();
       return;
     }
-    const total = objects.length;
-    // The panel is top-to-bottom while Fabric stores objects bottom-to-top.
-    // toIdx is the final panel index after removing the dragged row, so one
-    // drop can cross any number of layers without intermediate moves.
-    const toCanvasIdx = total - 1 - toIdx;
-    const obj = getObjectById(objects[fromIdx].id);
-    if (obj) controller.moveObjectToIndex(obj, toCanvasIdx);
-    clearDragState();
-  };
 
-  const handleDragEnd = () => {
+    e.preventDefault();
+    const originalIds = objects.map((item) => item.id);
+    const changed = finalIds.some((id, index) => id !== originalIds[index]);
+    if (changed) {
+      const orderedFabricObjects = finalIds
+        .map((id) => getObjectById(id))
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+      controller.reorderObjects(orderedFabricObjects);
+    }
     clearDragState();
   };
 
@@ -255,15 +285,17 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
           data-testid="layers-panel"
         >
           <SheetHeader className="px-4 pb-3 pt-5">
-            <div className="flex items-center justify-between gap-3">
+            <div className="relative flex items-start justify-between gap-3 pr-10">
               <div>
                 <SheetTitle className="text-sm font-semibold text-foreground">Layers</SheetTitle>
-          <p className="mt-1 text-xs text-muted-foreground">Drag to reorder · Check layers to group</p>
+                <p className="mt-1 text-xs text-muted-foreground">Drag to reorder · Check layers to group</p>
               </div>
               {selectedIds.length > 0 && (
-                <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
-                  {selectedIds.length} selected
-                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="whitespace-nowrap rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
+                    {selectedIds.length} selected
+                  </span>
+                </div>
               )}
             </div>
             {selectedIds.length >= 2 && (
@@ -295,33 +327,36 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
             </div>
           ) : (
             <div className="overflow-y-auto px-3 pb-5" style={{ maxHeight: 'calc(82vh - 132px)' }}>
-              {objects.map((obj, idx) => {
+              {orderedObjects.map((obj, idx) => {
                 const isSelected = selectedIds.includes(obj.id);
                 return (
                   <div
                     key={obj.id}
-                    onDragOver={(e) => handleDragOver(e, idx)}
-                    onDrop={handleDrop}
+                    ref={(node) => {
+                      cardRefs.current[obj.id] = node;
+                    }}
                     onClick={() => handleCardClick(obj)}
-                     className="mb-3 grid min-h-[154px] grid-cols-[28px_1fr] gap-4 rounded-2xl border p-4 transition-colors"
+                    className="mb-3 grid min-h-[154px] grid-cols-[28px_1fr] gap-4 rounded-2xl border p-4 transition-[background-color,border-color,box-shadow,opacity]"
                     style={{
                       background: isSelected ? 'rgba(0,245,255,0.1)' : 'rgba(255,255,255,0.025)',
                       borderColor: isSelected ? 'rgba(0,245,255,0.6)' : 'rgba(255,255,255,0.08)',
                       borderLeftWidth: isSelected ? 3 : 1,
                       borderLeftColor: isSelected ? '#00F5FF' : 'rgba(255,255,255,0.08)',
-                      opacity: obj.visible ? 1 : 0.56,
+                      opacity: draggingIdx === idx ? 0.72 : obj.visible ? 1 : 0.56,
                       boxShadow: dropIdx === idx && draggingIdx !== null
-                        ? 'inset 0 3px 0 rgba(0,245,255,0.9)'
+                        ? 'inset 0 3px 0 rgba(0,245,255,0.9), 0 0 0 1px rgba(0,245,255,0.35)'
                         : undefined,
                     }}
                     data-testid={`layer-item-${obj.id}`}
                   >
                     <div className="flex flex-col items-center justify-between py-1">
                        <div
-                         draggable
-                         onDragStart={(e) => handleDragStart(e, idx)}
-                         onDragEnd={handleDragEnd}
-                         className="cursor-grab rounded-lg p-1 text-muted-foreground hover:bg-white/10 active:cursor-grabbing"
+                          onPointerDown={(e) => handlePointerDown(e, obj.id)}
+                          onPointerMove={handlePointerMove}
+                          onPointerUp={handlePointerUp}
+                          onPointerCancel={clearDragState}
+                          className="cursor-grab rounded-lg p-1 text-muted-foreground hover:bg-white/10 active:cursor-grabbing"
+                          style={{ touchAction: 'none' }}
                          title={`Drag ${obj.name} to reorder`}
                          aria-label={`Drag ${obj.name} to reorder`}
                        >

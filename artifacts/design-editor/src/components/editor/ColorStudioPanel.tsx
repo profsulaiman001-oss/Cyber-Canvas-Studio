@@ -475,6 +475,7 @@ export default function ColorStudioPanel({
   const [gradientOrigin, setGradientOrigin] = useState({ x: 0.5, y: 0.5 });
   const [colorHistory, setColorHistory] = useState<RecentColorEntry[]>(readColorHistory);
   const eyedropperReturnContextRef = useRef<ColorStudioEyedropperContext | null>(null);
+  const appliedSampledColorRef = useRef<string | null>(null);
 
   const pushHistory = useCallback((entry: RecentColorEntry) => {
     setColorHistory((prev) => {
@@ -486,14 +487,23 @@ export default function ColorStudioPanel({
   }, []);
 
   useEffect(() => {
-    if (!sampledColor) return;
-    const returnContext = eyedropperReturnContextRef.current;
-    const targetMode = returnContext?.mode ?? fillMode;
-    const targetStop = returnContext?.selectedStop ?? selectedStop;
-    if (returnContext) {
-      setFillMode(returnContext.mode);
-      setSelectedStop(returnContext.selectedStop);
+    if (!sampledColor) {
+      appliedSampledColorRef.current = null;
+      return;
     }
+
+    const returnContext = eyedropperReturnContextRef.current;
+    // ColorStudio and Canvas Background share the sampled-color prop. Only
+    // consume a sample when this panel captured the Color Studio context that
+    // initiated the eyedropper session.
+    if (!returnContext || appliedSampledColorRef.current === sampledColor) return;
+    appliedSampledColorRef.current = sampledColor;
+
+    const targetMode = returnContext.mode;
+    const targetStop = returnContext.selectedStop;
+    setFillMode(targetMode);
+    setSelectedStop(targetStop);
+
     // A sampled color is a solid color value, but the destination remains the
     // currently active fill context. Gradient sampling edits only its focused
     // stop; it must never collapse the Color Studio back to Solid.
@@ -504,7 +514,7 @@ export default function ColorStudioPanel({
         index === targetStop ? { ...stop, color: sampledColor } : stop
       )));
     }
-  }, [sampledColor, fillMode, selectedStop]);
+  }, [sampledColor]);
 
   useEffect(() => {
     if (!sampledColorCommitted) return;
@@ -647,6 +657,13 @@ export default function ColorStudioPanel({
     setStops(ns);
     pushFill(fillMode, solidColor, ns, radialRadius, gradientAngle, gradientOrigin, false);
   }, [stops, selectedStop, fillMode, solidColor, radialRadius, gradientAngle, gradientOrigin, pushFill]);
+
+  const handleSelectStop = useCallback((index: number) => {
+    if (!stops[index]) return;
+    // The picker value is derived from stops[selectedStop].color below. Do not
+    // copy the previous stop or global solid color into the newly focused stop.
+    setSelectedStop(index);
+  }, [stops]);
 
   const handleMoveStop = useCallback((idx: number, offset: number) => {
     const ns = stops.map((s, i) => i === idx ? { ...s, offset } : s);
@@ -800,7 +817,7 @@ export default function ColorStudioPanel({
               <GradientBar
                 stops={stops}
                 selectedIdx={selectedStop}
-                onSelectStop={setSelectedStop}
+                onSelectStop={handleSelectStop}
                 onMoveStop={handleMoveStop}
                 onAddStop={handleAddStop}
               />

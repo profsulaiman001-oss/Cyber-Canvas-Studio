@@ -155,7 +155,12 @@ export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelP
   const apply = useCallback((props: Record<string, unknown>) => {
     if (!obj) return;
     obj.set(props);
-    controller.getCanvas()?.renderAll();
+    obj.dirty = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).setDirty?.(true);
+    const canvas = controller.getCanvas();
+    canvas?.renderAll();
+    canvas?.requestRenderAll();
     controller.commitChange();
   }, [obj, controller]);
 

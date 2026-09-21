@@ -74,6 +74,30 @@ export function opaqueColor(cssColor: string): string {
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
 }
 
+/**
+ * Fabric can keep a raster image in its object cache after a property-only
+ * update. That is especially visible in Android WebView and Electron, where
+ * the GPU-backed bitmap may not be invalidated by requestRenderAll alone.
+ * Mark the complete object tree dirty and re-apply image filters before the
+ * next render so opacity changes are reflected everywhere.
+ */
+function invalidateFabricObject(target: FabricObject): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dirtyTarget = target as FabricObject & { dirty?: boolean; setDirty?: (dirty?: boolean) => void };
+  dirtyTarget.dirty = true;
+  dirtyTarget.setDirty?.(true);
+
+  if (target.type === 'image') {
+    const image = target as FabricImage & { applyFilters?: () => void };
+    if (image.filters?.length) image.applyFilters?.();
+  }
+
+  // Groups and active selections can contain raster children whose caches
+  // need invalidation independently from the parent container.
+  const children = (target as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.() ?? [];
+  children.forEach(invalidateFabricObject);
+}
+
 export type GradientFillType = 'linear' | 'radial' | 'angular';
 
 interface GradientOrigin {
@@ -2058,13 +2082,41 @@ export function useFabricCanvas(
         target.set('opacity', 1);
       }
 
+      invalidateFabricObject(target);
       children.forEach(applyToObject);
     };
 
-    applyToObject(obj);
+    // Use Fabric's active object list when available. For an ActiveSelection
+    // this updates every selected child directly; for a group it still walks
+    // the group's child tree through applyToObject.
+    const activeObjects = c.getActiveObjects();
+    const targets = activeObjects.length > 0 ? activeObjects : [obj];
+    targets.forEach(applyToObject);
+    // requestRenderAll is the normal path; renderAll immediately flushes the
+    // bitmap cache for Android WebView and Electron slider updates.
+    c.renderAll();
     c.requestRenderAll();
     pushUndo();
   }, [applyGradientFill, pushUndo]);
+
+  /* ─── Object opacity for raster selections ─── */
+  const applyObjectOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const alpha = Math.max(0, Math.min(1, fraction));
+    const activeObjects = c.getActiveObjects();
+    const targets = activeObjects.length > 0 ? activeObjects : obj ? [obj] : [];
+    if (targets.length === 0) return;
+
+    targets.forEach((target) => {
+      target.set('opacity', alpha);
+      invalidateFabricObject(target);
+    });
+
+    c.renderAll();
+    c.requestRenderAll();
+    pushUndo();
+  }, [pushUndo]);
 
   const getFillOpacity = useCallback((obj: FabricObject | null): number => {
     if (!obj) return 1;
@@ -2904,6 +2956,10 @@ export function useFabricCanvas(
     // Lock workspace viewport rendering origin directly to physical vector artboard boundaries
     c.setViewportTransform([1, 0, 0, 1, 0, 0]);
     c.setDimensions({ width: designWidth.current, height: designHeight.current });
+    // Flush object/image caches before raster export. This is important for
+    // WebView and Electron, where a queued render can otherwise lag one
+    // opacity-slider frame behind the exported bitmap.
+    c.renderAll();
 
     const dataUrl = c.toDataURL({ 
       format, 
@@ -3244,7 +3300,7 @@ export function useFabricCanvas(
     applyInnerShadow, applyTexture, apply3DDepth, applyGlow,
     applyGradientFill, fillShapeWithImage, cropImage, applyCircularCrop, addRasterLayer, applyImageFilters,
     // Decoupled fill / stroke opacity
-    applyFillOpacity, getFillOpacity, applyStrokeOpacity, getStrokeOpacity,
+    applyFillOpacity, applyObjectOpacity, getFillOpacity, applyStrokeOpacity, getStrokeOpacity,
     // Pen bezier live handle (for SVG overlay in Canvas.tsx)
     penLiveHandle,
     // Vector anchor editor

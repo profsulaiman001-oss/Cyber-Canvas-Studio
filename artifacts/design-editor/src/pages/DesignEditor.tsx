@@ -650,7 +650,23 @@ export default function DesignEditor() {
     setQuickFillOpacity(v);
     const obj = controller.selectedObject;
     if (!obj) return;
-    controller.applyFillOpacity(obj, v / 100);
+    const activeObjects = controller.getCanvas()?.getActiveObjects() ?? [];
+    const selectionContainsImage = activeObjects.some((candidate) => {
+      if (candidate.type === 'image') return true;
+      const children = (candidate as import('fabric').FabricObject & {
+        getObjects?: () => import('fabric').FabricObject[];
+      }).getObjects?.() ?? [];
+      return children.some((child) => child.type === 'image');
+    }) || obj.type === 'image';
+
+    // Shapes retain the editor's decoupled fill-opacity behavior so their
+    // strokes are not unintentionally dimmed. Raster selections use Fabric's
+    // object opacity directly and force their image caches dirty.
+    if (selectionContainsImage) {
+      controller.applyObjectOpacity(obj, v / 100);
+    } else {
+      controller.applyFillOpacity(obj, v / 100);
+    }
   }, [controller]);
 
   const handleCornerRadiusChange = useCallback((v: number) => {

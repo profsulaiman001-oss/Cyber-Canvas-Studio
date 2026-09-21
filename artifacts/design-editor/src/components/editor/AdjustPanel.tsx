@@ -98,6 +98,12 @@ export default function AdjustPanel({ controller }: AdjustPanelProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     imgObj.filters = buildFilters(next) as any;
     imgObj.applyFilters();
+    imgObj.dirty = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (imgObj as any).setDirty?.(true);
+    // Flush immediately for WebView/Electron bitmap caches; the queued render
+    // remains in place for Fabric's normal render scheduling.
+    c.renderAll();
     c.requestRenderAll();
   }, [imgObj, controller]);
 

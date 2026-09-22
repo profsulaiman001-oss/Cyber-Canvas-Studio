@@ -150,6 +150,10 @@ export default function TextPanel({ controller }: TextPanelProps) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (newText as any)._name = addContent.trim() || 'New Text';
+    // Keep explicitly authored text names when the layer panel derives names
+    // from the object content.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (newText as any)._isCustomName = true;
 
     canvas.add(newText);
     canvas.setActiveObject(newText);

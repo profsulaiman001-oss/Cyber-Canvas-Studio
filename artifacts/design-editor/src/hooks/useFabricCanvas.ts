@@ -257,6 +257,8 @@ function createAngularGradientCanvas(
   return gradientCanvas;
 }
 
+export type LayerTag = 'red' | 'cyan' | 'yellow' | 'green' | 'purple';
+
 export interface ObjectMeta {
   id: string;
   name: string;
@@ -268,6 +270,14 @@ export interface ObjectMeta {
   opacity: number;
   imgSrc?: string;
   thumbnailSrc?: string;
+  tag?: LayerTag;
+  parentId?: string;
+  children?: ObjectMeta[];
+}
+
+export interface LayerOrderNode {
+  id: string;
+  children: LayerOrderNode[];
 }
 
 export interface CanvasBgConfig {
@@ -341,6 +351,9 @@ const EXTRA_PROPS = [
   'ry',
   '_uid',
   '_name',
+  '_isCustomName',
+  '_layerTag',
+  '_sourceName',
   '_origFill',
   '_innerShadow',
   '_textureKey',
@@ -353,17 +366,44 @@ const EXTRA_PROPS = [
   '_isAuxLayer',
 ];
 export const FABRIC_EDITOR_CLONE_PROPS = EXTRA_PROPS;
-let objectSeq: Record<string, number> = {};
-
-function nextName(type: string): string {
-  objectSeq[type] = (objectSeq[type] || 0) + 1;
+function autoLayerName(obj: FabricObject, kind = obj.type): string {
+  const o = obj as FabricObject & Record<string, unknown>;
   const labels: Record<string, string> = {
-    rect: 'Rectangle', circle: 'Circle', triangle: 'Triangle',
-    line: 'Line', path: 'Path', 'i-text': 'Text', image: 'Image',
-    star: 'Star', hexagon: 'Hexagon', pentagon: 'Pentagon',
-    heart: 'Heart', arrow: 'Arrow', brush: 'Brush Stroke',
+    rect: 'Rectangle Shape',
+    circle: 'Circle Shape',
+    triangle: 'Triangle Shape',
+    line: 'Line Shape',
+    path: 'Vector Shape',
+    image: 'Image',
+    group: 'Group Folder',
+    'i-text': 'Heading Text',
+    text: 'Heading Text',
+    textbox: 'Heading Text',
+    brush: 'Brush Stroke',
+    star: 'Star Shape',
+    hexagon: 'Hexagon Shape',
+    pentagon: 'Pentagon Shape',
+    heart: 'Heart Shape',
+    arrow: 'Arrow Shape',
   };
-  return `${labels[type] || type} ${objectSeq[type]}`;
+
+  if (kind === 'image') {
+    const sourceName = typeof o._sourceName === 'string' ? o._sourceName : '';
+    const baseName = sourceName.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ').trim();
+    if (baseName) {
+      const title = baseName.replace(/\b\w/g, (char) => char.toUpperCase());
+      return `${title} Image`;
+    }
+  }
+
+  if (kind === 'i-text' || kind === 'text' || kind === 'textbox') {
+    const text = typeof o.text === 'string' ? o.text.replace(/\s+/g, ' ').trim() : '';
+    if (text && text !== 'Tap to edit' && text !== 'New Text') {
+      return `${text.slice(0, 28)}${text.length > 28 ? '…' : ''} Text`;
+    }
+  }
+
+  return labels[kind] || 'Object';
 }
 
 function objId(obj: FabricObject): string {
@@ -458,7 +498,9 @@ function visualSignature(obj: FabricObject): string {
 }
 
 function tagObj(obj: FabricObject, nameKey: string) {
-  (obj as FabricObject & { _name: string })._name = nextName(nameKey);
+  const metadata = obj as FabricObject & { _name: string; _isCustomName?: boolean };
+  metadata._name = autoLayerName(obj, nameKey);
+  metadata._isCustomName = false;
   (obj as FabricObject & { _uid: string })._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
@@ -762,6 +804,9 @@ export function useFabricCanvas(
   const [dragInfo, setDragInfo] = useState<DragInfo | null>(null);
   const [isBrushActive, setIsBrushActive] = useState(false);
   const [eyedropperActive, setEyedropperActive] = useState(false);
+  const [soloObjectId, setSoloObjectId] = useState<string | null>(null);
+  const soloObjectIdRef = useRef<string | null>(null);
+  const soloVisibilityRef = useRef<Map<FabricObject, boolean> | null>(null);
 
   // Mutable refs for event handlers
   const gridEnabledRef = useRef(false);
@@ -854,27 +899,17 @@ export function useFabricCanvas(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const objs = c.getObjects().filter((o) => !(o as any)._isPenAux && !(o as any)._isAuxLayer);
     lastVisualSignatureRef.current = objs.map(visualSignature).join('||');
-    setObjects(
-      [...objs].reverse().map((obj) => {
+    const buildMeta = (obj: FabricObject, parentId?: string): ObjectMeta => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const o = obj as any;
         const fill = typeof obj.fill === 'string' ? obj.fill : undefined;
         const stroke = typeof obj.stroke === 'string' ? obj.stroke : undefined;
-        const labelByType: Record<string, string> = {
-          rect: 'Rectangle',
-          circle: 'Circle',
-          triangle: 'Triangle',
-          line: 'Line',
-          path: 'Path',
-          image: 'Image',
-          group: 'Group',
-          'i-text': 'Text',
-          text: 'Text',
-          textbox: 'Text',
-        };
-        const isText = obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox';
-        const textLabel = typeof o.text === 'string' && o.text.length > 0 ? o.text : 'Text';
-        const typeLabel = labelByType[obj.type] || String(o._name || obj.type || 'Object').replace(/\s+\d+$/, '');
+        const isCustomName = o._isCustomName === true && typeof o._name === 'string' && o._name.trim().length > 0;
+        const name = isCustomName ? o._name.trim() : autoLayerName(obj);
+        if (!isCustomName) o._name = name;
+        const childObjects = obj.type === 'group'
+          ? ((obj as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.() ?? [])
+          : [];
         // Generate a stable base64 thumbnail so it never shows a broken-image icon
         let imgSrc: string | undefined;
         if (obj.type === 'image') {
@@ -899,9 +934,14 @@ export function useFabricCanvas(
             }
           } catch { /* tainted canvas or other error — leave imgSrc undefined */ }
         }
+        const rawTag = o._layerTag;
+        const tag: LayerTag | undefined =
+          rawTag === 'red' || rawTag === 'cyan' || rawTag === 'yellow' || rawTag === 'green' || rawTag === 'purple'
+            ? rawTag
+            : undefined;
         return {
           id: objId(obj),
-          name: isText ? textLabel : typeLabel,
+          name,
           type: obj.type || 'object',
           visible: obj.visible !== false,
           selectable: obj.selectable !== false,
@@ -910,9 +950,14 @@ export function useFabricCanvas(
           opacity: obj.opacity ?? 1,
           imgSrc,
           thumbnailSrc: renderLayerThumbnail(obj),
+          tag,
+          parentId,
+          children: childObjects.length > 0
+            ? [...childObjects].reverse().map((child) => buildMeta(child, objId(obj)))
+            : undefined,
         };
-      })
-    );
+    };
+    setObjects([...objs].reverse().map((obj) => buildMeta(obj)));
   }, []);
 
   const getHistorySnapshot = useCallback(() => {
@@ -1693,6 +1738,7 @@ export function useFabricCanvas(
     // Fabric's JSON, but cannot be decoded by a later undo/project restore.
     const element = await loadLocalImage(file);
     const img = new FabricImage(element);
+    (img as FabricImage & { _sourceName?: string })._sourceName = file.name;
     const maxDim = Math.min(designWidth.current, designHeight.current) * 0.5;
     const scale = Math.min(maxDim / (img.width || 1), maxDim / (img.height || 1));
     img.scale(scale);
@@ -3195,6 +3241,76 @@ export function useFabricCanvas(
     obj.set('visible', !obj.visible); canvasRef.current?.renderAll(); syncObjects();
   }, [syncObjects]);
 
+  const renameObject = useCallback((obj: FabricObject, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    (obj as FabricObject & { _name: string; _isCustomName: boolean })._name = trimmed;
+    (obj as FabricObject & { _isCustomName: boolean })._isCustomName = true;
+    canvasRef.current?.renderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
+  const setLayerTag = useCallback((obj: FabricObject, tag: LayerTag | undefined) => {
+    (obj as FabricObject & { _layerTag?: LayerTag })._layerTag = tag;
+    canvasRef.current?.renderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
+  const restoreSoloVisibility = useCallback(() => {
+    const c = canvasRef.current;
+    const saved = soloVisibilityRef.current;
+    if (!c || !saved) return;
+    saved.forEach((visible, obj) => obj.set('visible', visible));
+    soloVisibilityRef.current = null;
+    soloObjectIdRef.current = null;
+    setSoloObjectId(null);
+  }, []);
+
+  const toggleSolo = useCallback((obj: FabricObject) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const id = objId(obj);
+    if (soloObjectIdRef.current === id) {
+      restoreSoloVisibility();
+      c.renderAll();
+      syncObjects();
+      return;
+    }
+    if (soloVisibilityRef.current) restoreSoloVisibility();
+
+    const allObjects: FabricObject[] = [];
+    const collect = (items: FabricObject[]) => items.forEach((item) => {
+      allObjects.push(item);
+      const children = (item as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
+      if (children) collect(children);
+    });
+    collect(c.getObjects());
+    soloVisibilityRef.current = new Map(allObjects.map((item) => [item, item.visible !== false]));
+
+    allObjects.forEach((item) => item.set('visible', false));
+    let current: FabricObject | undefined = obj;
+    while (current) {
+      current.set('visible', true);
+      current = (current as FabricObject & { group?: FabricObject }).group;
+    }
+    if (obj.type === 'group') {
+      const showDescendants = (item: FabricObject) => {
+        const children = (item as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.() ?? [];
+        children.forEach((child) => {
+          child.set('visible', true);
+          showDescendants(child);
+        });
+      };
+      showDescendants(obj);
+    }
+    soloObjectIdRef.current = id;
+    setSoloObjectId(id);
+    c.renderAll();
+    syncObjects();
+  }, [restoreSoloVisibility, syncObjects]);
+
   const toggleLock = useCallback((obj: FabricObject) => {
     const locked = !obj.selectable;
     obj.set({ selectable: locked, evented: locked });
@@ -3214,19 +3330,48 @@ export function useFabricCanvas(
 
   const getObjectById = useCallback((id: string): FabricObject | null => {
     const c = canvasRef.current; if (!c) return null;
-    return c.getObjects().find((o) => objId(o) === id) || null;
+    const find = (items: FabricObject[]): FabricObject | null => {
+      for (const item of items) {
+        if (objId(item) === id) return item;
+        const children = (item as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
+        if (children) {
+          const found = find(children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return find(c.getObjects());
   }, []);
 
   const selectObjectById = useCallback((id: string) => {
     const c = canvasRef.current; if (!c) return;
-    const obj = c.getObjects().find((o) => objId(o) === id);
+    const find = (items: FabricObject[]): FabricObject | null => {
+      for (const item of items) {
+        if (objId(item) === id) return item;
+        const children = (item as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
+        if (children) {
+          const found = find(children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const obj = find(c.getObjects());
     if (obj) { c.setActiveObject(obj); c.renderAll(); }
   }, []);
 
   const selectObjectsByIds = useCallback((ids: string[]) => {
     const c = canvasRef.current; if (!c) return;
+    const allObjects: FabricObject[] = [];
+    const collect = (items: FabricObject[]) => items.forEach((item) => {
+      allObjects.push(item);
+      const children = (item as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
+      if (children) collect(children);
+    });
+    collect(c.getObjects());
     const selected = ids
-      .map((id) => c.getObjects().find((obj) => objId(obj) === id))
+      .map((id) => allObjects.find((obj) => objId(obj) === id))
       .filter((obj): obj is FabricObject => Boolean(obj));
     c.discardActiveObject();
     if (selected.length === 1) {
@@ -3282,6 +3427,67 @@ export function useFabricCanvas(
     syncObjects();
   }, [options, pushUndo, syncObjects]);
 
+  const reorderLayerTree = useCallback((tree: LayerOrderNode[]) => {
+    const c = canvasRef.current;
+    if (!c || tree.length === 0) return;
+
+    const byId = new Map<string, FabricObject>();
+    const collect = (items: FabricObject[]) => items.forEach((item) => {
+      byId.set(objId(item), item);
+      const children = (item as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
+      if (children) collect(children);
+    });
+    collect(c.getObjects());
+
+    const reparent = (node: LayerOrderNode, parent: Group | null) => {
+      const obj = byId.get(node.id);
+      if (!obj) return;
+      const currentParent = obj.group instanceof Group ? obj.group : null;
+      if (currentParent !== parent) {
+        if (currentParent) {
+          currentParent.remove(obj);
+        } else {
+          c.remove(obj);
+        }
+        if (parent) {
+          parent.add(obj);
+        } else {
+          c.add(obj);
+        }
+      }
+      const nextParent = obj instanceof Group ? obj : null;
+      node.children.forEach((child) => reparent(child, nextParent));
+    };
+
+    tree.forEach((node) => reparent(node, null));
+
+    const reorderCollection = (
+      collection: { moveObjectTo?: (obj: FabricObject, index: number) => void },
+      nodes: LayerOrderNode[],
+    ) => {
+      const move = collection.moveObjectTo;
+      if (typeof move !== 'function') return;
+      nodes.slice().reverse().forEach((node, index) => {
+        const obj = byId.get(node.id);
+        if (obj) move.call(collection, obj, index);
+      });
+    };
+    reorderCollection(c, tree);
+    const reorderChildren = (node: LayerOrderNode) => {
+      const obj = byId.get(node.id);
+      if (obj?.type === 'group') {
+        reorderCollection(obj as Group, node.children);
+      }
+      node.children.forEach(reorderChildren);
+    };
+    tree.forEach(reorderChildren);
+
+    c.requestRenderAll();
+    c.renderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
   const getCanvas = () => canvasRef.current;
 
   return {
@@ -3311,9 +3517,10 @@ export function useFabricCanvas(
     // Object ops
     deleteSelected, duplicateSelected, copySelected, pasteSelected, selectAll, clearSelection,
     bringForward, sendBackward, bringToFront, sendToBack,
-    toggleVisibility, toggleLock, deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
+    toggleVisibility, toggleLock, renameObject, setLayerTag, toggleSolo, soloObjectId,
+    deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
     groupSelected, ungroupSelected,
-    moveObjectToIndex, reorderObjects,
+    moveObjectToIndex, reorderObjects, reorderLayerTree,
     // Image transforms
     flipHorizontal, flipVertical, rotate90,
     // Alignment

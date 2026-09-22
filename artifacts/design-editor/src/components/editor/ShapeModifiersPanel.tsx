@@ -130,6 +130,8 @@ function tagNewPath(path: FabricPath, name: string) {
   (path as any)._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (path as any)._name = name;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (path as any)._isCustomName = true;
 }
 
 function refFill(objs: FabricObject[]): string {

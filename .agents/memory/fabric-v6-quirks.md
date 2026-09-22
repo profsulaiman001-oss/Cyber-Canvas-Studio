@@ -14,5 +14,6 @@ description: Non-obvious Fabric.js serialization, API differences, and caching e
 - **Path coordinates:** `(path as any).path` is `[string, ...number[]][]` with M/L/C/Q/Z commands; local coords centered at bbox center; use `util.transformPoint(pt, obj.calcTransformMatrix())` to get canvas-space coords
 - `util.invertTransform(matrix as any)` works for computing inverse delta transforms — zero out [4] and [5] for pure delta (no translation)
 - `path:created` event shape in v6: `{ path: FabricObject }` — access via `(e as Record<string, unknown>).path`
+- **Group reparenting:** `Group.remove(obj)` restores the child to canvas-space coordinates, and `targetGroup.add(obj)` re-enters it with the target group's transform; use these APIs for hierarchy moves instead of manually rewriting `left`/`top`.
 
 **Why:** These are undocumented breaking changes from v5 → v6 or subtle caching behaviours that caused runtime failures in previous sessions.

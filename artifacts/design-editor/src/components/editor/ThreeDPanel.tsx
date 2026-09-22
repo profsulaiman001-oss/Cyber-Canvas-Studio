@@ -7,11 +7,18 @@ import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject } from 'fabric';
 import {
   Box,
+  Compass,
+  Contrast,
   ChevronDown,
   ChevronUp,
+  Feather,
+  Layers,
   Lightbulb,
+  Sun,
   RotateCcw,
   Sparkles,
+  Zap,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -28,7 +35,7 @@ interface ThreeDPanelProps {
   controller: CanvasController;
 }
 
-type ThreeDParam = 'depth' | 'lightAngle' | 'lightIntensity' | 'shadow' | 'specular' | 'darken';
+type ThreeDParam = 'depth' | 'depthAngle' | 'lightAngle' | 'lightIntensity' | 'shadow' | 'shadowFalloff' | 'specular' | 'darken';
 
 type Depth3dConfig = {
   enabled?: boolean;
@@ -51,11 +58,24 @@ type FillLike = string | { colorStops?: Array<{ color?: string }> };
 
 const PARAM_LABELS: Record<ThreeDParam, string> = {
   depth: '3D Depth',
+  depthAngle: 'Extrusion Direction',
   lightAngle: 'Light Angle',
   lightIntensity: 'Light Intensity',
   shadow: 'Shadow',
+  shadowFalloff: 'Shadow Falloff',
   specular: 'Specular Hardness',
   darken: 'Darken Intensity',
+};
+
+const PARAM_ICONS: Record<ThreeDParam, LucideIcon> = {
+  depth: Box,
+  depthAngle: Compass,
+  lightAngle: Sun,
+  lightIntensity: Sparkles,
+  shadow: Layers,
+  shadowFalloff: Feather,
+  specular: Zap,
+  darken: Contrast,
 };
 
 const PRESETS = [
@@ -360,13 +380,16 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
 
   const controls = useMemo(() => ({
     depth: { label: PARAM_LABELS.depth, value: steps, min: 1, max: 80, step: 1, unit: 'px', onChange: (value: number) => { setSteps(value); updateDepth({ steps: value }); } },
+    depthAngle: { label: PARAM_LABELS.depthAngle, value: depthAngle, min: 0, max: 360, step: 1, unit: '°', onChange: (value: number) => { setDepthAngle(value); updateDepth({ depthAngle: value }); } },
     lightAngle: { label: PARAM_LABELS.lightAngle, value: lightAngle, min: 0, max: 360, step: 1, unit: '°', onChange: (value: number) => { setLightAngle(value); updateDepth({ lightAngle: value }); } },
     lightIntensity: { label: PARAM_LABELS.lightIntensity, value: lightIntensity, min: 0, max: 100, step: 1, unit: '%', onChange: (value: number) => { setLightIntensity(value); updateDepth({ lightIntensity: value }); } },
     shadow: { label: PARAM_LABELS.shadow, value: shadowDepth, min: 0, max: 100, step: 1, unit: '%', onChange: (value: number) => { setShadowDepth(value); updateDepth({ shadowDepth: value }); } },
+    shadowFalloff: { label: PARAM_LABELS.shadowFalloff, value: shadowFalloff, min: 0, max: 100, step: 1, unit: '%', onChange: (value: number) => { setShadowFalloff(value); updateDepth({ shadowFalloff: value }); } },
     specular: { label: PARAM_LABELS.specular, value: specularHardness, min: 0, max: 100, step: 1, unit: '%', onChange: (value: number) => { setSpecularHardness(value); updateDepth({ specularHardness: value }); } },
     darken: { label: PARAM_LABELS.darken, value: darkenIntensity, min: 0, max: 100, step: 1, unit: '%', onChange: handleDarkenChange },
-  }), [steps, lightAngle, lightIntensity, shadowDepth, specularHardness, darkenIntensity, updateDepth]);
+  }), [steps, depthAngle, lightAngle, lightIntensity, shadowDepth, shadowFalloff, specularHardness, darkenIntensity, updateDepth, handleDarkenChange]);
   const activeControl = controls[activeParam];
+  const ActiveParamIcon = PARAM_ICONS[activeParam];
 
   if (state.activePanel !== 'threeD') return null;
 
@@ -429,12 +452,16 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 rounded-2xl border px-2.5 py-2.5" style={{ background: '#11141A', borderColor: 'rgba(0,245,255,0.3)', boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)' }}>
-        <Box size={14} className="shrink-0 text-primary" />
+       <div className="flex w-full items-center gap-2 rounded-2xl border px-2.5 py-2.5" style={{ background: '#11141A', borderColor: 'rgba(0,245,255,0.3)', boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)' }}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex min-w-[106px] shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-left text-[10px] font-semibold text-primary hover:bg-primary/10">
-              <span className="truncate">{activeControl.label}</span><ChevronDown size={12} className="ml-auto shrink-0" />
+             <button
+               className="flex h-8 w-12 max-w-[48px] shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary hover:bg-primary/10"
+               aria-label={`3D parameter: ${activeControl.label}`}
+               title={activeControl.label}
+             >
+               <ActiveParamIcon size={14} />
+               <ChevronDown size={11} className="shrink-0" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" sideOffset={8} className="w-52 border-cyan-400/20 bg-[#11141A] text-foreground">
@@ -442,13 +469,21 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup value={activeParam} onValueChange={(value) => setActiveParam(value as ThreeDParam)}>
               {(Object.keys(PARAM_LABELS) as ThreeDParam[]).map((param) => (
-                <DropdownMenuRadioItem key={param} value={param} className="text-xs">{PARAM_LABELS[param]}</DropdownMenuRadioItem>
+                 <DropdownMenuRadioItem key={param} value={param} className="gap-2 text-xs">
+                   {(() => {
+                     const ParamIcon = PARAM_ICONS[param];
+                     return <ParamIcon size={14} className="text-primary" />;
+                   })()}
+                   <span>{PARAM_LABELS[param]}</span>
+                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Slider min={activeControl.min} max={activeControl.max} step={activeControl.step} value={[activeControl.value]} onValueChange={([value]) => activeControl.onChange(value)} disabled={!obj || !enabled} className="min-w-0 flex-1" />
+         <div className="min-w-0 w-full flex-1">
+           <Slider min={activeControl.min} max={activeControl.max} step={activeControl.step} value={[activeControl.value]} onValueChange={([value]) => activeControl.onChange(value)} disabled={!obj || !enabled} className="w-full" />
+         </div>
         <span className="min-w-[42px] shrink-0 text-right font-mono text-[10px] text-primary">{formatValue(activeControl.value, activeControl.unit)}</span>
         <Switch checked={enabled} onCheckedChange={handleEnabledChange} disabled={!obj} aria-label="Toggle 3D extrusion effect" />
         <button onClick={() => setExpanded((open) => !open)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10" aria-label={expanded ? 'Collapse 3D extrusion controls' : 'Expand 3D extrusion controls'}>

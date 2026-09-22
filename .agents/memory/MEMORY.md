@@ -7,6 +7,7 @@
 - [Vector anchor editor](vector-anchor-editor.md) — toScreen fix: subtract pathOffset before util.transformPoint (Fabric renders ctx.translate(-po.x,-po.y) before path); bbox fix after drag: recalc pathOffset/width/height and compensate left+top by dPo*scale
 - [3D extrusion](3d-extrusion.md) — draw3DLayer renders offset copies via destination-over in after:render, not Fabric shadow; stores _depth3d on obj
 - [Fabric v6 quirks](fabric-v6-quirks.md) — shadow mutations need setDirty(true)+requestRenderAll; path.path is [string,...number[]][]; util.invertTransform(matrix as any) works for delta math
+- [Inner shadow geometry](inner-shadow-geometry.md) — derive masks from Fabric-native local paths, including pathOffset and rx/ry, then composite the inverted blur with source-atop
 - [Canvas coordinate alignment](canvas-coordinate-alignment.md) — fitToContainer must size canvas to dw*zoom × dh*zoom (design area), NOT container dimensions; no vp translation
 - [Toolbar overlay pattern](toolbar-overlay.md) — brush color picker and zoom tray must be absolute-positioned (bottom-full) inside a relative wrapper div, NOT inline in toolbar flex flow — avoids canvas resize
 - [Pan mode](pan-mode.md) — touch-pan ONLY in Canvas.tsx handlers (never Fabric mouse:down/move — TouchEvent.clientX=undefined→NaN→black screen); touchAction:none+always-preventDefault blocks native scroll when tool is OFF

@@ -539,67 +539,195 @@ const RIGHT_TRI_PATH = 'M -50,50 L -50,-50 L 50,50 Z';
 const ARROW_PATH = 'M -55,-18 L 10,-18 L 10,-45 L 55,0 L 10,45 L 10,18 L -55,18 Z';
 
 /* ─── Inner shadow canvas renderer ─── */
+const KAPPA = 0.5522847498;
+
+type ShapeWithPathData = FabricObject & {
+  path?: [string, ...number[]][];
+  pathOffset?: { x: number; y: number };
+  points?: Array<{ x: number; y: number }>;
+  rx?: number;
+  ry?: number;
+  radius?: number;
+  startAngle?: number;
+  endAngle?: number;
+  _renderPathCommands?: (renderCtx: CanvasRenderingContext2D) => void;
+};
+
+/**
+ * Appends the same local geometry used by Fabric's native shape renderers.
+ * This intentionally does not call beginPath(), so it can be combined with
+ * the outer rectangle to create an inverted even-odd mask.
+ */
+function appendNativeObjectPath(ctx: CanvasRenderingContext2D, obj: FabricObject) {
+  const shape = obj as ShapeWithPathData;
+  const w = Math.max(0, obj.width ?? 0);
+  const h = Math.max(0, obj.height ?? 0);
+
+  if (obj.type === 'path' && shape.path) {
+    const offset = shape.pathOffset || { x: 0, y: 0 };
+    shape.path.forEach((command) => {
+      const [type, ...values] = command;
+      switch (type) {
+        case 'M':
+          ctx.moveTo(values[0] + -offset.x, values[1] + -offset.y);
+          break;
+        case 'L':
+          ctx.lineTo(values[0] + -offset.x, values[1] + -offset.y);
+          break;
+        case 'C':
+          ctx.bezierCurveTo(
+            values[0] + -offset.x,
+            values[1] + -offset.y,
+            values[2] + -offset.x,
+            values[3] + -offset.y,
+            values[4] + -offset.x,
+            values[5] + -offset.y,
+          );
+          break;
+        case 'Q':
+          ctx.quadraticCurveTo(
+            values[0] + -offset.x,
+            values[1] + -offset.y,
+            values[2] + -offset.x,
+            values[3] + -offset.y,
+          );
+          break;
+        case 'Z':
+          ctx.closePath();
+          break;
+      }
+    });
+    return;
+  }
+
+  if (obj.type === 'polygon' || obj.type === 'polyline') {
+    const points = shape.points || [];
+    const offset = shape.pathOffset || { x: 0, y: 0 };
+    points.forEach((point, index) => {
+      const x = point.x - offset.x;
+      const y = point.y - offset.y;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    if (obj.type === 'polygon') ctx.closePath();
+    return;
+  }
+
+  if (obj.type === 'circle') {
+    const radius = shape.radius ?? Math.min(w, h) / 2;
+    ctx.arc(
+      0,
+      0,
+      radius,
+      shape.startAngle ?? 0,
+      shape.endAngle ?? Math.PI * 2,
+      false,
+    );
+    return;
+  }
+
+  if (obj.type === 'ellipse') {
+    ctx.ellipse(0, 0, shape.rx ?? w / 2, shape.ry ?? h / 2, 0, 0, Math.PI * 2);
+    return;
+  }
+
+  if (obj.type === 'triangle') {
+    ctx.moveTo(0, -h / 2);
+    ctx.lineTo(w / 2, h / 2);
+    ctx.lineTo(-w / 2, h / 2);
+    ctx.closePath();
+    return;
+  }
+
+  if (obj.type === 'rect') {
+    const x = -w / 2;
+    const y = -h / 2;
+    const rx = Math.min(Math.max(shape.rx ?? 0, 0), w / 2);
+    const ry = Math.min(Math.max(shape.ry ?? 0, 0), h / 2);
+    const rounded = rx !== 0 || ry !== 0;
+
+    ctx.moveTo(x + rx, y);
+    ctx.lineTo(x + w - rx, y);
+    if (rounded) {
+      ctx.bezierCurveTo(x + w - KAPPA * rx, y, x + w, y + KAPPA * ry, x + w, y + ry);
+    }
+    ctx.lineTo(x + w, y + h - ry);
+    if (rounded) {
+      ctx.bezierCurveTo(x + w, y + h - KAPPA * ry, x + w - KAPPA * rx, y + h, x + w - rx, y + h);
+    }
+    ctx.lineTo(x + rx, y + h);
+    if (rounded) {
+      ctx.bezierCurveTo(x + KAPPA * rx, y + h, x, y + h - KAPPA * ry, x, y + h - ry);
+    }
+    ctx.lineTo(x, y + ry);
+    if (rounded) {
+      ctx.bezierCurveTo(x, y + KAPPA * ry, x + KAPPA * rx, y, x + rx, y);
+    }
+    ctx.closePath();
+    return;
+  }
+
+  // Keep unsupported Fabric subclasses safe without returning to a detached
+  // Path2D/bounding-box mask. Most editor objects are covered above.
+  ctx.rect(-w / 2, -h / 2, w, h);
+}
+
+function traceNativeObjectPath(ctx: CanvasRenderingContext2D, obj: FabricObject) {
+  // Path._renderPathCommands is Fabric's own exact path tracer. It applies
+  // pathOffset, which is the detail a raw Path2D(command.join()) misses.
+  const shape = obj as ShapeWithPathData;
+  if (obj.type === 'path' && shape._renderPathCommands) {
+    shape._renderPathCommands(ctx);
+    return;
+  }
+  ctx.beginPath();
+  appendNativeObjectPath(ctx, obj);
+}
+
 function drawInnerShadow(
   ctx: CanvasRenderingContext2D,
   obj: FabricObject,
   cfg: { color: string; blur: number; offsetX: number; offsetY: number; opacity: number },
-  vp: number[]
+  vp: number[],
 ) {
+  const w = Math.max(1, obj.width ?? 100);
+  const h = Math.max(1, obj.height ?? 100);
+  const pad = Math.max(8, cfg.blur * 3 + Math.abs(cfg.offsetX) + Math.abs(cfg.offsetY));
+  const layerWidth = Math.ceil(w + pad * 2);
+  const layerHeight = Math.ceil(h + pad * 2);
+  const shadowCanvas = document.createElement('canvas');
+  shadowCanvas.width = layerWidth;
+  shadowCanvas.height = layerHeight;
+  const shadowCtx = shadowCanvas.getContext('2d');
+  if (!shadowCtx) return;
+
+  // The inverse mask is the whole local bounds with the exact object path
+  // removed. Its blurred/offset edge becomes visible only inside the object.
+  shadowCtx.save();
+  shadowCtx.translate(pad + w / 2, pad + h / 2);
+  shadowCtx.shadowColor = cfg.color;
+  shadowCtx.shadowBlur = Math.max(0, cfg.blur);
+  shadowCtx.shadowOffsetX = cfg.offsetX;
+  shadowCtx.shadowOffsetY = cfg.offsetY;
+  shadowCtx.globalAlpha = Math.max(0, Math.min(1, cfg.opacity / 100));
+  shadowCtx.fillStyle = cfg.color;
+  shadowCtx.beginPath();
+  shadowCtx.rect(-w / 2 - pad, -h / 2 - pad, w + pad * 2, h + pad * 2);
+  appendNativeObjectPath(shadowCtx, obj);
+  shadowCtx.fill('evenodd');
+  shadowCtx.restore();
+
+  const matrix = obj.calcTransformMatrix();
   ctx.save();
   ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
-  const m = obj.calcTransformMatrix();
-  ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  ctx.transform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
 
-  const w = (obj.width ?? 100);
-  const h = (obj.height ?? 100);
-  const pad = Math.max(cfg.blur * 3, 50);
-
-  ctx.beginPath();
-  if (obj.type === 'circle') {
-    const r = (obj as Circle).radius ?? w / 2;
-    ctx.ellipse(0, 0, r, r, 0, 0, Math.PI * 2);
-    ctx.clip();
-  } else if (obj.type === 'path' || obj.type === 'triangle') {
-    // Clip to the actual path geometry so the shadow never bleeds outside
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cmds = (obj as Path & { path?: [string, ...number[]][] }).path;
-    let clipped = false;
-    if (cmds && cmds.length > 0) {
-      try {
-        const dStr = cmds.map((cmd) => cmd.join(' ')).join(' ');
-        ctx.clip(new Path2D(dStr));
-        clipped = true;
-      } catch { /* fall through to rect clip */ }
-    }
-    if (!clipped) {
-      ctx.rect(-w / 2, -h / 2, w, h);
-      ctx.clip();
-    }
-  } else {
-    const rx = (obj as Rect).rx ?? 0;
-    if (rx > 0) {
-      const x = -w / 2, y = -h / 2;
-      ctx.moveTo(x + rx, y); ctx.lineTo(x + w - rx, y);
-      ctx.arcTo(x + w, y, x + w, y + rx, rx); ctx.lineTo(x + w, y + h - rx);
-      ctx.arcTo(x + w, y + h, x + w - rx, y + h, rx); ctx.lineTo(x + rx, y + h);
-      ctx.arcTo(x, y + h, x, y + h - rx, rx); ctx.lineTo(x, y + rx);
-      ctx.arcTo(x, y, x + rx, y, rx); ctx.closePath();
-    } else {
-      ctx.rect(-w / 2, -h / 2, w, h);
-    }
-    ctx.clip();
-  }
-
-  ctx.shadowColor = cfg.color;
-  ctx.shadowBlur = cfg.blur;
-  ctx.shadowOffsetX = cfg.offsetX;
-  ctx.shadowOffsetY = cfg.offsetY;
-  ctx.globalAlpha = cfg.opacity / 100;
-  ctx.fillStyle = cfg.color;
-  ctx.beginPath();
-  ctx.rect(-w / 2 - pad, -h / 2 - pad, w + pad * 2, h + pad * 2);
-  ctx.rect(-w / 2 + 0.5, -h / 2 + 0.5, w - 1, h - 1);
-  ctx.fill('evenodd');
+  // Clip with the active native geometry, then use source-atop so the
+  // generated inverse-mask shadow cannot paint outside the object's pixels.
+  traceNativeObjectPath(ctx, obj);
+  ctx.clip();
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.drawImage(shadowCanvas, -w / 2 - pad, -h / 2 - pad);
   ctx.restore();
 }
 

@@ -36,6 +36,10 @@ interface LayersPanelProps {
 }
 
 /* ─── Shape thumbnail ─── */
+const thumbnailSurfaceStyle = {
+  background: 'repeating-conic-gradient(#303640 0% 25%, #222831 0% 50%) 50% / 12px 12px',
+};
+
 function LayerThumb({
   type,
   fill,
@@ -57,9 +61,7 @@ function LayerThumb({
     return (
       <div
         className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10"
-        style={{
-          background: 'repeating-conic-gradient(#151922 0% 25%, #10131a 0% 50%) 50% / 12px 12px',
-        }}
+        style={thumbnailSurfaceStyle}
       >
         <img
           src={thumbnailSrc || imgSrc}
@@ -82,7 +84,7 @@ function LayerThumb({
     return (
       <div
         className="h-[84px] w-[84px] flex-shrink-0 rounded-xl border border-white/10 p-4"
-        style={{ background: '#11141A' }}
+        style={thumbnailSurfaceStyle}
       >
         <div className="h-full w-full rounded-full" style={thumbStyle} />
       </div>
@@ -93,7 +95,7 @@ function LayerThumb({
     return (
       <div
         className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center rounded-xl border border-white/10"
-        style={{ background: '#11141A' }}
+        style={thumbnailSurfaceStyle}
       >
         <div
           style={{
@@ -113,7 +115,7 @@ function LayerThumb({
     return (
       <div
         className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center rounded-xl border border-white/10"
-        style={{ background: '#11141A' }}
+        style={thumbnailSurfaceStyle}
       >
         <span style={{ fontWeight: 700, fontSize: 31, color, lineHeight: 1, opacity: opacity ?? 1 }}>T</span>
       </div>
@@ -124,7 +126,7 @@ function LayerThumb({
     return (
       <div
         className="flex h-[84px] w-[84px] flex-shrink-0 items-center justify-center rounded-xl border border-white/10"
-        style={{ background: '#11141A' }}
+        style={thumbnailSurfaceStyle}
       >
         <div style={{ width: 48, height: 5, background: color, borderRadius: 4, opacity: opacity ?? 1 }} />
       </div>
@@ -132,7 +134,7 @@ function LayerThumb({
   }
 
   return (
-    <div className="h-[84px] w-[84px] flex-shrink-0 rounded-xl border border-white/10 p-3" style={{ background: '#11141A' }}>
+    <div className="h-[84px] w-[84px] flex-shrink-0 rounded-xl border border-white/10 p-3" style={thumbnailSurfaceStyle}>
       <div className="h-full w-full rounded-lg" style={thumbStyle} />
     </div>
   );

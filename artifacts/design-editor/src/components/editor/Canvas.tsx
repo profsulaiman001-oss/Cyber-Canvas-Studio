@@ -1,4 +1,4 @@
-import { RefObject, useRef, useEffect, useState } from 'react';
+import { Fragment, RefObject, useRef, useEffect, useState } from 'react';
 import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
 
 /** Build an SVG path string from committed bezier nodes, in canvas-pixel coords */
@@ -136,6 +136,9 @@ export default function CanvasWorkspace({
     : buildDividerPositions(gridRows, canvasHeight, gridRowGap, gridGapUnit);
   const gridAngleRadians = (gridSlanted ? gridSlantAngle : 0) * Math.PI / 180;
   const gridSlantOffset = Math.tan(gridAngleRadians);
+  const gridCoverage = Math.hypot(canvasWidth, canvasHeight);
+  const gridHandleY = Math.max(8, Math.min(24, canvasHeight * 0.1));
+  const gridHandleX = Math.max(8, Math.min(24, canvasWidth * 0.1));
   const safeGridColor = /^#[\da-f]{3}([\da-f]{3})?$/i.test(gridColor) ? gridColor : '#00F5FF';
 
   const canvasCursor = eyedropperActive ? 'crosshair' : penActive ? 'crosshair' : brushActive ? 'none' : panActive ? 'grab' : 'default';
@@ -280,16 +283,21 @@ export default function CanvasWorkspace({
 
   useEffect(() => {
     if (gridLocked) return;
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       const drag = guideDragRef.current; if (!drag) return;
       const delta = drag.axis === 'h' ? e.clientY - drag.startClient : e.clientX - drag.startClient;
       const newDesignPos = Math.max(0, Math.round(drag.startDesign + delta / zoom));
       onGuideMoveRef.current?.(drag.axis, drag.idx, newDesignPos);
     };
     const onUp = () => { guideDragRef.current = null; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
   }, [gridLocked, zoom]);
 
   /* ── Single-finger touch pan on container when pan tool is active ── */
@@ -444,7 +452,9 @@ export default function CanvasWorkspace({
               height: canvasHeight * zoom,
               display: gridEnabled ? 'block' : 'none',
               overflow: 'visible',
-              pointerEvents: gridLocked ? 'none' : 'auto',
+              // Visual grid geometry must never intercept Fabric canvas events.
+              // Only the explicit adjustment handles below opt back into events.
+              pointerEvents: 'none',
             }}
           >
             <g
@@ -452,62 +462,96 @@ export default function CanvasWorkspace({
               stroke={safeGridColor}
               strokeOpacity={gridOpacity}
               strokeWidth={gridLineWeight / Math.max(zoom, 0.01)}
+              pointerEvents="none"
             >
               {gridColumnsResolved.map((x, index) => {
-                const x2 = x + gridSlantOffset * canvasHeight;
-                const midX = x + gridSlantOffset * canvasHeight / 2;
+                const startY = -gridCoverage;
+                const endY = canvasHeight + gridCoverage;
+                const startX = x + gridSlantOffset * startY;
+                const endX = x + gridSlantOffset * endY;
+                const handleX = x + gridSlantOffset * gridHandleY;
                 return (
                   <g key={`grid-v-${index}`}>
-                    <line x1={x} y1={0} x2={x2} y2={canvasHeight} />
-                    <line
-                      x1={x} y1={0} x2={x2} y2={canvasHeight}
-                      stroke="transparent" strokeWidth={12 / Math.max(zoom, 0.01)}
-                      pointerEvents="stroke"
-                      onPointerDown={(e) => {
-                        if (gridLocked) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
-                        gridDragRef.current = {
-                          axis: 'v', idx: index, startClient: e.clientX,
-                          startDesign: (e.clientX - e.currentTarget.ownerSVGElement!.getBoundingClientRect().left) / zoom
-                            - gridSlantOffset * ((e.clientY - e.currentTarget.ownerSVGElement!.getBoundingClientRect().top) / zoom),
-                          positions: [...gridColumnsResolved], pointerId: e.pointerId,
-                        };
-                      }}
-                    />
+                    <line x1={startX} y1={startY} x2={endX} y2={endY} pointerEvents="none" />
                     {!gridLocked && (
-                      <circle cx={midX} cy={canvasHeight / 2} r={5 / Math.max(zoom, 0.01)}
-                        fill={safeGridColor} fillOpacity={Math.min(1, gridOpacity + 0.25)} stroke="#0B0C10" strokeWidth={1 / Math.max(zoom, 0.01)} pointerEvents="none" />
+                      <rect
+                        x={handleX - 7}
+                        y={gridHandleY - 12}
+                        width={14}
+                        height={24}
+                        rx={5}
+                        fill="#00F5FF"
+                        fillOpacity={0.2}
+                        stroke="#00F5FF"
+                        strokeOpacity={0.9}
+                        strokeWidth={1.25 / Math.max(zoom, 0.01)}
+                        pointerEvents="all"
+                        cursor="ew-resize"
+                        role="slider"
+                        aria-label={`Adjust column ${index + 1}`}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
+                          const svgRect = e.currentTarget.ownerSVGElement?.getBoundingClientRect();
+                          if (!svgRect) return;
+                          gridDragRef.current = {
+                            axis: 'v',
+                            idx: index,
+                            startClient: e.clientX,
+                            startDesign: (e.clientX - svgRect.left) / zoom - gridSlantOffset * gridHandleY,
+                            positions: [...gridColumnsResolved],
+                            pointerId: e.pointerId,
+                          };
+                        }}
+                      />
                     )}
                   </g>
                 );
               })}
               {gridRowsResolved.map((y, index) => {
                 const offset = gridSlantOffset * y;
-                const midX = (canvasWidth / 2) + offset;
                 return (
                   <g key={`grid-h-${index}`}>
-                    <line x1={offset} y1={y} x2={canvasWidth + offset} y2={y} />
                     <line
-                      x1={offset} y1={y} x2={canvasWidth + offset} y2={y}
-                      stroke="transparent" strokeWidth={12 / Math.max(zoom, 0.01)}
-                      pointerEvents="stroke"
-                      onPointerDown={(e) => {
-                        if (gridLocked) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
-                        gridDragRef.current = {
-                          axis: 'h', idx: index, startClient: e.clientY,
-                          startDesign: (e.clientY - e.currentTarget.ownerSVGElement!.getBoundingClientRect().top) / zoom,
-                          positions: [...gridRowsResolved], pointerId: e.pointerId,
-                        };
-                      }}
+                      x1={offset - gridCoverage}
+                      y1={y}
+                      x2={canvasWidth + offset + gridCoverage}
+                      y2={y}
+                      pointerEvents="none"
                     />
                     {!gridLocked && (
-                      <circle cx={midX} cy={y} r={5 / Math.max(zoom, 0.01)}
-                        fill={safeGridColor} fillOpacity={Math.min(1, gridOpacity + 0.25)} stroke="#0B0C10" strokeWidth={1 / Math.max(zoom, 0.01)} pointerEvents="none" />
+                      <rect
+                        x={gridHandleX + offset - 12}
+                        y={y - 7}
+                        width={24}
+                        height={14}
+                        rx={5}
+                        fill="#00F5FF"
+                        fillOpacity={0.2}
+                        stroke="#00F5FF"
+                        strokeOpacity={0.9}
+                        strokeWidth={1.25 / Math.max(zoom, 0.01)}
+                        pointerEvents="all"
+                        cursor="ns-resize"
+                        role="slider"
+                        aria-label={`Adjust row ${index + 1}`}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
+                          const svgRect = e.currentTarget.ownerSVGElement?.getBoundingClientRect();
+                          if (!svgRect) return;
+                          gridDragRef.current = {
+                            axis: 'h',
+                            idx: index,
+                            startClient: e.clientY,
+                            startDesign: (e.clientY - svgRect.top) / zoom,
+                            positions: [...gridRowsResolved],
+                            pointerId: e.pointerId,
+                          };
+                        }}
+                      />
                     )}
                   </g>
                 );
@@ -520,23 +564,47 @@ export default function CanvasWorkspace({
             const yPx = pos * zoom + vpY;
             if (yPx < 0 || yPx > canvasHeight * zoom) return null;
             return (
-              <div
-                key={`gh${i}`}
-                style={{
-                  position: 'absolute', left: 0, right: 0,
-                  top: yPx, height: 2,
-                  background: 'rgba(255, 80, 80, 0.85)',
-                  boxShadow: '0 0 4px rgba(255,80,80,0.7)',
-                  cursor: gridLocked ? 'default' : 'ns-resize',
-                  pointerEvents: gridLocked ? 'none' : 'auto',
-                  zIndex: 15,
-                }}
-                onMouseDown={(e) => {
-                  if (gridLocked) return;
-                  e.stopPropagation();
-                  guideDragRef.current = { axis: 'h', idx: i, startClient: e.clientY, startDesign: pos };
-                }}
-              />
+              <Fragment key={`gh${i}`}>
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute', left: 0, right: 0,
+                    top: yPx, height: 0,
+                    borderTop: '1px dashed rgba(0,245,255,0.85)',
+                    boxShadow: '0 0 5px rgba(0,245,255,0.7)',
+                    pointerEvents: 'none',
+                    zIndex: 15,
+                  }}
+                />
+                <div
+                  role="slider"
+                  aria-label={`Move horizontal guide ${i + 1}`}
+                  tabIndex={gridLocked ? -1 : 0}
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: yPx,
+                    width: 34,
+                    height: 14,
+                    transform: 'translateY(-50%)',
+                    borderRadius: 999,
+                    background: gridLocked ? 'rgba(148,163,184,0.12)' : 'rgba(0,245,255,0.2)',
+                    border: `1px solid ${gridLocked ? 'rgba(148,163,184,0.35)' : 'rgba(0,245,255,0.9)'}`,
+                    boxShadow: gridLocked ? 'none' : '0 0 8px rgba(0,245,255,0.35)',
+                    cursor: gridLocked ? 'default' : 'ns-resize',
+                    pointerEvents: gridLocked ? 'none' : 'auto',
+                    touchAction: 'none',
+                    zIndex: 16,
+                  }}
+                  onPointerDown={(e) => {
+                    if (gridLocked) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
+                    guideDragRef.current = { axis: 'h', idx: i, startClient: e.clientY, startDesign: pos };
+                  }}
+                />
+              </Fragment>
             );
           })}
 
@@ -545,23 +613,47 @@ export default function CanvasWorkspace({
             const xPx = pos * zoom + vpX;
             if (xPx < 0 || xPx > canvasWidth * zoom) return null;
             return (
-              <div
-                key={`gv${i}`}
-                style={{
-                  position: 'absolute', top: 0, bottom: 0,
-                  left: xPx, width: 2,
-                  background: 'rgba(255, 80, 80, 0.85)',
-                  boxShadow: '0 0 4px rgba(255,80,80,0.7)',
-                  cursor: gridLocked ? 'default' : 'ew-resize',
-                  pointerEvents: gridLocked ? 'none' : 'auto',
-                  zIndex: 15,
-                }}
-                onMouseDown={(e) => {
-                  if (gridLocked) return;
-                  e.stopPropagation();
-                  guideDragRef.current = { axis: 'v', idx: i, startClient: e.clientX, startDesign: pos };
-                }}
-              />
+              <Fragment key={`gv${i}`}>
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute', top: 0, bottom: 0,
+                    left: xPx, width: 0,
+                    borderLeft: '1px dashed rgba(0,245,255,0.85)',
+                    boxShadow: '0 0 5px rgba(0,245,255,0.7)',
+                    pointerEvents: 'none',
+                    zIndex: 15,
+                  }}
+                />
+                <div
+                  role="slider"
+                  aria-label={`Move vertical guide ${i + 1}`}
+                  tabIndex={gridLocked ? -1 : 0}
+                  style={{
+                    position: 'absolute',
+                    left: xPx,
+                    top: 12,
+                    width: 14,
+                    height: 34,
+                    transform: 'translateX(-50%)',
+                    borderRadius: 999,
+                    background: gridLocked ? 'rgba(148,163,184,0.12)' : 'rgba(0,245,255,0.2)',
+                    border: `1px solid ${gridLocked ? 'rgba(148,163,184,0.35)' : 'rgba(0,245,255,0.9)'}`,
+                    boxShadow: gridLocked ? 'none' : '0 0 8px rgba(0,245,255,0.35)',
+                    cursor: gridLocked ? 'default' : 'ew-resize',
+                    pointerEvents: gridLocked ? 'none' : 'auto',
+                    touchAction: 'none',
+                    zIndex: 16,
+                  }}
+                  onPointerDown={(e) => {
+                    if (gridLocked) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
+                    guideDragRef.current = { axis: 'v', idx: i, startClient: e.clientX, startDesign: pos };
+                  }}
+                />
+              </Fragment>
             );
           })}
 

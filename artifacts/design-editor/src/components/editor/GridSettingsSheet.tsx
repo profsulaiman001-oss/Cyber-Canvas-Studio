@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useEditor } from '@/store/editorStore';
 import { Lock, Unlock, RotateCcw } from 'lucide-react';
 import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
+import ColorPicker from './ColorPicker';
 
 interface GridSettingsSheetProps {
   open: boolean;
@@ -14,6 +16,19 @@ const GRID_SWATCHES = ['#00F5FF', '#FFFFFF', '#111827', '#FF4D6D', '#FFD166', '#
 
 export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSheetProps) {
   const { state, dispatch } = useEditor();
+  const [recentGridColors, setRecentGridColors] = useState<string[]>(() => [state.gridColor]);
+
+  useEffect(() => {
+    if (!/^#[\da-f]{3}([\da-f]{3})?$/i.test(state.gridColor)) return;
+    setRecentGridColors((previous) => [
+      state.gridColor,
+      ...previous.filter((color) => color.toLowerCase() !== state.gridColor.toLowerCase()),
+    ].slice(0, 6));
+  }, [state.gridColor]);
+
+  const setGridColor = (color: string) => {
+    dispatch({ type: 'SET_GRID_COLOR', payload: color });
+  };
 
   const setGridNumber = (type: 'SET_GRID_COLUMNS' | 'SET_GRID_ROWS', value: string) => {
     const parsed = Number.parseInt(value, 10);
@@ -32,9 +47,9 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
         }}
         data-testid="grid-settings-sheet"
       >
-        <SheetHeader className="px-4 pt-4 pb-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
+        <SheetHeader className="px-4 pt-4 pb-3 pr-14">
+          <div className="space-y-3">
+            <div className="min-w-0">
               <SheetTitle className="text-sm font-semibold" style={{ color: '#00F5FF' }}>
                 Grid Studio
               </SheetTitle>
@@ -42,7 +57,7 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
                 {state.gridColumns} × {state.gridRows} alignment mesh
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => dispatch({ type: 'TOGGLE_GRID' })}
@@ -157,28 +172,16 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
 
           <section className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Appearance</p>
-            <div className="flex items-center gap-2">
-              <input
-                aria-label="Grid color"
-                type="color"
-                value={state.gridColor}
-                onChange={(e) => dispatch({ type: 'SET_GRID_COLOR', payload: e.target.value })}
-                className="h-8 w-9 rounded border-0 bg-transparent p-0 cursor-pointer"
-              />
-              <Input
-                aria-label="Grid color HEX"
-                value={state.gridColor}
-                onChange={(e) => dispatch({ type: 'SET_GRID_COLOR', payload: e.target.value })}
-                className="h-8 flex-1 text-xs font-mono uppercase"
-              />
-            </div>
-            <div className="flex gap-1.5">
+            <ColorPicker value={state.gridColor} onChange={setGridColor} />
+            <div className="space-y-1.5">
+              <Label className="text-[10px] text-muted-foreground">Palette</Label>
+              <div className="flex flex-wrap gap-1.5">
               {GRID_SWATCHES.map((swatch) => (
                 <button
                   key={swatch}
                   type="button"
                   aria-label={`Use ${swatch} grid color`}
-                  onClick={() => dispatch({ type: 'SET_GRID_COLOR', payload: swatch })}
+                  onClick={() => setGridColor(swatch)}
                   className="h-6 w-6 rounded-full border transition-transform hover:scale-110"
                   style={{
                     background: swatch,
@@ -187,7 +190,29 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
                   }}
                 />
               ))}
+              </div>
             </div>
+            {recentGridColors.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-[10px] text-muted-foreground">Recent</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {recentGridColors.map((swatch) => (
+                    <button
+                      key={`recent-${swatch}`}
+                      type="button"
+                      aria-label={`Use recent ${swatch} grid color`}
+                      onClick={() => setGridColor(swatch)}
+                      className="h-6 w-6 rounded-full border transition-transform hover:scale-110"
+                      style={{
+                        background: swatch,
+                        borderColor: state.gridColor.toLowerCase() === swatch.toLowerCase() ? '#00F5FF' : 'rgba(255,255,255,0.35)',
+                        boxShadow: state.gridColor.toLowerCase() === swatch.toLowerCase() ? '0 0 0 1px #00F5FF' : 'none',
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <Label className="text-[10px] text-muted-foreground">Opacity</Label>
@@ -256,12 +281,6 @@ export default function GridSettingsSheet({ open, onOpenChange }: GridSettingsSh
               <div className="flex justify-between text-[9px] text-muted-foreground"><span>-60°</span><span>0°</span><span>+60°</span></div>
             </div>
           </section>
-
-          <div className="rounded-lg px-3 py-2 text-[10px]" style={{ color: state.gridLocked ? '#94a3b8' : '#00F5FF', background: state.gridLocked ? 'rgba(255,255,255,0.035)' : 'rgba(0,245,255,0.07)' }}>
-            {state.gridLocked
-              ? 'Unlock dividers to drag individual rows and columns on the canvas.'
-              : 'Drag the cyan handles on any divider to reposition it. Lock when finished.'}
-          </div>
 
           <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}>
             {(['h', 'v'] as const).map((axis) => {

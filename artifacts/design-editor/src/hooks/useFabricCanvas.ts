@@ -3341,6 +3341,84 @@ export function useFabricCanvas(
     options.onSelectionChange([]);
   }, [options]);
 
+  type StyleClipboard = {
+    fill?: unknown;
+    stroke?: unknown;
+    strokeWidth?: number;
+    opacity?: number;
+    shadow?: unknown;
+    innerShadow?: unknown;
+    glow?: unknown;
+  };
+  const styleClipboardRef = useRef<StyleClipboard | null>(null);
+
+  const copyStyle = useCallback(() => {
+    const active = canvasRef.current?.getActiveObject();
+    if (!active) return;
+    styleClipboardRef.current = {
+      fill: clonePlainCustomValue(active.fill),
+      stroke: clonePlainCustomValue(active.stroke),
+      strokeWidth: active.strokeWidth,
+      opacity: active.opacity,
+      shadow: clonePlainCustomValue(active.shadow),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      innerShadow: clonePlainCustomValue((active as any)._innerShadow),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      glow: clonePlainCustomValue((active as any)._glow),
+    };
+  }, []);
+
+  const pasteStyle = useCallback(() => {
+    const c = canvasRef.current;
+    const style = styleClipboardRef.current;
+    if (!c || !style) return;
+    c.getActiveObjects().forEach((obj) => {
+      obj.set({
+        fill: clonePlainCustomValue(style.fill) as any,
+        stroke: clonePlainCustomValue(style.stroke) as any,
+        strokeWidth: style.strokeWidth,
+        opacity: style.opacity,
+        shadow: clonePlainCustomValue(style.shadow) as any,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (obj as any)._innerShadow = clonePlainCustomValue(style.innerShadow);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (obj as any)._glow = clonePlainCustomValue(style.glow);
+      obj.setCoords();
+    });
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
+  const hasClipboard = useCallback(() => clipboardRef.current.length > 0, []);
+  const hasStyleClipboard = useCallback(() => styleClipboardRef.current !== null, []);
+
+  const resetRotation = useCallback(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const selected = c.getActiveObjects();
+    if (!selected.length) return;
+    selected.forEach((obj) => { obj.set('angle', 0); obj.setCoords(); });
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
+  const resetScale = useCallback(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const selected = c.getActiveObjects();
+    if (!selected.length) return;
+    selected.forEach((obj) => {
+      obj.set({ scaleX: 1, scaleY: 1 });
+      obj.setCoords();
+    });
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
   const bringForward = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3644,6 +3722,7 @@ export function useFabricCanvas(
     applyMaskFromSelection, releaseMask,
     // Object ops
     deleteSelected, duplicateSelected, copySelected, pasteSelected, selectAll, clearSelection,
+    copyStyle, pasteStyle, resetRotation, resetScale, hasClipboard, hasStyleClipboard,
     bringForward, sendBackward, bringToFront, sendToBack,
     toggleVisibility, toggleLock, renameObject, setLayerTag, toggleSolo, soloObjectId,
     deleteObject, getObjectById, selectObjectById, selectObjectsByIds,

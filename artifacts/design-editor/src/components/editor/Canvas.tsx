@@ -1,4 +1,4 @@
-import { Fragment, RefObject, useRef, useEffect, useState } from 'react';
+import { Fragment, RefObject, useRef, useEffect, useState, type MouseEventHandler } from 'react';
 import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
 
 /** Build an SVG path string from committed bezier nodes, in canvas-pixel coords */
@@ -46,6 +46,8 @@ interface CanvasProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   containerRef: RefObject<HTMLDivElement | null>;
   gridEnabled: boolean;
+  showGuides?: boolean;
+  showRulers?: boolean;
   gridSize: number;
   transparentBg: boolean;
   penPoints: PenPoint[];
@@ -87,6 +89,7 @@ interface CanvasProps {
   /** Index of the currently highlighted anchor in the node editor */
   selectedAnchorIdx?: number | null;
   vectorAnchorOnly?: VectorAnchor[];
+  onContextMenu?: MouseEventHandler<HTMLDivElement>;
 }
 
 /* Extra scroll room on each side for panning — canvas element stays design-sized,
@@ -126,6 +129,9 @@ export default function CanvasWorkspace({
   selectedAnchorIdx = null,
   onEyedropperSample,
   onEyedropperFinish,
+  showGuides = true,
+  showRulers = false,
+  onContextMenu,
 }: CanvasProps) {
   const showPenSvg = penActive && penPoints.length > 0;
   const gridColumnsResolved = gridColumnPositions.length === Math.max(0, gridColumns - 1)
@@ -363,6 +369,7 @@ export default function CanvasWorkspace({
         touchAction: 'none', // disable native browser touch-scroll; JS owns all scrolling
       }}
       data-testid="canvas-workspace"
+      onContextMenu={onContextMenu}
     >
       {/* Large scroll area — always PAN_MARGIN wider/taller than the canvas on each side.
           This gives the user room to pan in any direction without objects disappearing. */}
@@ -395,6 +402,39 @@ export default function CanvasWorkspace({
           }}
         >
           <canvas ref={canvasRef} id="fabric-canvas" className="absolute top-0 left-0 w-full h-full" data-testid="fabric-canvas" />
+
+          {showRulers && (
+            <>
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 top-0 z-30 h-5 border-b border-cyan-300/30 bg-[#11141A]/85"
+              >
+                {Array.from({ length: Math.ceil(canvasWidth / 100) + 1 }, (_, index) => (
+                  <span
+                    key={`ruler-x-${index}`}
+                    className="absolute top-0 h-full border-l border-cyan-300/40 pl-1 text-[8px] text-cyan-200/70"
+                    style={{ left: index * 100 * zoom }}
+                  >
+                    {index * 100}
+                  </span>
+                ))}
+              </div>
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 z-30 w-7 border-r border-cyan-300/30 bg-[#11141A]/85"
+              >
+                {Array.from({ length: Math.ceil(canvasHeight / 100) + 1 }, (_, index) => (
+                  <span
+                    key={`ruler-y-${index}`}
+                    className="absolute left-0 w-full border-t border-cyan-300/40 pl-1 text-[8px] text-cyan-200/70"
+                    style={{ top: index * 100 * zoom }}
+                  >
+                    {index * 100}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
 
           {eyedropperActive && eyedropperPoint && (
             <div
@@ -560,7 +600,7 @@ export default function CanvasWorkspace({
           </svg>
 
           {/* Horizontal guide lines */}
-          {guides?.h.map((pos, i) => {
+          {showGuides && guides?.h.map((pos, i) => {
             const yPx = pos * zoom + vpY;
             if (yPx < 0 || yPx > canvasHeight * zoom) return null;
             return (
@@ -609,7 +649,7 @@ export default function CanvasWorkspace({
           })}
 
           {/* Vertical guide lines */}
-          {guides?.v.map((pos, i) => {
+          {showGuides && guides?.v.map((pos, i) => {
             const xPx = pos * zoom + vpX;
             if (xPx < 0 || xPx > canvasWidth * zoom) return null;
             return (

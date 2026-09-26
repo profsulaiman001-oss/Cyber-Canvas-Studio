@@ -28,6 +28,7 @@ import VectorNodePanel from '@/components/editor/VectorNodePanel';
 import CropModal from '@/components/editor/CropModal';
 import ColorPicker from '@/components/editor/ColorPicker';
 import KeyboardShortcutsDialog from '@/components/editor/KeyboardShortcutsDialog';
+import ContextMenu, { type ContextMenuActions } from '@/components/editor/ContextMenu';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Slider } from '@/components/ui/slider';
 import {
@@ -93,6 +94,10 @@ export default function DesignEditor() {
   const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
   const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const importImagesRef = useRef<HTMLInputElement>(null);
+  const fillWithImageRef = useRef<HTMLInputElement>(null);
+  const handleImportImages = useCallback(() => { importImagesRef.current?.click(); }, []);
   type RadiusTarget = 'all' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   const [radiusTarget, setRadiusTarget] = useState<RadiusTarget>('all');
 
@@ -625,6 +630,135 @@ export default function DesignEditor() {
     onNudge: handleNudgeElement,
   });
 
+  const handleCanvasContextMenu = useCallback((event: import('react').MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const fabricCanvas = controller.getCanvas();
+    if (!fabricCanvas) return;
+
+    // A right-click on a different object makes that object the context target;
+    // right-clicking inside the current selection preserves multi-selection.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = (fabricCanvas as any).findTarget?.(event.nativeEvent) as import('fabric').FabricObject | undefined;
+    const activeObjects = fabricCanvas.getActiveObjects();
+    if (target && !activeObjects.includes(target)) {
+      fabricCanvas.setActiveObject(target);
+      fabricCanvas.requestRenderAll();
+    } else if (!target) {
+      fabricCanvas.discardActiveObject();
+      fabricCanvas.requestRenderAll();
+    }
+
+    // Let Fabric finish selection events before opening the menu so the menu
+    // reflects the target object and does not get dismissed by that selection.
+    window.setTimeout(() => setContextMenu({ x: event.clientX, y: event.clientY }), 0);
+  }, [controller]);
+
+  useEffect(() => {
+    if (contextMenu) setContextMenu(null);
+  // The menu state intentionally stays out of this dependency list: opening
+  // the menu must not immediately trigger the dismissal effect itself.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.selectedObjectIds, state.activePanel, state.activeTool, controller.zoom, vpX, vpY]);
+
+  const exportSelection = useCallback(() => {
+    const selected = controller.getCanvas()?.getActiveObject() as
+      | (import('fabric').FabricObject & { toCanvasElement?: (options?: Record<string, unknown>) => HTMLCanvasElement; toSVG?: () => string })
+      | undefined;
+    if (!selected) return;
+    const filenameBase = (state.projectName || 'untitled').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    const exportCanvas = selected.toCanvasElement?.({ multiplier: 2 });
+    if (!exportCanvas) return;
+    const link = document.createElement('a');
+    link.href = exportCanvas.toDataURL('image/png');
+    link.download = `${filenameBase}_selection.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [controller, state.projectName]);
+
+  const saveReusableComponent = useCallback(() => {
+    const selected = controller.getCanvas()?.getActiveObject();
+    if (!selected) return;
+    try {
+      const components = JSON.parse(localStorage.getItem('cyber_studio_components') || '[]') as object[];
+      components.push({
+        name: `${state.projectName || 'Untitled'} component`,
+        object: (selected as import('fabric').FabricObject & { toObject: (propertiesToInclude?: string[]) => object }).toObject(),
+        savedAt: Date.now(),
+      });
+      localStorage.setItem('cyber_studio_components', JSON.stringify(components.slice(-50)));
+      toast({ title: 'Reusable component saved', description: 'The selected object is available in this browser.' });
+    } catch {
+      toast({ title: 'Component save failed', description: 'This selection could not be stored locally.', variant: 'destructive' });
+    }
+  }, [controller, state.projectName, toast]);
+
+  const contextMenuActions: ContextMenuActions = {
+    onPaste: () => controller.pasteSelected(15),
+    onPasteInPlace: () => controller.pasteSelected(0),
+    onSelectAll: controller.selectAll,
+    onClearSelection: controller.clearSelection,
+    onResetZoom: () => controller.setZoomLevel(100),
+    onFitCanvas: controller.resetZoom,
+    onToggleGrid: () => dispatch({ type: 'TOGGLE_GRID' }),
+    onToggleGuides: () => dispatch({ type: 'TOGGLE_GUIDES' }),
+    onToggleSnap: () => dispatch({ type: 'TOGGLE_SNAP' }),
+    onToggleRulers: () => dispatch({ type: 'TOGGLE_RULERS' }),
+    onBackground: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'canvasBg' }),
+    onToggleTransparency: () => {
+      const nextBackground = state.canvasBg.type === 'transparent'
+        ? { ...state.canvasBg, type: 'solid' as const, color: '#ffffff' }
+        : { ...state.canvasBg, type: 'transparent' as const };
+      dispatch({ type: 'SET_CANVAS_BG', payload: nextBackground });
+      controller.setCanvasBackground(nextBackground);
+    },
+    onCanvasDimensions: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'canvasSize' }),
+    onImportAsset: handleImportImages,
+    onExportCanvas: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'export' }),
+    onCut: () => { controller.copySelected(); controller.deleteSelected(); },
+    onCopy: controller.copySelected,
+    onCopyStyle: controller.copyStyle,
+    onPasteStyle: controller.pasteStyle,
+    onDuplicate: () => controller.duplicateSelected(15),
+    onDelete: controller.deleteSelected,
+    onCenterHorizontal: () => controller.alignObjects('centerH'),
+    onCenterVertical: () => controller.alignObjects('centerV'),
+    onCenterBoth: () => { controller.alignObjects('centerH'); controller.alignObjects('centerV'); },
+    onAlignLeft: () => controller.alignObjects('left'),
+    onAlignCenter: () => controller.alignObjects('centerH'),
+    onAlignRight: () => controller.alignObjects('right'),
+    onAlignTop: () => controller.alignObjects('top'),
+    onAlignMiddle: () => controller.alignObjects('centerV'),
+    onAlignBottom: () => controller.alignObjects('bottom'),
+    onDistributeHorizontal: () => controller.distributeObjects('horizontal'),
+    onDistributeVertical: () => controller.distributeObjects('vertical'),
+    onBringForward: () => { const object = controller.getCanvas()?.getActiveObject(); if (object) controller.bringForward(object); },
+    onSendBackward: () => { const object = controller.getCanvas()?.getActiveObject(); if (object) controller.sendBackward(object); },
+    onBringToFront: () => { const object = controller.getCanvas()?.getActiveObject(); if (object) controller.bringToFront(object); },
+    onSendToBack: () => { const object = controller.getCanvas()?.getActiveObject(); if (object) controller.sendToBack(object); },
+    onGroup: controller.groupSelected,
+    onUngroup: controller.ungroupSelected,
+    onToggleLock: () => { const object = controller.getCanvas()?.getActiveObject(); if (object) controller.toggleLock(object); },
+    onFlipHorizontal: controller.flipHorizontal,
+    onFlipVertical: controller.flipVertical,
+    onResetRotation: controller.resetRotation,
+    onResetScale: controller.resetScale,
+    onQuickColor: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'colorStudio' }),
+    onToggleShadow: () => {
+      const object = controller.getCanvas()?.getActiveObject();
+      if (!object) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const currentShadow = (object as any)._innerShadow;
+      controller.applyInnerShadow(object, currentShadow?.enabled
+        ? { ...currentShadow, enabled: false }
+        : { enabled: true, color: '#000000', blur: 12, offsetX: 4, offsetY: 4, opacity: 0.35 });
+    },
+    onMask: controller.applyMaskFromSelection,
+    onUnmask: controller.releaseMask,
+    onExportSelection: exportSelection,
+    onSaveComponent: saveReusableComponent,
+  };
+
   const zoomPercent = Math.round(controller.zoom * 100);
 
   /* ── Quick-tray: fill opacity + corner radius ── */
@@ -716,11 +850,6 @@ export default function DesignEditor() {
   }, [controller, quickCornerRadiusMax]);
 
   /* ── Image toolbar actions ── */
-  const importImagesRef = useRef<HTMLInputElement>(null);
-  const fillWithImageRef = useRef<HTMLInputElement>(null);
-
-  const handleImportImages = useCallback(() => { importImagesRef.current?.click(); }, []);
-
   const handleImportImageFiles = useCallback(async (files: FileList) => {
     for (const file of Array.from(files)) {
       await controller.addImageFromFile(file);
@@ -887,6 +1016,8 @@ export default function DesignEditor() {
         canvasRef={canvasRef}
         containerRef={containerRef}
         gridEnabled={state.gridEnabled}
+        showGuides={state.showGuides}
+        showRulers={state.showRulers}
         gridSize={state.gridSize}
         transparentBg={state.canvasBg.type === 'transparent'}
         penPoints={controller.penPoints}
@@ -925,6 +1056,7 @@ export default function DesignEditor() {
         panActive={panActive}
         penLiveHandle={controller.penLiveHandle}
         selectedAnchorIdx={controller.selectedVectorAnchorIdx}
+        onContextMenu={handleCanvasContextMenu}
       />
 
       {/* Hidden file inputs */}
@@ -1201,6 +1333,18 @@ export default function DesignEditor() {
         onRequestNavigation={requestProjectNavigation}
       />
       <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <ContextMenu
+        open={contextMenu !== null}
+        x={contextMenu?.x ?? 0}
+        y={contextMenu?.y ?? 0}
+        hasSelection={state.selectedObjectIds.length > 0}
+        selectionCount={state.selectedObjectIds.length}
+        selectedIsGroup={controller.selectedObject?.type === 'group'}
+        canPaste={controller.hasClipboard()}
+        canPasteStyle={controller.hasStyleClipboard()}
+        onClose={() => setContextMenu(null)}
+        actions={contextMenuActions}
+      />
       <TextPanel controller={controller} />
       <ShapeModifiersPanel controller={controller} />
       <VectorsPanel controller={controller} onPenStart={handleVectorsPenStart} />

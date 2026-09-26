@@ -35,6 +35,8 @@ export interface EditorState {
   canUndo: boolean;
   canRedo: boolean;
   gridEnabled: boolean;
+  showGuides: boolean;
+  showRulers: boolean;
   snapToGrid: boolean;
   gridSize: number;
   gridLocked: boolean;
@@ -71,6 +73,8 @@ type EditorAction =
   | { type: 'SET_DIRTY'; payload: boolean }
   | { type: 'SET_UNDO_REDO'; payload: { canUndo: boolean; canRedo: boolean } }
   | { type: 'TOGGLE_GRID' }
+  | { type: 'TOGGLE_GUIDES' }
+  | { type: 'TOGGLE_RULERS' }
   | { type: 'TOGGLE_SNAP' }
   | { type: 'SET_GRID_SIZE'; payload: number }
   | { type: 'TOGGLE_GRID_LOCKED' }
@@ -123,6 +127,8 @@ const initialState: EditorState = {
   canUndo: false,
   canRedo: false,
   gridEnabled: false,
+  showGuides: true,
+  showRulers: false,
   snapToGrid: false,
   gridSize: 20,
   gridLocked: true,
@@ -176,6 +182,10 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       return { ...state, canUndo: action.payload.canUndo, canRedo: action.payload.canRedo };
     case 'TOGGLE_GRID':
       return { ...state, gridEnabled: !state.gridEnabled };
+    case 'TOGGLE_GUIDES':
+      return { ...state, showGuides: !state.showGuides };
+    case 'TOGGLE_RULERS':
+      return { ...state, showRulers: !state.showRulers };
     case 'TOGGLE_SNAP':
       return { ...state, snapToGrid: !state.snapToGrid };
     case 'SET_GRID_SIZE':

@@ -23,7 +23,7 @@ interface TransformPanelProps {
 type TransformProperty = 'scale' | 'rotation';
 
 const MIN_SCALE_PERCENT = 10;
-const MAX_SCALE_PERCENT = 500;
+const MIN_DYNAMIC_SCALE_MAX = 3000;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -42,7 +42,19 @@ function readDimension(obj: FabricObject, axis: 'width' | 'height') {
 function readScalePercent(obj: FabricObject) {
   const scaleX = Math.abs(obj.scaleX ?? 1);
   const scaleY = Math.abs(obj.scaleY ?? 1);
-  return clamp(Math.round(((scaleX + scaleY) / 2) * 100), MIN_SCALE_PERCENT, MAX_SCALE_PERCENT);
+  return Math.max(MIN_SCALE_PERCENT, Math.round(((scaleX + scaleY) / 2) * 100));
+}
+
+function readScaleMax(obj: FabricObject, canvas: ReturnType<CanvasController['getCanvas']>) {
+  const canvasWidth = canvas?.getWidth() ?? 0;
+  const canvasHeight = canvas?.getHeight() ?? 0;
+  const largestCanvasDimension = Math.max(canvasWidth, canvasHeight, MIN_DYNAMIC_SCALE_MAX);
+  const largestBaseDimension = Math.max(Math.abs(obj.width ?? 1), Math.abs(obj.height ?? 1), 1);
+  const canvasBasedMax = Math.ceil((largestCanvasDimension / largestBaseDimension) * 100);
+  const currentScale = readScalePercent(obj);
+  // Keep the current value inside the range even when an object was already
+  // scaled beyond the canvas-sized suggestion.
+  return Math.max(MIN_DYNAMIC_SCALE_MAX, canvasBasedMax, currentScale + 100);
 }
 
 function readAngle(obj: FabricObject) {
@@ -151,9 +163,22 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
   }, [controller, obj, syncFromObject]);
 
   const applyScale = (value: number) => {
-    const next = clamp(Math.round(value), MIN_SCALE_PERCENT, MAX_SCALE_PERCENT);
+    if (!obj) return;
+    const scaleMax = readScaleMax(obj, controller.getCanvas());
+    const next = clamp(Math.round(value), MIN_SCALE_PERCENT, scaleMax);
+    const currentScalePercent = Math.max(MIN_SCALE_PERCENT, readScalePercent(obj));
+    const relativeFactor = next / currentScalePercent;
+    const currentScaleX = obj.scaleX ?? 1;
+    const currentScaleY = obj.scaleY ?? 1;
     setScalePercent(next);
-    applyObjectTransform({ scaleX: next / 100, scaleY: next / 100 });
+    // Scale relative to the object's current transform rather than replacing
+    // both axes with one uniform base value. This preserves manual stretching
+    // such as a square changed into a rectangle or a circle changed into an
+    // ellipse.
+    applyObjectTransform({
+      scaleX: currentScaleX * relativeFactor,
+      scaleY: currentScaleY * relativeFactor,
+    });
   };
 
   const applyRotation = (value: number) => {
@@ -181,7 +206,8 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
       if (axis === 'width') setHeightInput(String(Math.round(nextHeight)));
       else setWidthInput(String(Math.round(nextWidth)));
     }
-    setScalePercent(clamp(Math.round(((nextWidth / baseWidth + nextHeight / baseHeight) / 2) * 100), MIN_SCALE_PERCENT, MAX_SCALE_PERCENT));
+    const scaleMax = readScaleMax(obj, controller.getCanvas());
+    setScalePercent(clamp(Math.round(((nextWidth / baseWidth + nextHeight / baseHeight) / 2) * 100), MIN_SCALE_PERCENT, scaleMax));
     applyObjectTransform({
       scaleX: nextWidth / baseWidth,
       scaleY: nextHeight / baseHeight,
@@ -212,7 +238,8 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
   if (!isOpen || !obj) return null;
 
   const isScale = activeProperty === 'scale';
-  const activeLabel = isScale ? 'Scale / Size' : 'Rotation Angle';
+  const activeLabel = isScale ? 'Size' : 'Rotation';
+  const scaleMax = readScaleMax(obj, controller.getCanvas());
 
   return (
     <div
@@ -348,7 +375,7 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
       </div>
 
       <div
-        className="flex items-center gap-1.5 rounded-2xl px-3 py-2.5"
+        className="flex items-center gap-1 rounded-2xl px-2 py-2.5"
         style={{
           background: '#11141A',
           border: '1px solid rgba(0,245,255,0.3)',
@@ -360,7 +387,7 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
           <button
             type="button"
             onClick={() => setSelectorOpen((open) => !open)}
-            className="flex max-w-[150px] items-center gap-1.5 rounded-xl px-2 py-1.5 text-left text-xs font-semibold transition-colors hover:bg-white/10"
+            className="flex max-w-[116px] items-center gap-1 rounded-xl px-1.5 py-1.5 text-left text-xs font-semibold transition-colors hover:bg-white/10"
             style={{ color: '#00F5FF', background: selectorOpen ? 'rgba(0,245,255,0.14)' : 'rgba(255,255,255,0.05)' }}
             aria-expanded={selectorOpen}
             aria-haspopup="listbox"
@@ -375,12 +402,12 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
             <div
               id="transform-property-selector"
               role="listbox"
-              className="absolute bottom-full left-0 z-10 mb-2 w-48 rounded-xl border border-white/10 p-1.5 shadow-2xl"
+              className="absolute bottom-full left-0 z-10 mb-2 w-36 rounded-xl border border-white/10 p-1.5 shadow-2xl"
               style={{ background: '#11141A' }}
             >
               {([
-                ['scale', 'Scale / Size'],
-                ['rotation', 'Rotation Angle'],
+                ['scale', 'Size'],
+                ['rotation', 'Rotation'],
               ] as [TransformProperty, string][]).map(([value, label]) => (
                 <button
                   key={value}
@@ -404,20 +431,20 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 basis-0 items-center gap-1">
           <Slider
             min={isScale ? MIN_SCALE_PERCENT : 0}
-            max={isScale ? MAX_SCALE_PERCENT : 360}
+            max={isScale ? scaleMax : 360}
             step={1}
             value={[isScale ? scalePercent : rotation]}
             onPointerDown={showHud}
             onPointerUp={hideHud}
             onPointerCancel={hideHud}
             onValueChange={([value]) => (isScale ? applyScale(value) : applyRotation(value))}
-            className="min-w-0 flex-1"
+            className="min-w-0 flex-1 basis-0"
             aria-label={activeLabel}
           />
-          <span className="w-16 shrink-0 text-right text-[10px] font-mono tabular-nums text-primary">
+          <span className="min-w-[42px] shrink-0 px-0.5 text-right text-[10px] font-mono tabular-nums text-primary">
             {isScale ? `${readDimension(obj, 'width')}px` : `${Math.round(rotation)}°`}
           </span>
         </div>

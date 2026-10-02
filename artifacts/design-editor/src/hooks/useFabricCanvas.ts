@@ -2515,7 +2515,7 @@ export function useFabricCanvas(
   }, [pushUndo]);
 
   /* ─── Brush Engine ─── */
-  const activateBrush = useCallback((preset: BrushPreset, color: string, size: number) => {
+  const activateBrush = useCallback((preset: BrushPreset, color: string, size: number, opacity = 100, neonIntensity = 60) => {
     const c = canvasRef.current; if (!c) return;
     brushActiveRef.current = true;
     setIsBrushActive(true);
@@ -2525,29 +2525,35 @@ export function useFabricCanvas(
 
     brushPresetRef.current = preset;
     const brush = new PencilBrush(c);
+    const opacityFactor = Math.max(0, Math.min(100, opacity)) / 100;
+    const glowFactor = Math.max(0, Math.min(100, neonIntensity)) / 100;
 
     if (preset === 'standard') {
       // Photoshop-grade paintbrush: full-opacity, rich round stroke
-      brush.color = color;
+      brush.color = withAlpha(color, opacityFactor);
       brush.width = size;
-      brush.shadow = new Shadow({ color: 'rgba(0,0,0,0.18)', blur: size * 0.4, offsetX: 0, offsetY: 1 });
+      brush.shadow = new Shadow({ color: withAlpha('#000000', 0.18 * opacityFactor), blur: size * 0.4, offsetX: 0, offsetY: 1 });
     } else if (preset === 'glow') {
       // Neon/glow: strong opaque core so the stroke is visible while drawing;
       // screen composite + massive shadow bloom applied on path:created for light-emission effect.
-      const [r, g, b] = [parseInt(color.slice(1, 3), 16), parseInt(color.slice(3, 5), 16), parseInt(color.slice(5, 7), 16)];
-      brush.color = `rgba(${r},${g},${b},0.90)`;
+      brush.color = withAlpha(color, 0.90 * glowFactor);
       brush.width = Math.max(2, size * 0.5);
-      brush.shadow = new Shadow({ color, blur: Math.max(25, size * 8), offsetX: 0, offsetY: 0 });
+      brush.shadow = new Shadow({
+        color: withAlpha(color, glowFactor),
+        blur: Math.max(0, size * 8 * glowFactor),
+        offsetX: 0,
+        offsetY: 0,
+      });
     } else if (preset === 'airbrush') {
       // Airbrush: soft feathered spray — very wide, low-alpha core with blurry halo
-      const [r, g, b] = [
-        parseInt(color.slice(1, 3), 16),
-        parseInt(color.slice(3, 5), 16),
-        parseInt(color.slice(5, 7), 16),
-      ];
-      brush.color = `rgba(${r},${g},${b},0.03)`;
+      brush.color = withAlpha(color, 0.03 * opacityFactor);
       brush.width = size * 5;
-      brush.shadow = new Shadow({ color: `rgba(${r},${g},${b},0.35)`, blur: size * 4, offsetX: 0, offsetY: 0 });
+      brush.shadow = new Shadow({
+        color: withAlpha(color, 0.35 * opacityFactor),
+        blur: size * 4,
+        offsetX: 0,
+        offsetY: 0,
+      });
     }
 
     brush.strokeLineCap = 'round';

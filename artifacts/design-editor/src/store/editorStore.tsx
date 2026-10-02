@@ -57,6 +57,7 @@ export interface EditorState {
   brushPreset: BrushPreset;
   brushColor: string;
   brushSize: number;
+  brushOpacity: number;
   neonIntensity: number;
 }
 
@@ -96,6 +97,7 @@ type EditorAction =
   | { type: 'SET_BRUSH_PRESET'; payload: BrushPreset }
   | { type: 'SET_BRUSH_COLOR'; payload: string }
   | { type: 'SET_BRUSH_SIZE'; payload: number }
+  | { type: 'SET_BRUSH_OPACITY'; payload: number }
   | { type: 'SET_NEON_INTENSITY'; payload: number };
 
 const defaultBg: CanvasBgConfig = {
@@ -149,6 +151,7 @@ const initialState: EditorState = {
   brushPreset: 'standard',
   brushColor: '#00F5FF',
   brushSize: 8,
+  brushOpacity: 100,
   neonIntensity: 60,
 };
 
@@ -236,9 +239,11 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
     case 'SET_BRUSH_COLOR':
       return { ...state, brushColor: action.payload };
     case 'SET_BRUSH_SIZE':
-      return { ...state, brushSize: action.payload };
+      return { ...state, brushSize: Math.max(1, Math.min(100, Math.round(action.payload))) };
+    case 'SET_BRUSH_OPACITY':
+      return { ...state, brushOpacity: Math.max(0, Math.min(100, Math.round(action.payload))) };
     case 'SET_NEON_INTENSITY':
-      return { ...state, neonIntensity: action.payload };
+      return { ...state, neonIntensity: Math.max(0, Math.min(100, Math.round(action.payload))) };
     default:
       return state;
   }

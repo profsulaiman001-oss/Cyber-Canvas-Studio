@@ -26,7 +26,7 @@ import ThreeDPanel from '@/components/editor/ThreeDPanel';
 import VectorsPanel from '@/components/editor/VectorsPanel';
 import VectorNodePanel from '@/components/editor/VectorNodePanel';
 import CropModal from '@/components/editor/CropModal';
-import ColorPicker from '@/components/editor/ColorPicker';
+import BrushPanel from '@/components/editor/BrushPanel';
 import KeyboardShortcutsDialog from '@/components/editor/KeyboardShortcutsDialog';
 import ContextMenu, { type ContextMenuActions } from '@/components/editor/ContextMenu';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -91,7 +91,6 @@ export default function DesignEditor() {
   const [vpX, setVpX] = useState(0);
   const [vpY, setVpY] = useState(0);
 
-  const [brushColorPickerOpen, setBrushColorPickerOpen] = useState(false);
   const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -368,20 +367,16 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (state.activeTool === 'brush') {
-      controller.activateBrush(state.brushPreset, state.brushColor, state.brushSize);
+      controller.activateBrush(state.brushPreset, state.brushColor, state.brushSize, state.brushOpacity, state.neonIntensity);
     } else if (controller.isBrushActive) {
       controller.deactivateBrush();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.activeTool, state.brushPreset, state.brushColor, state.brushSize]);
+  }, [state.activeTool, state.brushPreset, state.brushColor, state.brushSize, state.brushOpacity, state.neonIntensity]);
 
   useEffect(() => {
     controller.setPanMode(state.activeTool === 'pan');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.activeTool]);
-
-  useEffect(() => {
-    if (state.activeTool !== 'brush') setBrushColorPickerOpen(false);
   }, [state.activeTool]);
 
   const penActive    = state.activeTool === 'pen';
@@ -398,16 +393,11 @@ export default function DesignEditor() {
 
   const handleBrushDone = useCallback(() => {
     controller.deactivateBrush();
-    setBrushColorPickerOpen(false);
     dispatch({ type: 'SET_TOOL', payload: 'select' });
   }, [controller, dispatch]);
 
   const handleBrushColorChange = useCallback((color: string) => {
     dispatch({ type: 'SET_BRUSH_COLOR', payload: color });
-  }, [dispatch]);
-
-  const handleBrushSizeChange = useCallback((size: number) => {
-    dispatch({ type: 'SET_BRUSH_SIZE', payload: size });
   }, [dispatch]);
 
   const vectorEditActive = controller.isVectorEditActive;
@@ -1077,26 +1067,7 @@ export default function DesignEditor() {
         <ThreeDPanel controller={controller} />
         <AdjustPanel controller={controller} />
         <TransformPanel controller={controller} />
-
-        {/* Brush Color Picker overlay */}
-        {brushActive && brushColorPickerOpen && (
-          <div
-            className="absolute bottom-full left-0 right-0 z-50 px-4 pt-4 pb-3"
-            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.3)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold tracking-wider" style={{ color: '#00F5FF' }}>BRUSH COLOR</p>
-              <button
-                onClick={() => setBrushColorPickerOpen(false)}
-                className="text-[10px] px-3 py-1 rounded-full"
-                style={{ background: 'rgba(0,245,255,0.12)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
-              >
-                Close
-              </button>
-            </div>
-            <ColorPicker value={state.brushColor} onChange={handleBrushColorChange} />
-          </div>
-        )}
+        <BrushPanel open={brushActive} onColorChange={handleBrushColorChange} />
 
         {/* Nudge overlay */}
         <div className="absolute bottom-full left-0 right-0 z-50">
@@ -1271,13 +1242,8 @@ export default function DesignEditor() {
           vectorEditActive={vectorEditActive}
           onPenCancel={handlePenCancel}
           onBrushDone={handleBrushDone}
-          onBrushColorChange={handleBrushColorChange}
-          onBrushSizeChange={handleBrushSizeChange}
-          onNeonIntensityChange={(v) => dispatch({ type: 'SET_NEON_INTENSITY', payload: v })}
           onVectorEditStart={handleVectorEditStart}
           onVectorEditEnd={handleVectorEditEnd}
-          brushColorPickerOpen={brushColorPickerOpen}
-          onToggleBrushColorPicker={() => setBrushColorPickerOpen((o) => !o)}
           onImportImages={handleImportImages}
           onFillWithImage={handleFillWithImage}
           onCropImage={handleCropImage}

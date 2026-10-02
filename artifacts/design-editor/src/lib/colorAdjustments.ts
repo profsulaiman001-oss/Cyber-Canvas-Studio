@@ -5,6 +5,8 @@ export interface ColorAdjustments {
   contrast: number;
   saturation: number;
   hue: number;
+  warmth: number;
+  tint: number;
 }
 
 interface GradientConfigSnapshot {
@@ -163,8 +165,13 @@ export function transformColor(color: string, adjustments: ColorAdjustments) {
     const saturation = clamp(hsl.s * (1 + adjustments.saturation));
     const hue = hsl.h + adjustments.hue;
     const [nextRed, nextGreen, nextBlue] = hslToRgb(hue, saturation, contrastAdjustedLightness);
+    const warmth = adjustments.warmth * 28;
+    const tint = adjustments.tint * 24;
+    const adjustedRed = clamp(nextRed + warmth + tint, 0, 255);
+    const adjustedGreen = clamp(nextGreen + (warmth * 0.08) - tint, 0, 255);
+    const adjustedBlue = clamp(nextBlue - warmth + tint, 0, 255);
 
-    return `rgba(${nextRed},${nextGreen},${nextBlue},${clamp(alpha).toFixed(3)})`;
+    return `rgba(${Math.round(adjustedRed)},${Math.round(adjustedGreen)},${Math.round(adjustedBlue)},${clamp(alpha).toFixed(3)})`;
   } catch {
     return color;
   }

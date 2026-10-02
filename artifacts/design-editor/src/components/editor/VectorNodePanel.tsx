@@ -1,6 +1,26 @@
-import { useState } from 'react';
-import { MousePointer2, Plus, Minus, ChevronLeft, ChevronRight, PenTool, Move, Crosshair, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Crosshair,
+  Minus,
+  PenTool,
+  Plus,
+} from 'lucide-react';
 import { VectorAnchor } from '@/hooks/useFabricCanvas';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface VectorNodePanelProps {
   vectorAnchors: VectorAnchor[];
@@ -13,10 +33,7 @@ interface VectorNodePanelProps {
   onReactivatePen: () => void;
 }
 
-type EditMode = 'handle' | 'nudge';
-
 const ACCENT = '#00F5FF';
-const CYAN = '#00F5FF';
 
 export default function VectorNodePanel({
   vectorAnchors,
@@ -28,8 +45,6 @@ export default function VectorNodePanel({
   onDone,
   onReactivatePen,
 }: VectorNodePanelProps) {
-  const [mode, setMode] = useState<EditMode>('handle');
-
   // Only count real anchor points (not handles)
   const anchorOnlyList = vectorAnchors.filter((a) => a.kind === 'anchor');
   const totalAnchors = anchorOnlyList.length;
@@ -49,228 +64,137 @@ export default function VectorNodePanel({
 
   const NUDGE_PX = 1;
 
-  const btn = (
-    label: string,
-    onClick: () => void,
-    active = false,
-    accentColor = ACCENT,
-    disabled = false,
-  ) => (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      className="flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-30"
-      style={{
-        background: active ? `${accentColor}22` : 'rgba(255,255,255,0.06)',
-        color: active ? accentColor : '#9ca3af',
-        border: `1px solid ${active ? accentColor : 'rgba(255,255,255,0.1)'}`,
-        boxShadow: active ? `0 0 8px ${accentColor}40` : 'none',
-      }}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <div
-      className="flex-shrink-0 px-3 pt-3"
+      className="flex h-14 w-full min-w-0 flex-shrink-0 items-center gap-1 rounded-2xl border px-2"
+      data-testid="vector-node-toolbar"
       style={{
-        background: '#0E1117',
-        borderTop: `1px solid ${ACCENT}55`,
-        paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+        background: '#11141A',
+        borderColor: 'rgba(0,245,255,0.3)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)',
       }}
     >
-      {/* ── Row 1: Mode tabs + Done ── */}
-      <div className="flex items-center gap-2 mb-3">
-        {/* Mode: Handle Adjust */}
+      <div
+        className="flex min-w-0 flex-1 items-center gap-0 rounded-xl border px-0.5"
+        style={{ background: 'rgba(0,245,255,0.08)', borderColor: `${ACCENT}33` }}
+        aria-label="Anchor point selector"
+      >
         <button
-          onClick={() => setMode('handle')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-          style={{
-            background: mode === 'handle' ? `${ACCENT}22` : 'rgba(255,255,255,0.05)',
-            color: mode === 'handle' ? ACCENT : '#6b7280',
-            border: `1px solid ${mode === 'handle' ? ACCENT : 'rgba(255,255,255,0.08)'}`,
-          }}
-        >
-          <Move size={13} />
-          Handles
-        </button>
-
-        {/* Mode: Nudge Pad */}
-        <button
-          onClick={() => setMode('nudge')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-          style={{
-            background: mode === 'nudge' ? `${ACCENT}22` : 'rgba(255,255,255,0.05)',
-            color: mode === 'nudge' ? ACCENT : '#6b7280',
-            border: `1px solid ${mode === 'nudge' ? ACCENT : 'rgba(255,255,255,0.08)'}`,
-          }}
-        >
-          <Crosshair size={13} />
-          Nudge
-        </button>
-
-        {/* Pen Draw — close vector edit, reactivate pen */}
-        <button
-          onClick={onReactivatePen}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
-          style={{
-            background: 'rgba(0,245,255,0.08)',
-            color: CYAN,
-            border: `1px solid rgba(0,245,255,0.25)`,
-          }}
-        >
-          <PenTool size={13} />
-          Draw
-        </button>
-
-        <div className="flex-1" />
-
-        {/* Done */}
-        <button
-          onClick={onDone}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold"
-          style={{ background: 'rgba(255,255,255,0.08)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.15)' }}
-        >
-          <MousePointer2 size={13} />
-          Done
-        </button>
-      </div>
-
-      {/* ── Row 2: Node navigator + Add/Delete ── */}
-      <div className="flex items-center gap-2 mb-3">
-        {/* Add / Delete */}
-        <button
-          onClick={onAddNode}
+          onClick={prevAnchor}
           disabled={totalAnchors === 0}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 disabled:opacity-30"
-          style={{ background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' }}
-          title="Add node after selected"
+          aria-label="Previous anchor point"
+          className="flex h-9 w-7 shrink-0 items-center justify-center rounded-lg text-cyan-300 transition-colors hover:bg-cyan-400/10 disabled:opacity-30 min-[380px]:w-8"
+          style={{ touchAction: 'manipulation' }}
         >
-          <Plus size={13} />
-          Add
+          <ChevronLeft size={15} />
         </button>
+        <span className="min-w-[60px] flex-1 whitespace-nowrap text-center font-mono text-[10px] font-bold text-cyan-300">
+          {totalAnchors === 0 ? 'No nodes' : `Point ${currentAnchorDisplay} / ${totalAnchors}`}
+        </span>
         <button
-          onClick={onDeleteNode}
-          disabled={totalAnchors === 0 || selectedAnchorIdx === null}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 disabled:opacity-30"
-          style={{ background: 'rgba(248,113,113,0.12)', color: '#f87171', border: '1px solid rgba(248,113,113,0.3)' }}
-          title="Delete selected node"
+          onClick={nextAnchor}
+          disabled={totalAnchors === 0}
+          aria-label="Next anchor point"
+          className="flex h-9 w-7 shrink-0 items-center justify-center rounded-lg text-cyan-300 transition-colors hover:bg-cyan-400/10 disabled:opacity-30 min-[380px]:w-8"
+          style={{ touchAction: 'manipulation' }}
         >
-          <Minus size={13} />
-          Del
+          <ChevronRight size={15} />
         </button>
-
-        <div className="flex-1" />
-
-        {/* Node navigator */}
-        <div
-          className="flex items-center gap-1 rounded-xl px-2 py-1"
-          style={{ background: 'rgba(0,245,255,0.08)', border: `1px solid ${ACCENT}33` }}
-        >
-          <button
-            onClick={prevAnchor}
-            disabled={totalAnchors === 0}
-            aria-label="Previous anchor point"
-            className="w-11 h-11 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:opacity-30"
-            style={{ color: ACCENT, touchAction: 'manipulation' }}
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <span
-            className="text-[11px] font-mono font-bold min-w-[64px] text-center"
-            style={{ color: ACCENT }}
-          >
-            {totalAnchors === 0
-              ? 'No nodes'
-              : `Point ${currentAnchorDisplay} / ${totalAnchors}`}
-          </span>
-          <button
-            onClick={nextAnchor}
-            disabled={totalAnchors === 0}
-            aria-label="Next anchor point"
-            className="w-11 h-11 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:opacity-30"
-            style={{ color: ACCENT, touchAction: 'manipulation' }}
-          >
-            <ChevronRight size={15} />
-          </button>
-        </div>
       </div>
 
-      {/* ── Row 3: Context area based on mode ── */}
-      {mode === 'nudge' && (
-        <div className="flex items-center justify-center">
-          {/* 4-way nudge pad */}
-          <div className="inline-grid gap-1" style={{ gridTemplateColumns: '44px 44px 44px', gridTemplateRows: '44px 44px 44px' }}>
-            {/* Row 1: up */}
-            <div />
-            <button
-              onClick={() => onNudgeNode(0, -NUDGE_PX)}
-              disabled={selectedAnchorIdx === null}
-              aria-label="Nudge anchor up by 1 pixel"
-              className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
-            >
-              <ArrowUp size={18} />
-            </button>
-            <div />
-            {/* Row 2: left · indicator · right */}
-            <button
-              onClick={() => onNudgeNode(-NUDGE_PX, 0)}
-              disabled={selectedAnchorIdx === null}
-              aria-label="Nudge anchor left by 1 pixel"
-              className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
-            >
-              <ArrowLeft size={18} />
-            </button>
-            <div
-              className="flex items-center justify-center rounded-xl"
-              style={{ background: `${ACCENT}10`, border: `1px solid ${ACCENT}33` }}
-            >
-              <div className="w-2 h-2 rounded-full" style={{ background: ACCENT, boxShadow: `0 0 6px ${ACCENT}` }} />
-            </div>
-            <button
-              onClick={() => onNudgeNode(NUDGE_PX, 0)}
-              disabled={selectedAnchorIdx === null}
-              aria-label="Nudge anchor right by 1 pixel"
-              className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
-            >
-              <ArrowRight size={18} />
-            </button>
-            {/* Row 3: down */}
-            <div />
-            <button
-              onClick={() => onNudgeNode(0, NUDGE_PX)}
-              disabled={selectedAnchorIdx === null}
-              aria-label="Nudge anchor down by 1 pixel"
-              className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
-            >
-              <ArrowDown size={18} />
-            </button>
-            <div />
-          </div>
+      <button
+        onClick={onAddNode}
+        disabled={totalAnchors === 0}
+        aria-label="Add node after selected point"
+        title="Add node"
+        className="flex h-10 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 text-emerald-300 transition-colors hover:bg-emerald-400/20 disabled:opacity-30"
+        style={{ touchAction: 'manipulation' }}
+      >
+        <Plus size={17} />
+      </button>
 
-          <div className="ml-4 text-[10px] leading-relaxed max-w-[120px]" style={{ color: '#6b7280' }}>
-            {selectedAnchorIdx === null
-              ? 'Select a node first using the navigator →'
-              : `Nudging Point ${currentAnchorDisplay}\n1px per tap`}
-          </div>
-        </div>
-      )}
+      <button
+        onClick={onDeleteNode}
+        disabled={totalAnchors === 0 || selectedAnchorIdx === null}
+        aria-label="Delete selected node"
+        title="Delete selected node"
+        className="flex h-10 w-8 shrink-0 items-center justify-center rounded-lg border border-red-400/30 bg-red-400/10 text-red-300 transition-colors hover:bg-red-400/20 disabled:opacity-30"
+        style={{ touchAction: 'manipulation' }}
+      >
+        <Minus size={17} />
+      </button>
 
-      {mode === 'handle' && (
-        <div
-          className="rounded-xl px-3 py-2 text-[10px] leading-relaxed"
-          style={{ background: `${ACCENT}0a`, border: `1px solid ${ACCENT}22`, color: '#6b7280' }}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            aria-label="More vector tools: nudge and draw"
+            title="More vector tools"
+            className="flex h-10 w-8 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] text-cyan-300 transition-colors hover:bg-cyan-400/10"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <Crosshair size={15} />
+            <ChevronDown size={10} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          side="top"
+          align="end"
+          sideOffset={8}
+          className="w-auto border-cyan-400/20 bg-[#11141A] p-2 text-foreground shadow-xl"
         >
-          <span style={{ color: ACCENT }} className="font-semibold">Drag anchors</span> — move on canvas.{' '}
-          <span style={{ color: ACCENT }} className="font-semibold">Drag diamonds</span> — adjust bezier curve tangent.
-          Use the navigator to step through nodes precisely.
-        </div>
-      )}
+          <DropdownMenuLabel className="px-2 pb-2 text-center text-[10px] uppercase tracking-wider text-cyan-300">
+            Nudge · 1 px per tap
+          </DropdownMenuLabel>
+          <div className="grid grid-cols-3 gap-1" role="group" aria-label="Nudge selected anchor">
+            {[
+              { label: 'Nudge up', dx: 0, dy: -NUDGE_PX, icon: ArrowUp, column: 2, row: 1 },
+              { label: 'Nudge left', dx: -NUDGE_PX, dy: 0, icon: ArrowLeft, column: 1, row: 2 },
+              { label: 'Nudge right', dx: NUDGE_PX, dy: 0, icon: ArrowRight, column: 3, row: 2 },
+              { label: 'Nudge down', dx: 0, dy: NUDGE_PX, icon: ArrowDown, column: 2, row: 3 },
+            ].map(({ label, dx, dy, icon: Icon, column, row }) => (
+              <DropdownMenuItem
+                key={label}
+                aria-label={label}
+                disabled={selectedAnchorIdx === null}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onNudgeNode(dx, dy);
+                }}
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg border border-cyan-400/20 bg-cyan-400/[0.06] p-0 text-cyan-200 focus:bg-cyan-400/15 data-[disabled]:opacity-30 [&>svg]:size-4"
+                style={{ gridColumn: column, gridRow: row, touchAction: 'manipulation' }}
+              >
+                <Icon aria-hidden="true" />
+              </DropdownMenuItem>
+            ))}
+            <div
+              className="flex h-11 w-11 items-center justify-center rounded-lg border border-cyan-400/10 bg-cyan-400/[0.03]"
+              style={{ gridColumn: 2, gridRow: 2 }}
+              aria-hidden="true"
+            >
+              <div className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_6px_#00F5FF]" />
+            </div>
+          </div>
+          <DropdownMenuSeparator className="my-2 bg-white/10" />
+          <DropdownMenuItem
+            onSelect={onReactivatePen}
+            className="min-h-10 cursor-pointer gap-2 text-xs text-cyan-200 focus:bg-cyan-400/10"
+          >
+            <PenTool size={15} />
+            Draw with pen
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <button
+        onClick={onDone}
+        aria-label="Done editing vector nodes"
+        title="Done"
+        className="flex h-10 shrink-0 items-center justify-center gap-1 rounded-lg border border-white/15 bg-white/[0.08] px-2 text-[11px] font-semibold text-slate-100 transition-colors hover:bg-white/[0.12]"
+        style={{ touchAction: 'manipulation' }}
+      >
+        <Check size={14} />
+        Done
+      </button>
     </div>
   );
 }

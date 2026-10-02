@@ -1,4 +1,4 @@
-import { Fragment, RefObject, useRef, useEffect, useState, type MouseEventHandler } from 'react';
+import { Fragment, RefObject, useRef, useEffect, useState, type MouseEventHandler, type PointerEvent as ReactPointerEvent } from 'react';
 import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
 
 /** Build an SVG path string from committed bezier nodes, in canvas-pixel coords */
@@ -216,30 +216,39 @@ export default function CanvasWorkspace({
   }
 
   /* ── Vector anchor drag ── */
-  const anchorDragRef = useRef<{ idx: number; startClientX: number; startClientY: number } | null>(null);
+  const anchorDragRef = useRef<{ idx: number; startClientX: number; startClientY: number; pointerId: number } | null>(null);
   const onVectorDragMoveRef = useRef(onVectorAnchorDragMove);
   const onVectorDragEndRef = useRef(onVectorAnchorDragEnd);
   useEffect(() => { onVectorDragMoveRef.current = onVectorAnchorDragMove; }, [onVectorAnchorDragMove]);
   useEffect(() => { onVectorDragEndRef.current = onVectorAnchorDragEnd; }, [onVectorAnchorDragEnd]);
 
-  useEffect(() => {
-    if (!vectorAnchors.length) return;
-    const onMove = (e: MouseEvent) => {
-      if (!anchorDragRef.current) return;
-      const dx = e.clientX - anchorDragRef.current.startClientX;
-      const dy = e.clientY - anchorDragRef.current.startClientY;
-      onVectorDragMoveRef.current?.(dx, dy);
+  const startVectorAnchorDrag = (e: ReactPointerEvent<SVGGElement>, idx: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* Older browsers may not support pointer capture. */ }
+    onVectorAnchorDragStart?.(idx);
+    anchorDragRef.current = {
+      idx,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      pointerId: e.pointerId,
     };
-    const onUp = () => {
-      if (anchorDragRef.current) {
-        onVectorDragEndRef.current?.();
-        anchorDragRef.current = null;
-      }
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, [vectorAnchors.length]);
+  };
+  const moveVectorAnchorDrag = (e: ReactPointerEvent<SVGGElement>) => {
+    const drag = anchorDragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onVectorDragMoveRef.current?.(e.clientX - drag.startClientX, e.clientY - drag.startClientY);
+  };
+  const endVectorAnchorDrag = (e: ReactPointerEvent<SVGGElement>) => {
+    const drag = anchorDragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    anchorDragRef.current = null;
+    onVectorDragEndRef.current?.();
+  };
 
   /* ── Guide line drag ── */
   const guideDragRef = useRef<{ axis: 'h' | 'v'; idx: number; startClient: number; startDesign: number } | null>(null);
@@ -763,7 +772,7 @@ export default function CanvasWorkspace({
           {vectorAnchors.length > 0 && (
             <svg
               className="absolute inset-0 w-full h-full z-30"
-              style={{ overflow: 'visible', pointerEvents: 'none' }}
+              style={{ overflow: 'visible', pointerEvents: 'none', touchAction: 'none', userSelect: 'none' }}
             >
               {/* Handle tangent arms */}
               {vectorAnchors
@@ -788,17 +797,23 @@ export default function CanvasWorkspace({
                 return (
                   <g
                     key={`va-${i}`}
-                    style={{ pointerEvents: 'auto', cursor: 'move' }}
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      onVectorAnchorDragStart?.(i);
-                      anchorDragRef.current = { idx: i, startClientX: e.clientX, startClientY: e.clientY };
-                    }}
+                    style={{ pointerEvents: 'auto', cursor: 'move', touchAction: 'none' }}
+                    onPointerDown={(e) => startVectorAnchorDrag(e, i)}
+                    onPointerMove={moveVectorAnchorDrag}
+                    onPointerUp={endVectorAnchorDrag}
+                    onPointerCancel={endVectorAnchorDrag}
                   >
+                    {/* Fixed CSS-pixel hit target; visual handles stay at their crisp design scale. */}
+                    <rect
+                      x={anchor.screenX - 22}
+                      y={anchor.screenY - 22}
+                      width={44}
+                      height={44}
+                      fill="transparent"
+                      pointerEvents="all"
+                    />
                     {isHandle ? (
                       <>
-                        {/* Larger hit area */}
-                        <circle cx={anchor.screenX} cy={anchor.screenY} r={11} fill="transparent" />
                         <rect
                           x={anchor.screenX - 5} y={anchor.screenY - 5}
                           width={10} height={10}

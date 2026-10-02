@@ -171,8 +171,9 @@ export default function VectorNodePanel({
           <button
             onClick={prevAnchor}
             disabled={totalAnchors === 0}
-            className="w-7 h-7 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:opacity-30"
-            style={{ color: ACCENT }}
+            aria-label="Previous anchor point"
+            className="w-11 h-11 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:opacity-30"
+            style={{ color: ACCENT, touchAction: 'manipulation' }}
           >
             <ChevronLeft size={15} />
           </button>
@@ -187,8 +188,9 @@ export default function VectorNodePanel({
           <button
             onClick={nextAnchor}
             disabled={totalAnchors === 0}
-            className="w-7 h-7 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:opacity-30"
-            style={{ color: ACCENT }}
+            aria-label="Next anchor point"
+            className="w-11 h-11 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:opacity-30"
+            style={{ color: ACCENT, touchAction: 'manipulation' }}
           >
             <ChevronRight size={15} />
           </button>
@@ -199,14 +201,15 @@ export default function VectorNodePanel({
       {mode === 'nudge' && (
         <div className="flex items-center justify-center">
           {/* 4-way nudge pad */}
-          <div className="inline-grid gap-1" style={{ gridTemplateColumns: '40px 40px 40px', gridTemplateRows: '40px 40px 40px' }}>
+          <div className="inline-grid gap-1" style={{ gridTemplateColumns: '44px 44px 44px', gridTemplateRows: '44px 44px 44px' }}>
             {/* Row 1: up */}
             <div />
             <button
               onClick={() => onNudgeNode(0, -NUDGE_PX)}
               disabled={selectedAnchorIdx === null}
+              aria-label="Nudge anchor up by 1 pixel"
               className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT }}
+              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
             >
               <ArrowUp size={18} />
             </button>
@@ -215,8 +218,9 @@ export default function VectorNodePanel({
             <button
               onClick={() => onNudgeNode(-NUDGE_PX, 0)}
               disabled={selectedAnchorIdx === null}
+              aria-label="Nudge anchor left by 1 pixel"
               className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT }}
+              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
             >
               <ArrowLeft size={18} />
             </button>
@@ -229,8 +233,9 @@ export default function VectorNodePanel({
             <button
               onClick={() => onNudgeNode(NUDGE_PX, 0)}
               disabled={selectedAnchorIdx === null}
+              aria-label="Nudge anchor right by 1 pixel"
               className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT }}
+              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
             >
               <ArrowRight size={18} />
             </button>
@@ -239,8 +244,9 @@ export default function VectorNodePanel({
             <button
               onClick={() => onNudgeNode(0, NUDGE_PX)}
               disabled={selectedAnchorIdx === null}
+              aria-label="Nudge anchor down by 1 pixel"
               className="flex items-center justify-center rounded-xl transition-all active:scale-90 disabled:opacity-30"
-              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT }}
+              style={{ background: `${ACCENT}18`, border: `1px solid ${ACCENT}44`, color: ACCENT, touchAction: 'manipulation' }}
             >
               <ArrowDown size={18} />
             </button>

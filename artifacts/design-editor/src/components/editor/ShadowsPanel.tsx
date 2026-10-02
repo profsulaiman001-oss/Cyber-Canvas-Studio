@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject, Shadow } from 'fabric';
@@ -10,15 +9,26 @@ import {
   ChevronUp,
   Droplets,
   Eye,
+  Layers2,
   Layers3,
   MoveHorizontal,
   MoveVertical,
   type LucideIcon,
 } from 'lucide-react';
-import ColorPicker from './ColorPicker';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import ShadowSettingsModal, { type ShadowMode } from './ShadowSettingsModal';
 
-interface ShadowsPanelProps { controller: CanvasController }
-type ShadowMode = 'drop' | 'inner';
+interface ShadowsPanelProps {
+  controller: CanvasController;
+}
+
 type ShadowParameter = 'blur' | 'offsetX' | 'offsetY' | 'opacity';
 
 const SHADOW_PARAMETERS: Array<{
@@ -35,136 +45,50 @@ const SHADOW_PARAMETERS: Array<{
   { key: 'opacity', label: 'Opacity', icon: Eye, min: 0, max: 100, unit: '%' },
 ];
 
-/* ── Color parsing utilities ── */
 function parseColorToHex(color: string): string {
   if (!color) return '#000000';
   if (color.startsWith('#')) {
-    const c = color.replace('#', '');
-    const clean = c.length === 3 ? c[0] + c[0] + c[1] + c[1] + c[2] + c[2] : c.slice(0, 6);
-    return `#${clean.toLowerCase().padEnd(6, '0')}`;
+    const value = color.replace('#', '');
+    const expanded = value.length === 3
+      ? value.split('').map((character) => character + character).join('')
+      : value.slice(0, 6);
+    return `#${expanded.toLowerCase().padEnd(6, '0')}`;
   }
-  const m = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-  if (m) {
-    return `#${[m[1], m[2], m[3]].map((v) => Math.max(0, Math.min(255, parseInt(v, 10))).toString(16).padStart(2, '0')).join('')}`;
+  const match = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (match) {
+    return `#${[match[1], match[2], match[3]]
+      .map((value) => Math.max(0, Math.min(255, parseInt(value, 10))).toString(16).padStart(2, '0'))
+      .join('')}`;
   }
   return '#000000';
 }
 
 function parseAlphaPercent(color: string): number {
   if (!color || !color.startsWith('rgba')) return 80;
-  const m = color.match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)/i);
-  return m ? Math.round(Math.max(0, Math.min(1, parseFloat(m[1]))) * 100) : 80;
+  const match = color.match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)/i);
+  return match ? Math.round(Math.max(0, Math.min(1, parseFloat(match[1]))) * 100) : 80;
 }
 
 function hexToRgba(hex: string, opacityPercent: number): string {
-  const clean = hex.replace('#', '');
-  const expanded = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean.slice(0, 6).padEnd(6, '0');
-  const r = parseInt(expanded.slice(0, 2), 16) || 0;
-  const g = parseInt(expanded.slice(2, 4), 16) || 0;
-  const b = parseInt(expanded.slice(4, 6), 16) || 0;
-  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, opacityPercent / 100)).toFixed(3)})`;
-}
-
-function SliderRow({
-  label, value, min, max, onChange, unit = '',
-}: {
-  label: string; value: number; min: number; max: number; onChange: (v: number) => void; unit?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <Label className="text-[11px] text-muted-foreground">{label}</Label>
-        <span className="text-[11px] font-mono text-primary">{Math.round(value * 100) / 100}{unit}</span>
-      </div>
-      <Slider min={min} max={max} step={1} value={[value]} onValueChange={([v]) => onChange(v)} />
-    </div>
-  );
-}
-
-function ColorField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div>
-      <button
-        className="flex items-center justify-between w-full rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <Label className="text-[11px] text-muted-foreground pointer-events-none">Color</Label>
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-md border border-white/20" style={{ background: value }} />
-          <span className="text-[10px] font-mono text-muted-foreground">{value.toUpperCase()}</span>
-        </div>
-      </button>
-      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${open ? 'max-h-72 opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
-        <ColorPicker value={value} onChange={onChange} />
-      </div>
-    </div>
-  );
-}
-
-function ShadowControls({
-  mode,
-  enabled,
-  color,
-  blur,
-  offsetX,
-  offsetY,
-  opacity,
-  onEnabledChange,
-  onColorChange,
-  onBlurChange,
-  onOffsetXChange,
-  onOffsetYChange,
-  onOpacityChange,
-}: {
-  mode: ShadowMode;
-  enabled: boolean;
-  color: string;
-  blur: number;
-  offsetX: number;
-  offsetY: number;
-  opacity: number;
-  onEnabledChange: (enabled: boolean) => void;
-  onColorChange: (color: string) => void;
-  onBlurChange: (value: number) => void;
-  onOffsetXChange: (value: number) => void;
-  onOffsetYChange: (value: number) => void;
-  onOpacityChange: (value: number) => void;
-}) {
-  const label = mode === 'drop' ? 'Drop Shadow' : 'Inner Shadow';
-
-  return (
-    <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Layers3 size={14} className="text-primary" />
-          <span className="text-xs font-semibold text-primary">{label}</span>
-        </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={onEnabledChange}
-          aria-label={`Toggle ${label}`}
-        />
-      </div>
-
-      <ColorField value={color} onChange={onColorChange} />
-      <SliderRow label="Blur" value={blur} min={0} max={100} onChange={onBlurChange} />
-      <div className="grid grid-cols-2 gap-4">
-        <SliderRow label="Offset X" value={offsetX} min={-100} max={100} onChange={onOffsetXChange} />
-        <SliderRow label="Offset Y" value={offsetY} min={-100} max={100} onChange={onOffsetYChange} />
-      </div>
-      <SliderRow label="Opacity" value={opacity} min={0} max={100} unit="%" onChange={onOpacityChange} />
-    </div>
-  );
+  const value = hex.replace('#', '');
+  const expanded = value.length === 3
+    ? value.split('').map((character) => character + character).join('')
+    : value.slice(0, 6).padEnd(6, '0');
+  const red = parseInt(expanded.slice(0, 2), 16) || 0;
+  const green = parseInt(expanded.slice(2, 4), 16) || 0;
+  const blue = parseInt(expanded.slice(4, 6), 16) || 0;
+  const alpha = Math.max(0, Math.min(1, opacityPercent / 100)).toFixed(3);
+  return `rgba(${red},${green},${blue},${alpha})`;
 }
 
 export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
-  const { state, dispatch } = useEditor();
+  const { state } = useEditor();
   const obj = controller.selectedObject;
   const isImage = obj?.type === 'image';
   const [activeShadowMode, setActiveShadowMode] = useState<ShadowMode>('drop');
   const [activeParameter, setActiveParameter] = useState<ShadowParameter>('blur');
-  const [parameterOpen, setParameterOpen] = useState(false);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [parameterMenuOpen, setParameterMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   const [dropEnabled, setDropEnabled] = useState(false);
@@ -183,9 +107,9 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
 
   const syncFromObj = useCallback(() => {
     if (!obj) return;
-    const o = obj as FabricObject & Record<string, unknown>;
-    const shadow = o.shadow as Shadow | null;
-    const glow = (o as Record<string, unknown>)._glow as { enabled?: boolean } | undefined;
+    const object = obj as FabricObject & Record<string, unknown>;
+    const shadow = object.shadow as Shadow | null;
+    const glow = object._glow as { enabled?: boolean } | undefined;
 
     if (shadow && !glow?.enabled && (shadow.offsetX !== 0 || shadow.offsetY !== 0 || shadow.blur !== 0)) {
       setDropEnabled(true);
@@ -198,8 +122,13 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
       setDropEnabled(false);
     }
 
-    const inner = (o as Record<string, unknown>)._innerShadow as {
-      enabled?: boolean; color?: string; blur?: number; offsetX?: number; offsetY?: number; opacity?: number;
+    const inner = object._innerShadow as {
+      enabled?: boolean;
+      color?: string;
+      blur?: number;
+      offsetX?: number;
+      offsetY?: number;
+      opacity?: number;
     } | undefined;
     if (inner) {
       setInnerEnabled(!!inner.enabled);
@@ -216,11 +145,17 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
   useEffect(() => {
     syncFromObj();
     setExpanded(false);
-    setParameterOpen(false);
+    setModeMenuOpen(false);
+    setParameterMenuOpen(false);
   }, [syncFromObj]);
 
   const applyDropShadow = useCallback((
-    enabled: boolean, color: string, blur: number, offsetX: number, offsetY: number, opacity: number,
+    enabled: boolean,
+    color: string,
+    blur: number,
+    offsetX: number,
+    offsetY: number,
+    opacity: number,
   ) => {
     if (!obj) return;
     const multiplier = isImage ? 2 : 1;
@@ -238,7 +173,12 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
   }, [obj, controller, isImage]);
 
   const applyInnerShadow = useCallback((
-    enabled: boolean, color: string, blur: number, offsetX: number, offsetY: number, opacity: number,
+    enabled: boolean,
+    color: string,
+    blur: number,
+    offsetX: number,
+    offsetY: number,
+    opacity: number,
   ) => {
     controller.applyInnerShadow(obj, enabled ? { enabled: true, color, blur, offsetX, offsetY, opacity } : null);
     controller.getCanvas()?.requestRenderAll();
@@ -250,22 +190,12 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
   const isDrop = activeShadowMode === 'drop';
   const activeEnabled = isDrop ? dropEnabled : innerEnabled;
   const activeLabel = isDrop ? 'Drop Shadow' : 'Inner Shadow';
+  const ActiveShadowIcon = isDrop ? Layers3 : Layers2;
   const activeParameterOption = SHADOW_PARAMETERS.find(({ key }) => key === activeParameter) ?? SHADOW_PARAMETERS[0];
   const activeParameterValue = isDrop
-    ? {
-      blur: dropBlur,
-      offsetX: dropOffX,
-      offsetY: dropOffY,
-      opacity: dropOpacity,
-    }[activeParameter]
-    : {
-      blur: innerBlur,
-      offsetX: innerOffX,
-      offsetY: innerOffY,
-      opacity: innerOpacity,
-    }[activeParameter];
+    ? { blur: dropBlur, offsetX: dropOffX, offsetY: dropOffY, opacity: dropOpacity }[activeParameter]
+    : { blur: innerBlur, offsetX: innerOffX, offsetY: innerOffY, opacity: innerOpacity }[activeParameter];
 
-  const setMode = (mode: ShadowMode) => setActiveShadowMode(mode);
   const setActiveEnabled = (enabled: boolean) => {
     if (isDrop) {
       setDropEnabled(enabled);
@@ -276,263 +206,217 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
     }
   };
 
-  const setActiveParameterValue = (value: number) => {
-    if (isDrop) {
-      if (activeParameter === 'blur') {
+  const setShadowParameterValue = (mode: ShadowMode, parameter: ShadowParameter, value: number) => {
+    if (mode === 'drop') {
+      if (parameter === 'blur') {
         setDropBlur(value);
         applyDropShadow(true, dropColor, value, dropOffX, dropOffY, dropOpacity);
-      } else if (activeParameter === 'offsetX') {
+      } else if (parameter === 'offsetX') {
         setDropOffX(value);
         applyDropShadow(true, dropColor, dropBlur, value, dropOffY, dropOpacity);
-      } else if (activeParameter === 'offsetY') {
+      } else if (parameter === 'offsetY') {
         setDropOffY(value);
         applyDropShadow(true, dropColor, dropBlur, dropOffX, value, dropOpacity);
       } else {
         setDropOpacity(value);
         applyDropShadow(true, dropColor, dropBlur, dropOffX, dropOffY, value);
       }
+    } else if (parameter === 'blur') {
+      setInnerBlur(value);
+      applyInnerShadow(true, innerColor, value, innerOffX, innerOffY, innerOpacity);
+    } else if (parameter === 'offsetX') {
+      setInnerOffX(value);
+      applyInnerShadow(true, innerColor, innerBlur, value, innerOffY, innerOpacity);
+    } else if (parameter === 'offsetY') {
+      setInnerOffY(value);
+      applyInnerShadow(true, innerColor, innerBlur, innerOffX, value, innerOpacity);
     } else {
-      if (activeParameter === 'blur') {
-        setInnerBlur(value);
-        applyInnerShadow(true, innerColor, value, innerOffX, innerOffY, innerOpacity);
-      } else if (activeParameter === 'offsetX') {
-        setInnerOffX(value);
-        applyInnerShadow(true, innerColor, innerBlur, value, innerOffY, innerOpacity);
-      } else if (activeParameter === 'offsetY') {
-        setInnerOffY(value);
-        applyInnerShadow(true, innerColor, innerBlur, innerOffX, value, innerOpacity);
-      } else {
-        setInnerOpacity(value);
-        applyInnerShadow(true, innerColor, innerBlur, innerOffX, innerOffY, value);
-      }
+      setInnerOpacity(value);
+      applyInnerShadow(true, innerColor, innerBlur, innerOffX, innerOffY, value);
+    }
+  };
+
+  const setActiveColor = (value: string) => {
+    const color = parseColorToHex(value);
+    if (isDrop) {
+      setDropColor(color);
+      applyDropShadow(true, color, dropBlur, dropOffX, dropOffY, dropOpacity);
+    } else {
+      setInnerColor(color);
+      applyInnerShadow(true, color, innerBlur, innerOffX, innerOffY, innerOpacity);
     }
   };
 
   return (
     <div
-      className="absolute bottom-full left-1/2 z-50 w-[min(560px,calc(100vw-24px))] -translate-x-1/2 mb-2"
+      className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(720px,calc(100vw-20px))] -translate-x-1/2"
       data-testid="shadows-panel"
     >
-      {/* Expanded Shadow Studio drawer with both shadow types available together. */}
+      <ShadowSettingsModal
+        expanded={expanded}
+        mode={activeShadowMode}
+        enabled={activeEnabled}
+        color={isDrop ? dropColor : innerColor}
+        blur={isDrop ? dropBlur : innerBlur}
+        offsetX={isDrop ? dropOffX : innerOffX}
+        offsetY={isDrop ? dropOffY : innerOffY}
+        opacity={isDrop ? dropOpacity : innerOpacity}
+        onModeChange={setActiveShadowMode}
+        onEnabledChange={setActiveEnabled}
+        onColorChange={setActiveColor}
+        onBlurChange={(value) => setShadowParameterValue(activeShadowMode, 'blur', value)}
+        onOffsetXChange={(value) => setShadowParameterValue(activeShadowMode, 'offsetX', value)}
+        onOffsetYChange={(value) => setShadowParameterValue(activeShadowMode, 'offsetY', value)}
+        onOpacityChange={(value) => setShadowParameterValue(activeShadowMode, 'opacity', value)}
+      />
+
       <div
-        className={`overflow-y-auto rounded-2xl transition-all duration-300 ease-in-out ${
-          expanded ? 'max-h-[70vh] opacity-100 mb-2' : 'max-h-0 opacity-0 pointer-events-none'
-        }`}
+        className="flex w-full items-center gap-2 rounded-2xl border px-2.5 py-2.5"
         style={{
           background: '#11141A',
-          border: expanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent',
-          boxShadow: expanded ? '0 -8px 30px rgba(0,0,0,0.45)' : 'none',
-        }}
-      >
-        <div className="space-y-3 px-4 pb-4 pt-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Layers3 size={14} className="text-primary" />
-              <span className="text-xs font-semibold text-primary">Shadow Studio</span>
-            </div>
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Drop + Inner</span>
-          </div>
-
-          <ShadowControls
-            mode="drop"
-            enabled={dropEnabled}
-            color={dropColor}
-            blur={dropBlur}
-            offsetX={dropOffX}
-            offsetY={dropOffY}
-            opacity={dropOpacity}
-            onEnabledChange={(enabled) => {
-              setDropEnabled(enabled);
-              applyDropShadow(enabled, dropColor, dropBlur, dropOffX, dropOffY, dropOpacity);
-            }}
-            onColorChange={(value) => {
-              const hex = parseColorToHex(value);
-              setDropColor(hex);
-              applyDropShadow(true, hex, dropBlur, dropOffX, dropOffY, dropOpacity);
-            }}
-            onBlurChange={(value) => {
-              setDropBlur(value);
-              applyDropShadow(true, dropColor, value, dropOffX, dropOffY, dropOpacity);
-            }}
-            onOffsetXChange={(value) => {
-              setDropOffX(value);
-              applyDropShadow(true, dropColor, dropBlur, value, dropOffY, dropOpacity);
-            }}
-            onOffsetYChange={(value) => {
-              setDropOffY(value);
-              applyDropShadow(true, dropColor, dropBlur, dropOffX, value, dropOpacity);
-            }}
-            onOpacityChange={(value) => {
-              setDropOpacity(value);
-              applyDropShadow(true, dropColor, dropBlur, dropOffX, dropOffY, value);
-            }}
-          />
-
-          <ShadowControls
-            mode="inner"
-            enabled={innerEnabled}
-            color={innerColor}
-            blur={innerBlur}
-            offsetX={innerOffX}
-            offsetY={innerOffY}
-            opacity={innerOpacity}
-            onEnabledChange={(enabled) => {
-              setInnerEnabled(enabled);
-              applyInnerShadow(enabled, innerColor, innerBlur, innerOffX, innerOffY, innerOpacity);
-            }}
-            onColorChange={(value) => {
-              const hex = parseColorToHex(value);
-              setInnerColor(hex);
-              applyInnerShadow(true, hex, innerBlur, innerOffX, innerOffY, innerOpacity);
-            }}
-            onBlurChange={(value) => {
-              setInnerBlur(value);
-              applyInnerShadow(true, innerColor, value, innerOffX, innerOffY, innerOpacity);
-            }}
-            onOffsetXChange={(value) => {
-              setInnerOffX(value);
-              applyInnerShadow(true, innerColor, innerBlur, value, innerOffY, innerOpacity);
-            }}
-            onOffsetYChange={(value) => {
-              setInnerOffY(value);
-              applyInnerShadow(true, innerColor, innerBlur, innerOffX, value, innerOpacity);
-            }}
-            onOpacityChange={(value) => {
-              setInnerOpacity(value);
-              applyInnerShadow(true, innerColor, innerBlur, innerOffX, innerOffY, value);
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Compact floating bar */}
-      <div
-        className="flex items-center gap-1.5 rounded-2xl px-3 py-2.5 transition-all duration-300 ease-in-out"
-        style={{
-          background: '#11141A',
-          border: '1px solid rgba(0,245,255,0.3)',
+          backdropFilter: 'blur(18px)',
+          borderColor: 'rgba(0,245,255,0.3)',
           boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)',
         }}
+        data-testid="shadow-mini-bar"
       >
-        <div className="flex shrink-0 items-center gap-1 rounded-xl p-0.5" style={{ background: 'rgba(255,255,255,0.05)' }}>
-          {(['drop', 'inner'] as ShadowMode[]).map((mode) => {
-            const selected = activeShadowMode === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setMode(mode)}
-                className="rounded-lg px-2 py-1 text-xs font-semibold transition-all duration-300 ease-in-out"
-                style={{
-                  color: selected ? '#00F5FF' : 'rgba(255,255,255,0.45)',
-                  background: selected ? 'rgba(0,245,255,0.14)' : 'transparent',
-                  boxShadow: selected ? '0 0 8px rgba(0,245,255,0.12)' : 'none',
-                }}
-                aria-pressed={selected}
-                aria-label={`${mode === 'drop' ? 'Drop' : 'Inner'} shadow mode`}
-              >
-                {mode === 'drop' ? 'Drop' : 'Inner'}
-              </button>
-            );
-          })}
-        </div>
-
-        <Switch checked={activeEnabled} onCheckedChange={setActiveEnabled} aria-label={`Toggle ${activeLabel}`} />
-
-        <div className="relative flex min-w-0 flex-1 items-center gap-1.5">
-          <button
-            type="button"
-            className="flex h-7 w-9 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] text-primary transition-colors hover:border-primary/40 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => setParameterOpen((open) => !open)}
-            aria-expanded={parameterOpen}
-            aria-haspopup="listbox"
-            aria-label={`Choose shadow parameter, currently ${activeParameterOption.label}`}
-            title={activeParameterOption.label}
-            data-testid="shadow-parameter-trigger"
-          >
-            <activeParameterOption.icon size={14} aria-hidden="true" />
-            <ChevronDown
-              size={9}
-              strokeWidth={2.5}
-              className={`transition-transform ${parameterOpen ? 'rotate-180' : ''}`}
-              aria-hidden="true"
-            />
-          </button>
-
-          {parameterOpen && (
-            <div
-              className="absolute bottom-full left-0 z-10 mb-2 w-48 rounded-xl border border-white/10 p-1.5 shadow-2xl"
-              style={{ background: '#11141A' }}
-              role="listbox"
-              aria-label="Shadow parameter"
-              data-testid="shadow-parameter-selector"
+        <DropdownMenu
+          open={modeMenuOpen}
+          onOpenChange={(open) => {
+            setModeMenuOpen(open);
+            if (open) setParameterMenuOpen(false);
+          }}
+        >
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-8 w-12 max-w-[48px] shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Shadow type: ${activeLabel}`}
+              title={activeLabel}
+              data-testid="shadow-mode-trigger"
             >
-              {SHADOW_PARAMETERS.map((parameter) => {
-                const selected = activeParameter === parameter.key;
-                const parameterValue = isDrop
-                  ? {
-                    blur: dropBlur,
-                    offsetX: dropOffX,
-                    offsetY: dropOffY,
-                    opacity: dropOpacity,
-                  }[parameter.key]
-                  : {
-                    blur: innerBlur,
-                    offsetX: innerOffX,
-                    offsetY: innerOffY,
-                    opacity: innerOpacity,
-                  }[parameter.key];
-                return (
-                  <button
-                    key={parameter.key}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => {
-                      setActiveParameter(parameter.key);
-                      setParameterOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-white/10"
-                    style={{
-                      color: selected ? '#00F5FF' : 'rgba(255,255,255,0.7)',
-                      background: selected ? 'rgba(0,245,255,0.1)' : 'transparent',
-                    }}
-                    data-testid={`shadow-parameter-${parameter.key}`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <parameter.icon size={14} aria-hidden="true" />
-                      {parameter.label}
-                    </span>
-                    <span className="font-mono text-[10px]">
-                      {parameterValue}{parameter.unit}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+              <ActiveShadowIcon size={14} aria-hidden="true" />
+              <ChevronDown size={11} className="shrink-0" aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={8}
+            className="w-52 border-cyan-400/20 bg-[#11141A] text-foreground"
+            data-testid="shadow-mode-menu"
+          >
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-cyan-300">Shadow Type</DropdownMenuLabel>
+            <DropdownMenuSeparator className="bg-white/10" />
+            {([
+              { key: 'drop' as const, label: 'Drop Shadow', icon: Layers3 },
+              { key: 'inner' as const, label: 'Inner Shadow', icon: Layers2 },
+            ]).map(({ key, label, icon: Icon }) => {
+              const selected = activeShadowMode === key;
+              return (
+                <DropdownMenuItem
+                  key={key}
+                  onSelect={() => setActiveShadowMode(key)}
+                  className={`gap-2 text-xs focus:bg-primary/10 focus:text-foreground ${selected ? 'text-primary' : 'text-foreground'}`}
+                  aria-current={selected ? 'true' : undefined}
+                  data-testid={`shadow-mode-option-${key}`}
+                >
+                  <Icon size={14} className="shrink-0 text-primary" aria-hidden="true" />
+                  <span>{label}</span>
+                  <span className="ml-auto flex h-2 w-2 items-center justify-center" aria-hidden="true">
+                    {selected && <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_7px_rgba(0,245,255,0.95)]" />}
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
+        <Switch
+          checked={activeEnabled}
+          onCheckedChange={setActiveEnabled}
+          aria-label={`Toggle ${activeLabel}`}
+          data-testid="shadow-enabled-toggle"
+        />
+
+        <DropdownMenu
+          open={parameterMenuOpen}
+          onOpenChange={(open) => {
+            setParameterMenuOpen(open);
+            if (open) setModeMenuOpen(false);
+          }}
+        >
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-8 w-12 max-w-[48px] shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Shadow parameter: ${activeParameterOption.label}`}
+              title={activeParameterOption.label}
+              data-testid="shadow-parameter-trigger"
+            >
+              <activeParameterOption.icon size={14} aria-hidden="true" />
+              <ChevronDown size={11} className="shrink-0" aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={8}
+            className="w-52 border-cyan-400/20 bg-[#11141A] text-foreground"
+            data-testid="shadow-parameter-menu"
+          >
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-cyan-300">Shadow Parameter</DropdownMenuLabel>
+            <DropdownMenuSeparator className="bg-white/10" />
+            {SHADOW_PARAMETERS.map((parameter) => {
+              const selected = activeParameter === parameter.key;
+              const value = isDrop
+                ? { blur: dropBlur, offsetX: dropOffX, offsetY: dropOffY, opacity: dropOpacity }[parameter.key]
+                : { blur: innerBlur, offsetX: innerOffX, offsetY: innerOffY, opacity: innerOpacity }[parameter.key];
+              const Icon = parameter.icon;
+              return (
+                <DropdownMenuItem
+                  key={parameter.key}
+                  onSelect={() => setActiveParameter(parameter.key)}
+                  className={`gap-2 text-xs focus:bg-primary/10 focus:text-foreground ${selected ? 'text-primary' : 'text-foreground'}`}
+                  aria-current={selected ? 'true' : undefined}
+                  data-testid={`shadow-parameter-option-${parameter.key}`}
+                >
+                  <Icon size={14} className="shrink-0 text-primary" aria-hidden="true" />
+                  <span>{parameter.label}</span>
+                  <span className="ml-auto font-mono text-[10px] tabular-nums">{value}{parameter.unit}</span>
+                  <span className="flex h-2 w-2 items-center justify-center" aria-hidden="true">
+                    {selected && <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_7px_rgba(0,245,255,0.95)]" />}
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <div className="min-w-0 flex-1">
           <Slider
             min={activeParameterOption.min}
             max={activeParameterOption.max}
             step={1}
             value={[activeParameterValue]}
-            onValueChange={([value]) => setActiveParameterValue(value)}
+            onValueChange={([value]) => setShadowParameterValue(activeShadowMode, activeParameter, value)}
             disabled={!activeEnabled}
-            className="min-w-0 flex-1"
+            className="w-full"
             aria-label={`${activeLabel} ${activeParameterOption.label}`}
             data-testid={`shadow-slider-${activeParameter}`}
           />
-          <span className="min-w-[32px] shrink-0 text-right font-mono text-[10px] tabular-nums text-primary">
-            {activeParameterValue}{activeParameterOption.unit}
-          </span>
         </div>
-
+        <span
+          className="min-w-[42px] shrink-0 text-right font-mono text-[10px] tabular-nums text-primary"
+          data-testid="shadow-active-value"
+        >
+          {activeParameterValue}{activeParameterOption.unit}
+        </span>
         <button
+          type="button"
           onClick={() => setExpanded((open) => !open)}
-          className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0 transition-all duration-300 ease-in-out hover:bg-white/10"
-          style={{ color: '#00F5FF', background: expanded ? 'rgba(0,245,255,0.12)' : 'rgba(255,255,255,0.05)' }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={expanded ? 'Collapse shadow controls' : 'Expand shadow controls'}
+          aria-expanded={expanded}
+          data-testid="shadow-studio-toggle"
         >
           {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         </button>

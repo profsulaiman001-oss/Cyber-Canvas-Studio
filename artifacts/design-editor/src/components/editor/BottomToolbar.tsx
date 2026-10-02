@@ -239,6 +239,7 @@ export default function BottomToolbar({
       id: 'threeD',
       icon: <Box size={22} />,
       label: '3D',
+      accent: '#00F5FF',
       action: () => {
         dispatch({ type: 'SET_TOOL', payload: '3d' });
         dispatch({ type: 'TOGGLE_PANEL', payload: 'threeD' });
@@ -295,6 +296,7 @@ export default function BottomToolbar({
                   <span
                     className="absolute bottom-1 w-1 h-1 rounded-full"
                     style={{ background: activeColor, boxShadow: `0 0 4px ${activeColor}` }}
+                    data-testid={`toolbar-active-indicator-${tool.id}`}
                   />
                 )}
               </button>

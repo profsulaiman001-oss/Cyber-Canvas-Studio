@@ -469,7 +469,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup value={activeParam} onValueChange={(value) => setActiveParam(value as ThreeDParam)}>
               {(Object.keys(PARAM_LABELS) as ThreeDParam[]).map((param) => (
-                 <DropdownMenuRadioItem key={param} value={param} className="gap-2 text-xs">
+                 <DropdownMenuRadioItem key={param} value={param} className="gap-2 text-xs data-[state=checked]:text-primary">
                    {(() => {
                      const ParamIcon = PARAM_ICONS[param];
                      return <ParamIcon size={14} className="text-primary" />;

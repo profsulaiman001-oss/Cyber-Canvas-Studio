@@ -259,7 +259,7 @@ export default function ContextMenu({
           </Section>
           <Section>
             <MenuItem icon={<Palette size={14} />} label="Quick Color Picker / Fill" onClick={() => run(actions.onQuickColor)} />
-            <MenuItem icon={<Sparkles size={14} />} label="Toggle Shadow / Blur" onClick={() => run(actions.onToggleShadow)} />
+            <MenuItem icon={<Sparkles size={14} />} label="Toggle Inner Shadow" onClick={() => run(actions.onToggleShadow)} />
             <MenuItem icon={<Square size={14} />} label="Mask with Shape" onClick={() => run(actions.onMask)} disabled={selectionCount < 2} />
             <MenuItem icon={<Square size={14} />} label="Unmask" onClick={() => run(actions.onUnmask)} />
           </Section>

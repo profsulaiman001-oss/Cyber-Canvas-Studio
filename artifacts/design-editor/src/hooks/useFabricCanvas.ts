@@ -1932,7 +1932,7 @@ export function useFabricCanvas(
           case 'left': obj.set({ left: bounds.left + deltaLeft }); break;
           case 'right': obj.set({ left: bounds.right - rect.width + deltaLeft }); break;
           case 'top': obj.set({ top: bounds.top + deltaTop }); break;
-          case 'bottom': obj.set({ top: bounds.bottom - rect.height + deltaLeft }); break;
+          case 'bottom': obj.set({ top: bounds.bottom - rect.height + deltaTop }); break;
           case 'centerH': obj.set({ left: bounds.left + (groupW - rect.width) / 2 + deltaLeft }); break;
           case 'centerV': obj.set({ top: bounds.top + (groupH - rect.height) / 2 + deltaTop }); break;
         }
@@ -3518,10 +3518,19 @@ export function useFabricCanvas(
   }, [restoreSoloVisibility, syncObjects]);
 
   const toggleLock = useCallback((obj: FabricObject) => {
-    const locked = !obj.selectable;
-    obj.set({ selectable: locked, evented: locked });
-    if (!locked) canvasRef.current?.discardActiveObject();
-    canvasRef.current?.renderAll(); pushUndo(); syncObjects();
+    const c = canvasRef.current;
+    if (!c) return;
+    const activeObjects = c.getActiveObjects();
+    const targets = c.getActiveObject() === obj && activeObjects.length > 1
+      ? activeObjects
+      : [obj];
+    const allLocked = targets.every((target) => target.selectable === false);
+    const nextSelectable = allLocked;
+    targets.forEach((target) => target.set({ selectable: nextSelectable, evented: nextSelectable }));
+    if (!nextSelectable) c.discardActiveObject();
+    c.renderAll();
+    pushUndo();
+    syncObjects();
   }, [pushUndo, syncObjects]);
 
   const deleteObject = useCallback((obj: FabricObject) => {

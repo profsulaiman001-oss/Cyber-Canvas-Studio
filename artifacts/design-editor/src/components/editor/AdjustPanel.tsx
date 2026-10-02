@@ -1,248 +1,194 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useEffect, useState } from 'react';
 import { Slider } from '@/components/ui/slider';
-import { Button } from '@/components/ui/button';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
-import { FabricImage, filters } from 'fabric';
+import {
+  applyColorAdjustmentTree,
+  DEFAULT_COLOR_ADJUSTMENTS,
+  readColorAdjustments,
+  type ColorAdjustments,
+} from '@/lib/colorAdjustments';
 import {
   ChevronDown,
-  Contrast as ContrastIcon,
-  Droplets,
-  Palette,
-  RotateCcw,
-  SlidersVertical,
-  Sun,
-  type LucideIcon,
+  ChevronUp,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import AdjustStudioModal, {
+  ADJUSTMENT_CONTROLS,
+  formatAdjustmentValue,
+  type AdjustmentKey,
+} from './AdjustStudioModal';
 
-interface Adjustments {
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  hue: number;
-}
-
-interface AdjustPanelProps { controller: CanvasController }
-
-type AdjustmentKey = keyof Adjustments;
-
-const ADJUSTMENTS: Array<{
-  key: AdjustmentKey;
-  label: string;
-  icon: LucideIcon;
-  min: number;
-  max: number;
-  step: number;
-}> = [
-  { key: 'brightness', label: 'Brightness', icon: Sun, min: -1, max: 1, step: 0.01 },
-  { key: 'contrast', label: 'Contrast', icon: ContrastIcon, min: -1, max: 1, step: 0.01 },
-  { key: 'saturation', label: 'Saturation', icon: Droplets, min: -1, max: 1, step: 0.01 },
-  { key: 'hue', label: 'Hue Rotation', icon: Palette, min: -180, max: 180, step: 1 },
-];
-
-function formatValue(key: AdjustmentKey, value: number) {
-  if (key === 'hue') return `${value > 0 ? '+' : ''}${value.toFixed(0)}°`;
-  return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
-}
-
-function readFiltersFromImage(img: FabricImage): Adjustments {
-  const result: Adjustments = { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
-  if (!img.filters) return result;
-  for (const f of img.filters) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fo = f as any;
-    const t = fo.type || fo.constructor?.name || '';
-    if (t === 'Brightness') result.brightness = fo.brightness ?? 0;
-    else if (t === 'Contrast') result.contrast = fo.contrast ?? 0;
-    else if (t === 'Saturation') result.saturation = fo.saturation ?? 0;
-    else if (t === 'HueRotation') result.hue = Math.round((fo.rotation ?? 0) * 180 / Math.PI);
-  }
-  return result;
-}
-
-function buildFilters(adj: Adjustments) {
-  const list: object[] = [];
-  if (adj.brightness !== 0) list.push(new filters.Brightness({ brightness: adj.brightness }));
-  if (adj.contrast !== 0) list.push(new filters.Contrast({ contrast: adj.contrast }));
-  if (adj.saturation !== 0) list.push(new filters.Saturation({ saturation: adj.saturation }));
-  if (adj.hue !== 0) list.push(new filters.HueRotation({ rotation: (adj.hue / 180) * Math.PI }));
-  return list;
+interface AdjustPanelProps {
+  controller: CanvasController;
 }
 
 export default function AdjustPanel({ controller }: AdjustPanelProps) {
-  const { state, dispatch } = useEditor();
+  const { state } = useEditor();
   const isOpen = state.activePanel === 'adjust';
-  const obj = controller.selectedObject;
-  const isImage = obj?.type === 'image';
-  const imgObj = isImage ? (obj as FabricImage) : null;
-
-  const [adj, setAdj] = useState<Adjustments>({ brightness: 0, contrast: 0, saturation: 0, hue: 0 });
+  const selectedObject = controller.selectedObject;
+  const [expanded, setExpanded] = useState(false);
   const [activeKey, setActiveKey] = useState<AdjustmentKey>('brightness');
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [adjustments, setAdjustments] = useState<ColorAdjustments>(DEFAULT_COLOR_ADJUSTMENTS);
 
-  const syncFromImage = useCallback(() => {
-    if (!imgObj) { setAdj({ brightness: 0, contrast: 0, saturation: 0, hue: 0 }); return; }
-    setAdj(readFiltersFromImage(imgObj));
-  }, [imgObj]);
+  const getSelectedRoots = () => {
+    const activeObjects = controller.getCanvas()?.getActiveObjects() ?? [];
+    if (activeObjects.length) return activeObjects;
+    return selectedObject ? [selectedObject] : [];
+  };
 
-  useEffect(() => { syncFromImage(); }, [syncFromImage]);
+  const selectedRoots = getSelectedRoots();
+  const hasSelection = selectedRoots.length > 0;
+  const activeAdjustment = ADJUSTMENT_CONTROLS.find(({ key }) => key === activeKey) ?? ADJUSTMENT_CONTROLS[0];
+  const ActiveIcon = activeAdjustment.icon;
+  const activeValue = adjustments[activeAdjustment.key];
+
   useEffect(() => {
-    if (!isOpen) setSelectorOpen(false);
+    setAdjustments(readColorAdjustments(getSelectedRoots()[0] ?? null));
+  // Selection identity and ids are the state that changes when canvas selection changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedObject, state.selectedObjectIds]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setExpanded(false);
+      setSelectorOpen(false);
+    }
   }, [isOpen]);
 
-  const applyFilters = useCallback((next: Adjustments) => {
-    if (!imgObj) return;
-    const c = controller.getCanvas();
-    if (!c) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    imgObj.filters = buildFilters(next) as any;
-    imgObj.applyFilters();
-    imgObj.dirty = true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (imgObj as any).setDirty?.(true);
-    // Flush immediately for WebView/Electron bitmap caches; the queued render
-    // remains in place for Fabric's normal render scheduling.
-    c.renderAll();
-    c.requestRenderAll();
-  }, [imgObj, controller]);
+  const applyAdjustments = (next: ColorAdjustments) => {
+    const canvas = controller.getCanvas();
+    const roots = getSelectedRoots();
+    if (!canvas || roots.length === 0) return;
 
-  const update = (key: keyof Adjustments, value: number) => {
-    const next = { ...adj, [key]: value };
-    setAdj(next);
-    applyFilters(next);
+    roots.forEach((root) => applyColorAdjustmentTree(root, next));
+    canvas.requestRenderAll();
+  };
+
+  const update = (key: AdjustmentKey, value: number) => {
+    const next = { ...adjustments, [key]: value };
+    setAdjustments(next);
+    applyAdjustments(next);
   };
 
   const resetAll = () => {
-    const zero: Adjustments = { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
-    setAdj(zero);
-    applyFilters(zero);
+    const reset = { ...DEFAULT_COLOR_ADJUSTMENTS };
+    setAdjustments(reset);
+    applyAdjustments(reset);
+    controller.commitChange();
   };
 
-  const activeAdjustment = ADJUSTMENTS.find(({ key }) => key === activeKey) ?? ADJUSTMENTS[0];
-  const activeValue = adj[activeAdjustment.key];
+  if (!isOpen) return null;
 
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
-      <SheetContent
-        side="bottom"
-        className="rounded-t-2xl p-0"
-        style={{ maxHeight: selectorOpen ? '62vh' : '30vh', background: '#11141A', border: 'none', overflowY: 'auto' }}
-        data-testid="adjust-panel"
+    <div
+      className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(720px,calc(100vw-20px))] -translate-x-1/2"
+      data-testid="adjust-panel"
+    >
+      <AdjustStudioModal
+        expanded={expanded}
+        hasSelection={hasSelection}
+        adjustments={adjustments}
+        onChange={update}
+        onCommit={() => controller.commitChange()}
+        onResetAll={resetAll}
+      />
+
+      <div
+        className="flex w-full items-center gap-2 rounded-2xl border px-2.5 py-2.5"
+        style={{
+          background: '#11141A',
+          borderColor: 'rgba(0,245,255,0.3)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)',
+        }}
+        data-testid="adjustment-mini-bar"
       >
-        <SheetHeader className="px-4 pt-4 pb-2 flex flex-row items-center justify-between">
-          <SheetTitle className="text-sm font-semibold flex items-center gap-2">
-            <SlidersVertical size={15} className="text-primary" />
-            Image Adjustments
-          </SheetTitle>
-        </SheetHeader>
-
-        {!isImage ? (
-          <div className="px-4 pb-8 flex flex-col items-center gap-3 text-center pt-4">
-            <SlidersVertical size={32} className="text-muted-foreground opacity-40" />
-            <p className="text-sm text-muted-foreground">Select an image on the canvas to adjust it.</p>
-          </div>
-        ) : (
-          <div className="px-4" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-            {selectorOpen && (
-              <div
-                className="mb-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
-                data-testid="adjustment-selector"
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    Adjust parameter
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={resetAll}
-                    data-testid="adjust-reset-all"
-                  >
-                    <RotateCcw size={12} />
-                    Reset All
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {ADJUSTMENTS.map((adjustment) => {
-                    const isActive = adjustment.key === activeKey;
-                    return (
-                      <button
-                        key={adjustment.key}
-                        type="button"
-                        className={`flex min-h-12 items-center justify-between rounded-lg border px-3 text-left transition-colors ${
-                          isActive
-                            ? 'border-primary/60 bg-primary/10 text-primary'
-                            : 'border-white/10 bg-black/10 text-muted-foreground hover:border-white/20 hover:text-foreground'
-                        }`}
-                        onClick={() => {
-                          setActiveKey(adjustment.key);
-                          setSelectorOpen(false);
-                        }}
-                        aria-pressed={isActive}
-                        data-testid={`adjustment-option-${adjustment.key}`}
-                      >
-                        <span className="flex items-center gap-2 text-sm font-medium">
-                          <adjustment.icon size={16} aria-hidden="true" />
-                          {adjustment.label}
-                        </span>
-                        <span className={`font-mono text-xs ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>
-                          {formatValue(adjustment.key, adj[adjustment.key])}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div
-              className="rounded-xl border border-primary/20 bg-primary/[0.04] p-3 shadow-[0_0_24px_rgba(0,245,255,0.04)]"
-              data-testid="adjustment-mini-bar"
+        <DropdownMenu open={selectorOpen} onOpenChange={setSelectorOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-8 w-12 max-w-[48px] shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Adjustment parameter: ${activeAdjustment.label}`}
+              title={activeAdjustment.label}
+              data-testid="adjustment-selector-toggle"
             >
-              <div className="flex min-w-0 items-center gap-2">
-                <button
-                  type="button"
-                  className="flex h-9 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] text-primary transition-colors hover:border-primary/40 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => setSelectorOpen((open) => !open)}
-                  aria-expanded={selectorOpen}
-                  aria-label={selectorOpen ? 'Hide adjustment options' : `Choose adjustment parameter, currently ${activeAdjustment.label}`}
-                  data-testid="adjustment-selector-toggle"
-                  title={activeAdjustment.label}
+              <ActiveIcon size={14} aria-hidden="true" />
+              <ChevronDown size={11} className="shrink-0" aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={8}
+            className="w-56 border-cyan-400/20 bg-[#11141A] text-foreground"
+            data-testid="adjustment-selector"
+          >
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-cyan-300">
+              Adjust Parameter
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator className="bg-white/10" />
+            {ADJUSTMENT_CONTROLS.map(({ key, label, icon: Icon }) => {
+              const isActive = key === activeKey;
+              return (
+                <DropdownMenuItem
+                  key={key}
+                  onSelect={() => setActiveKey(key)}
+                  className={`gap-2 text-xs focus:bg-primary/10 focus:text-foreground ${isActive ? 'text-primary' : 'text-foreground'}`}
+                  data-testid={`adjustment-option-${key}`}
+                  aria-current={isActive ? 'true' : undefined}
                 >
-                  <activeAdjustment.icon size={17} aria-hidden="true" />
-                  <ChevronDown
-                    size={11}
-                    strokeWidth={2.5}
-                    className={`transition-transform ${selectorOpen ? 'rotate-180' : ''}`}
-                    aria-hidden="true"
-                  />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <Slider
-                    min={activeAdjustment.min}
-                    max={activeAdjustment.max}
-                    step={activeAdjustment.step}
-                    value={[activeValue]}
-                    onValueChange={([value]) => update(activeAdjustment.key, value)}
-                    aria-label={`${activeAdjustment.label} value`}
-                    className="w-full"
-                    data-testid={`adjustment-slider-${activeAdjustment.key}`}
-                  />
-                </div>
-                <span
-                  className="min-w-[52px] shrink-0 rounded-md border border-primary/20 bg-primary/[0.08] px-2 py-1 text-right font-mono text-xs tabular-nums text-primary"
-                  data-testid="adjustment-active-value"
-                >
-                  {formatValue(activeAdjustment.key, activeValue)}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
+                  <Icon size={14} className="shrink-0 text-primary" aria-hidden="true" />
+                  <span>{label}</span>
+                  <span className="ml-auto flex h-2 w-2 items-center justify-center" aria-hidden="true">
+                    {isActive && <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_7px_rgba(0,245,255,0.95)]" />}
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <div className="min-w-0 w-full flex-1">
+          <Slider
+            min={activeAdjustment.min}
+            max={activeAdjustment.max}
+            step={activeAdjustment.step}
+            value={[activeValue]}
+            onValueChange={([value]) => update(activeAdjustment.key, value)}
+            onValueCommit={() => controller.commitChange()}
+            disabled={!hasSelection}
+            aria-label={`${activeAdjustment.label} value`}
+            className="w-full"
+            data-testid={`adjustment-slider-${activeAdjustment.key}`}
+          />
+        </div>
+        <span
+          className="min-w-[52px] shrink-0 text-right font-mono text-[10px] tabular-nums text-primary"
+          data-testid="adjustment-active-value"
+        >
+          {formatAdjustmentValue(activeAdjustment.key, activeValue)}
+        </span>
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+          aria-label={expanded ? 'Collapse adjustments studio' : 'Expand adjustments studio'}
+          aria-expanded={expanded}
+          data-testid="adjust-studio-toggle"
+        >
+          {expanded ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+        </button>
+      </div>
+      {!hasSelection && (
+        <p className="mt-1 text-center text-[10px] text-muted-foreground">Select a canvas object to adjust its colors</p>
+      )}
+    </div>
   );
 }

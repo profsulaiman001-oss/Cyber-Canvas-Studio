@@ -215,6 +215,7 @@ export default function BottomToolbar({
       label: 'Adjust',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'adjust' }),
       disabled: !hasSelection,
+      accent: '#00F5FF',
     },
     {
       id: 'properties',

@@ -1,4 +1,4 @@
-import { Color, FabricObject, Gradient } from 'fabric';
+import { Color, FabricImage, FabricObject, Gradient, filters } from 'fabric';
 
 export interface ColorAdjustments {
   brightness: number;
@@ -32,6 +32,96 @@ export interface ObjectColorAdjustmentBaseline {
 }
 
 const NO_CHANGE = Symbol('color-adjustment-no-change');
+
+export const DEFAULT_COLOR_ADJUSTMENTS: ColorAdjustments = {
+  brightness: 0,
+  contrast: 0,
+  saturation: 0,
+  hue: 0,
+  warmth: 0,
+  tint: 0,
+};
+
+function isColorAdjustments(value: unknown): value is ColorAdjustments {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ColorAdjustments>;
+  return ['brightness', 'contrast', 'saturation', 'hue', 'warmth', 'tint']
+    .every((key) => Number.isFinite(candidate[key as keyof ColorAdjustments]));
+}
+
+function getSavedAdjustments(object: FabricObject): ColorAdjustments | undefined {
+  const saved = (object as FabricObject & { _adjustments?: unknown })._adjustments;
+  return isColorAdjustments(saved) ? { ...saved } : undefined;
+}
+
+function getImageAdjustmentValues(image: FabricImage): ColorAdjustments {
+  const result = { ...DEFAULT_COLOR_ADJUSTMENTS };
+  for (const filter of image.filters || []) {
+    const item = filter as unknown as Record<string, unknown>;
+    const type = String(item.type || filter.constructor?.name || '');
+    if (type === 'Brightness') result.brightness = Number(item.brightness) || 0;
+    else if (type === 'Contrast') result.contrast = Number(item.contrast) || 0;
+    else if (type === 'Saturation') result.saturation = Number(item.saturation) || 0;
+    else if (type === 'HueRotation') result.hue = Math.round((Number(item.rotation) || 0) * 180 / Math.PI);
+  }
+  return result;
+}
+
+function warmthTintMatrix(adjustments: ColorAdjustments) {
+  const warmth = adjustments.warmth * 28;
+  const tint = adjustments.tint * 24;
+  return [
+    1, 0, 0, 0, (warmth + tint) / 255,
+    0, 1, 0, 0, ((warmth * 0.08) - tint) / 255,
+    0, 0, 1, 0, (-warmth + tint) / 255,
+    0, 0, 0, 1, 0,
+  ];
+}
+
+function approximatelyEqual(first: unknown, second: number) {
+  return typeof first === 'number' && Math.abs(first - second) < 0.00001;
+}
+
+function isPreviousAdjustmentFilter(
+  filter: FabricImage['filters'][number],
+  previous: ColorAdjustments,
+): boolean {
+  const item = filter as unknown as Record<string, unknown>;
+  const type = String(item.type || filter.constructor?.name || '');
+  if (type === 'Brightness') return approximatelyEqual(item.brightness, previous.brightness);
+  if (type === 'Contrast') return approximatelyEqual(item.contrast, previous.contrast);
+  if (type === 'Saturation') return approximatelyEqual(item.saturation, previous.saturation);
+  if (type === 'HueRotation') return approximatelyEqual(item.rotation, (previous.hue / 180) * Math.PI);
+  if (type === 'ColorMatrix' && (previous.warmth !== 0 || previous.tint !== 0)) {
+    const actual = item.matrix;
+    const expected = warmthTintMatrix(previous);
+    return Array.isArray(actual)
+      && actual.length === expected.length
+      && actual.every((value, index) => approximatelyEqual(value, expected[index]));
+  }
+  return false;
+}
+
+function applyImageColorAdjustment(image: FabricImage, adjustments: ColorAdjustments) {
+  const extended = image as FabricImage & { _adjustments?: ColorAdjustments; setDirty?: (dirty?: boolean) => void };
+  const previous = getSavedAdjustments(image) ?? getImageAdjustmentValues(image);
+  const preservedFilters = (image.filters || []).filter((filter) => !isPreviousAdjustmentFilter(filter, previous));
+  const adjustmentFilters = [];
+
+  if (adjustments.brightness !== 0) adjustmentFilters.push(new filters.Brightness({ brightness: adjustments.brightness }));
+  if (adjustments.contrast !== 0) adjustmentFilters.push(new filters.Contrast({ contrast: adjustments.contrast }));
+  if (adjustments.saturation !== 0) adjustmentFilters.push(new filters.Saturation({ saturation: adjustments.saturation }));
+  if (adjustments.hue !== 0) adjustmentFilters.push(new filters.HueRotation({ rotation: (adjustments.hue / 180) * Math.PI }));
+  if (adjustments.warmth !== 0 || adjustments.tint !== 0) {
+    adjustmentFilters.push(new filters.ColorMatrix({ matrix: warmthTintMatrix(adjustments) as any, colorsOnly: true }));
+  }
+
+  image.filters = [...preservedFilters, ...adjustmentFilters];
+  image.applyFilters();
+  extended._adjustments = { ...adjustments };
+  extended.dirty = true;
+  extended.setDirty?.(true);
+}
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value));
@@ -227,6 +317,41 @@ export function applyObjectColorAdjustment(object: FabricObject, adjustments: Co
   if (stroke !== NO_CHANGE) object.set('stroke', stroke as any);
   object.setCoords();
   return baseline;
+}
+
+/**
+ * Apply adjustments to an object and all nested members. ActiveSelection is a
+ * temporary Fabric wrapper, so only its members receive persistent metadata.
+ */
+export function applyColorAdjustmentTree(root: FabricObject, adjustments: ColorAdjustments) {
+  const visit = (object: FabricObject) => {
+    if (object.type !== 'activeSelection') {
+      applyObjectColorAdjustment(object, adjustments);
+      if (object.type === 'image') applyImageColorAdjustment(object as FabricImage, adjustments);
+      else (object as FabricObject & { _adjustments?: ColorAdjustments })._adjustments = { ...adjustments };
+      (object as FabricObject & { dirty?: boolean; setDirty?: (dirty?: boolean) => void }).dirty = true;
+      (object as FabricObject & { setDirty?: (dirty?: boolean) => void }).setDirty?.(true);
+    }
+
+    const getObjects = (object as FabricObject & { getObjects?: () => FabricObject[] }).getObjects;
+    getObjects?.call(object).forEach(visit);
+  };
+
+  visit(root);
+}
+
+export function readColorAdjustments(root: FabricObject | null): ColorAdjustments {
+  if (!root) return { ...DEFAULT_COLOR_ADJUSTMENTS };
+  let found: ColorAdjustments | undefined;
+  const visit = (object: FabricObject) => {
+    if (found) return;
+    found = getSavedAdjustments(object);
+    if (!found && object.type === 'image') found = getImageAdjustmentValues(object as FabricImage);
+    const getObjects = (object as FabricObject & { getObjects?: () => FabricObject[] }).getObjects;
+    getObjects?.call(object).forEach(visit);
+  };
+  visit(root);
+  return found ? { ...found } : { ...DEFAULT_COLOR_ADJUSTMENTS };
 }
 
 export function getAdjustedGradientConfig(object: FabricObject, adjustments: ColorAdjustments) {

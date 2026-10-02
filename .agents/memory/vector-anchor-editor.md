@@ -4,7 +4,7 @@ description: How the path anchor point drag-editor works in useFabricCanvas + Ca
 ---
 
 - Activated via `activateVectorEdit(obj)` — hides selection handles (`hasControls:false, hasBorders:false`), calls `refreshVectorAnchors()`
-- `refreshVectorAnchors()` reads `(obj as any).path` array, extracts destination points for M/L/C/Q commands, transforms local→screen via `util.transformPoint + viewportTransform`, stores in `vectorAnchors` state
+- `refreshVectorAnchors()` reads `(obj as any).path`, subtracts `pathOffset`, and applies both `calcTransformMatrix()` and the full viewport matrix; refresh on object moving/scaling/rotating/modified so handles track body transforms
 - Drag system: 3-call pattern — `vectorAnchorDragStart(idx)` saves initial localX/Y to `vectorDragStartRef`; `vectorAnchorDragMove(totalDx, totalDy)` applies total delta from start (not incremental); `vectorAnchorDragEnd()` calls pushUndo
 - Canvas.tsx uses unified pointer handlers on SVG anchor groups, captures the pointer, and gives each anchor/tangent a transparent 44×44 CSS-pixel SVG hit pad; keep `touch-action:none` on the overlay and pass total client delta to the existing drag API
 - VectorNodePanel is one 56px dark-glass bar modeled on ThreeDPanel: a left parameter dropdown, active controls in the center, and Done plus an expand arrow on the right
@@ -19,6 +19,10 @@ description: How the path anchor point drag-editor works in useFabricCanvas + Ca
 **Touch behavior:** Pointer capture keeps a touch drag routed to its handle after the finger leaves its hit pad. The transparent hit pad expands interaction without changing the visual node or tangent size.
 
 **How to apply:** Preserve pointer-ID checks and end the drag on both `pointerup` and `pointercancel`; do not replace the total-delta hook contract with incremental movement.
+
+**Why:** The node overlay stores screen-space coordinates. Updating only the Fabric object's position leaves those coordinates stale even though the path itself uses its current transform.
+
+**How to apply:** Keep path nodes in local path coordinates; recompute the overlay from the object and viewport matrices on each transform event rather than translating every path command during body movement.
 
 **Why:** The node-edit panel must leave the canvas visible on phones while retaining precision controls on demand.
 

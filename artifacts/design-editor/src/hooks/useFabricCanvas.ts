@@ -2657,7 +2657,8 @@ export function useFabricCanvas(
       const po = (obj as any).pathOffset ?? { x: 0, y: 0 };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cp = util.transformPoint({ x: lx - po.x, y: ly - po.y }, matrix as any);
-      return { screenX: vt[4] + cp.x * vt[0], screenY: vt[5] + cp.y * vt[3] };
+      const screenPoint = util.transformPoint(cp, vt as any);
+      return { screenX: screenPoint.x, screenY: screenPoint.y };
     };
 
     let prevAnchorScreen: { screenX: number; screenY: number } | null = null;
@@ -2712,6 +2713,34 @@ export function useFabricCanvas(
 
     setVectorAnchors(anchors);
   }, []);
+
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+
+    // Anchor coordinates are stored in the overlay's screen space. Fabric's
+    // object transform matrix already includes translation, rotation, scale,
+    // and any parent-group transform, so refresh the overlay on each active
+    // object transform event instead of moving the path's local nodes.
+    const refreshTransformedVectorOverlay = (event: { target?: FabricObject }) => {
+      const editedObject = vectorEditObjRef.current;
+      if (editedObject && (!event.target || event.target === editedObject)) {
+        refreshVectorAnchors();
+      }
+    };
+
+    c.on('object:moving', refreshTransformedVectorOverlay);
+    c.on('object:scaling', refreshTransformedVectorOverlay);
+    c.on('object:rotating', refreshTransformedVectorOverlay);
+    c.on('object:modified', refreshTransformedVectorOverlay);
+
+    return () => {
+      c.off('object:moving', refreshTransformedVectorOverlay);
+      c.off('object:scaling', refreshTransformedVectorOverlay);
+      c.off('object:rotating', refreshTransformedVectorOverlay);
+      c.off('object:modified', refreshTransformedVectorOverlay);
+    };
+  }, [refreshVectorAnchors]);
 
   const activateVectorEdit = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;

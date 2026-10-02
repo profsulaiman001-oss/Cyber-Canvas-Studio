@@ -7,7 +7,10 @@ description: How the path anchor point drag-editor works in useFabricCanvas + Ca
 - `refreshVectorAnchors()` reads `(obj as any).path` array, extracts destination points for M/L/C/Q commands, transforms local→screen via `util.transformPoint + viewportTransform`, stores in `vectorAnchors` state
 - Drag system: 3-call pattern — `vectorAnchorDragStart(idx)` saves initial localX/Y to `vectorDragStartRef`; `vectorAnchorDragMove(totalDx, totalDy)` applies total delta from start (not incremental); `vectorAnchorDragEnd()` calls pushUndo
 - Canvas.tsx uses unified pointer handlers on SVG anchor groups, captures the pointer, and gives each anchor/tangent a transparent 44×44 CSS-pixel SVG hit pad; keep `touch-action:none` on the overlay and pass total client delta to the existing drag API
-- VectorNodePanel is a single 56px bottom toolbar styled like the 3D bar; keep node navigation, add/delete, and Done visible, with nudge and redraw actions inside its dropdown popover
+- VectorNodePanel is one 56px dark-glass bar modeled on ThreeDPanel: a left parameter dropdown, active controls in the center, and Done plus an expand arrow on the right
+- Vector parameters are Point Select, Nudge, Add / Delete, and Pen Draw; show only the selected parameter's compact controls in the bar
+- Keep nudge arrows inline in the bar, never in a large centered popup; put precise coordinates, handle constraints, and curve types in the expandable drawer
+- Use neutral dark-glass styling with cyan active states for add/delete; avoid red/green action borders
 - Guide drag follows same pattern: `guideDragRef` tracks active guide, listeners compute new design-space position from client delta and zoom
 - DeactivateVectorEdit restores `hasControls:true, hasBorders:true`, re-selects the object, clears anchor state
 
@@ -19,4 +22,4 @@ description: How the path anchor point drag-editor works in useFabricCanvas + Ca
 
 **Why:** The node-edit panel must leave the canvas visible on phones while retaining precision controls on demand.
 
-**How to apply:** Keep the persistent panel to one 56px row; do not restore stacked mode controls, the nudge pad, or instruction copy to the always-visible area.
+**How to apply:** Keep the persistent panel to one 56px row and match ThreeDPanel's dropdown-plus-drawer hierarchy. Do not restore stacked mode controls, a large nudge pad, or instruction copy to the always-visible area.

@@ -316,6 +316,7 @@ export interface PenPoint {
 
 export interface VectorAnchor {
   cmdIdx: number;
+  commandType: 'M' | 'L' | 'C' | 'Q';
   xOff: number;
   yOff: number;
   localX: number;
@@ -979,6 +980,7 @@ export function useFabricCanvas(
 
   // Vector node editor state
   const [selectedVectorAnchorIdx, setSelectedVectorAnchorIdx] = useState<number | null>(null);
+  const vectorHandleConstraintRef = useRef(true);
 
   const showTransformHud = useCallback((
     target?: FabricObject | null,
@@ -2666,7 +2668,7 @@ export function useFabricCanvas(
       if (cmd[0] === 'M' || cmd[0] === 'L') {
         const lx = cmd[1] as number, ly = cmd[2] as number;
         const screen = toScreen(lx, ly);
-        anchors.push({ cmdIdx, xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        anchors.push({ cmdIdx, commandType: cmd[0] as VectorAnchor['commandType'], xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = screen;
         prevAnchorLocal = { x: lx, y: ly };
       } else if (cmd[0] === 'C') {
@@ -2678,19 +2680,19 @@ export function useFabricCanvas(
         const h2  = toScreen(cx2, cy2);
         // cp1 = out-handle of prevAnchor. Mirror = cp2 of previous C cmd (cmdIdx-1, xOff=3,4)
         anchors.push({
-          cmdIdx, xOff: 1, yOff: 2, localX: cx1, localY: cy1, ...h1,
+          cmdIdx, commandType: 'C', xOff: 1, yOff: 2, localX: cx1, localY: cy1, ...h1,
           kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
           anchorLocalX: prevAnchorLocal?.x, anchorLocalY: prevAnchorLocal?.y,
           mirrorCmdIdx: cmdIdx - 1, mirrorXOff: 3, mirrorYOff: 4,
         });
         // cp2 = in-handle of endpoint. Mirror = cp1 of next C cmd (cmdIdx+1, xOff=1,2)
         anchors.push({
-          cmdIdx, xOff: 3, yOff: 4, localX: cx2, localY: cy2, ...h2,
+          cmdIdx, commandType: 'C', xOff: 3, yOff: 4, localX: cx2, localY: cy2, ...h2,
           kind: 'handle', pairScreenX: ep.screenX, pairScreenY: ep.screenY,
           anchorLocalX: ex, anchorLocalY: ey,
           mirrorCmdIdx: cmdIdx + 1, mirrorXOff: 1, mirrorYOff: 2,
         });
-        anchors.push({ cmdIdx, xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        anchors.push({ cmdIdx, commandType: 'C', xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = ep;
         prevAnchorLocal = { x: ex, y: ey };
       } else if (cmd[0] === 'Q') {
@@ -2699,10 +2701,10 @@ export function useFabricCanvas(
         const ep = toScreen(ex, ey);
         const h  = toScreen(cx, cy);
         anchors.push({
-          cmdIdx, xOff: 1, yOff: 2, localX: cx, localY: cy, ...h,
+          cmdIdx, commandType: 'Q', xOff: 1, yOff: 2, localX: cx, localY: cy, ...h,
           kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
         });
-        anchors.push({ cmdIdx, xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        anchors.push({ cmdIdx, commandType: 'Q', xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = ep;
         prevAnchorLocal = { x: ex, y: ey };
       }
@@ -2774,6 +2776,7 @@ export function useFabricCanvas(
     // Photoshop-style symmetric mirroring: when dragging a handle, update its
     // sibling handle to maintain C1 continuity (smooth node behaviour).
     if (
+      vectorHandleConstraintRef.current &&
       anchor.kind === 'handle' &&
       anchor.anchorLocalX !== undefined &&
       anchor.anchorLocalY !== undefined &&
@@ -2840,6 +2843,136 @@ export function useFabricCanvas(
   }, [pushUndo]);
 
   /* ─── Vector node add / delete / nudge ─── */
+
+  const setVectorHandleConstraint = useCallback((enabled: boolean) => {
+    vectorHandleConstraintRef.current = enabled;
+  }, []);
+
+  const setSelectedVectorNodePosition = useCallback((x: number, y: number) => {
+    const c = canvasRef.current;
+    const obj = vectorEditObjRef.current;
+    if (!c || !obj || selectedVectorAnchorIdx === null) return;
+    const anchorsOnly = vectorAnchors.filter((anchor) => anchor.kind === 'anchor');
+    const target = anchorsOnly[selectedVectorAnchorIdx];
+    if (!target || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPath: [string, ...number[]][] = [...((obj as any).path ?? [])];
+    const newPath = rawPath.map((cmd, index) => {
+      if (index !== target.cmdIdx) return cmd;
+      const next = [...cmd] as [string, ...number[]];
+      next[target.xOff] = x;
+      next[target.yOff] = y;
+      return next;
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).set({ path: newPath });
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    newPath.forEach((cmd) => {
+      for (let index = 1; index + 1 < cmd.length; index += 2) {
+        const px = cmd[index] as number;
+        const py = cmd[index + 1] as number;
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          minX = Math.min(minX, px);
+          minY = Math.min(minY, py);
+          maxX = Math.max(maxX, px);
+          maxY = Math.max(maxY, py);
+        }
+      }
+    });
+    if (Number.isFinite(minX)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oldOffset = (obj as any).pathOffset ?? { x: 0, y: 0 };
+      const nextOffset = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+      // Keep the path's transformed position stable while its bounds change.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (obj as any).set({
+        pathOffset: nextOffset,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY),
+        left: (obj.left ?? 0) + (nextOffset.x - oldOffset.x) * (obj.scaleX ?? 1),
+        top: (obj.top ?? 0) + (nextOffset.y - oldOffset.y) * (obj.scaleY ?? 1),
+      });
+    }
+    obj.dirty = true;
+    obj.setCoords();
+    c.requestRenderAll();
+    refreshVectorAnchors();
+    pushUndo();
+  }, [selectedVectorAnchorIdx, vectorAnchors, refreshVectorAnchors, pushUndo]);
+
+  const setSelectedVectorNodeCurveType = useCallback((curve: 'corner' | 'curve') => {
+    const c = canvasRef.current;
+    const obj = vectorEditObjRef.current;
+    if (!c || !obj || selectedVectorAnchorIdx === null) return;
+    const anchorsOnly = vectorAnchors.filter((anchor) => anchor.kind === 'anchor');
+    const target = anchorsOnly[selectedVectorAnchorIdx];
+    if (!target) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPath: [string, ...number[]][] = [...((obj as any).path ?? [])];
+    const command = rawPath[target.cmdIdx];
+    if (!command) return;
+    let nextCommand: [string, ...number[]] | null = null;
+    const x = command[target.xOff] as number;
+    const y = command[target.yOff] as number;
+    if (curve === 'corner' && (command[0] === 'C' || command[0] === 'Q')) {
+      nextCommand = ['L', x, y];
+    } else if (curve === 'curve' && command[0] === 'L') {
+      const previous = [...anchorsOnly.slice(0, selectedVectorAnchorIdx)].reverse()[0];
+      if (previous) {
+        const dx = x - previous.localX;
+        const dy = y - previous.localY;
+        // Offset both control points perpendicular to the straight segment so
+        // selecting Curve creates visible curvature instead of encoding the
+        // same line with collinear cubic handles.
+        const curveOffsetX = -dy * 0.2;
+        const curveOffsetY = dx * 0.2;
+        nextCommand = [
+          'C',
+          previous.localX + dx / 3 + curveOffsetX,
+          previous.localY + dy / 3 + curveOffsetY,
+          previous.localX + (dx * 2) / 3 + curveOffsetX,
+          previous.localY + (dy * 2) / 3 + curveOffsetY,
+          x,
+          y,
+        ];
+      }
+    }
+    if (!nextCommand) return;
+    rawPath[target.cmdIdx] = nextCommand;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (obj as any).set({ path: rawPath });
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    rawPath.forEach((cmd) => {
+      for (let index = 1; index + 1 < cmd.length; index += 2) {
+        const px = cmd[index] as number;
+        const py = cmd[index + 1] as number;
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          minX = Math.min(minX, px);
+          minY = Math.min(minY, py);
+          maxX = Math.max(maxX, px);
+          maxY = Math.max(maxY, py);
+        }
+      }
+    });
+    if (Number.isFinite(minX)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oldOffset = (obj as any).pathOffset ?? { x: 0, y: 0 };
+      const nextOffset = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (obj as any).set({
+        pathOffset: nextOffset,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY),
+        left: (obj.left ?? 0) + (nextOffset.x - oldOffset.x) * (obj.scaleX ?? 1),
+        top: (obj.top ?? 0) + (nextOffset.y - oldOffset.y) * (obj.scaleY ?? 1),
+      });
+    }
+    obj.dirty = true;
+    obj.setCoords();
+    c.requestRenderAll();
+    refreshVectorAnchors();
+    pushUndo();
+  }, [selectedVectorAnchorIdx, vectorAnchors, refreshVectorAnchors, pushUndo]);
 
   /** Nudge the currently selected anchor by (dx, dy) in design units */
   const nudgeSelectedVectorNode = useCallback((dx: number, dy: number) => {
@@ -3761,6 +3894,7 @@ export function useFabricCanvas(
     // Vector node editor panel
     selectedVectorAnchorIdx, setSelectedVectorAnchorIdx,
     addVectorNodeAfter, deleteSelectedVectorNode, nudgeSelectedVectorNode,
+    setVectorHandleConstraint, setSelectedVectorNodePosition, setSelectedVectorNodeCurveType,
     // Util
     syncObjects, fitToContainer,
   };

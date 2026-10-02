@@ -1077,14 +1077,16 @@ export default function DesignEditor() {
         <TransformPanel controller={controller} />
         <BrushPanel open={brushActive} onColorChange={handleBrushColorChange} />
 
-        {/* Nudge overlay */}
-        <div className="absolute bottom-full left-0 right-0 z-50">
-          <NudgePanel
-            onNudge={handleNudgeElement}
-            onAlign={controller.alignObjects}
-            onDistribute={controller.distributeObjects}
-          />
-        </div>
+        {/* The general alignment/nudge sheet is hidden while editing vector nodes. */}
+        {!vectorEditActive && (
+          <div className="absolute bottom-full left-0 right-0 z-50">
+            <NudgePanel
+              onNudge={handleNudgeElement}
+              onAlign={controller.alignObjects}
+              onDistribute={controller.distributeObjects}
+            />
+          </div>
+        )}
 
         {/* Vector Node Panel — replaces nudge/zoom trays when in vector edit mode */}
         {vectorEditActive && (
@@ -1096,6 +1098,9 @@ export default function DesignEditor() {
               onAddNode={controller.addVectorNodeAfter}
               onDeleteNode={controller.deleteSelectedVectorNode}
               onNudgeNode={controller.nudgeSelectedVectorNode}
+              onSetNodePosition={controller.setSelectedVectorNodePosition}
+              onSetCurveType={controller.setSelectedVectorNodeCurveType}
+              onSetHandleConstraint={controller.setVectorHandleConstraint}
               onDone={handleVectorEditEnd}
               onReactivatePen={handleReactivatePen}
             />

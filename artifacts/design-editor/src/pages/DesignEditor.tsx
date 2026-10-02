@@ -41,7 +41,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { ChevronDown, Eye, SquareRoundCorner } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, SquareRoundCorner } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
@@ -754,11 +754,13 @@ export default function DesignEditor() {
 
   /* ── Quick-tray: fill opacity + corner radius ── */
   const [quickFillOpacity, setQuickFillOpacity] = useState(100);
+  const [opacityExpanded, setOpacityExpanded] = useState(false);
   const [quickCornerRadius, setQuickCornerRadius] = useState(0);
   const [quickCornerRadiusMax, setQuickCornerRadiusMax] = useState(50);
   const radiusRestoreValueRef = useRef(8);
 
   useEffect(() => {
+    if (state.activePanel !== 'opacity-tool') setOpacityExpanded(false);
     const obj = controller.selectedObject;
     if (!obj) { setQuickFillOpacity(100); setQuickCornerRadius(0); return; }
     setQuickFillOpacity(Math.round(controller.getFillOpacity(obj) * 100));
@@ -1143,44 +1145,108 @@ export default function DesignEditor() {
 
         {/* Opacity Tool overlay — compact micro-panel, only shown when eligible object is selected */}
         {state.activePanel === 'opacity-tool' && hasSelection && !brushActive && !penActive && !vectorEditActive && (
-          <div className="absolute bottom-full left-1/2 z-50 mb-3 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2">
-            <div className="rounded-2xl border border-cyan-500/30 bg-[#12161A] p-2.5 shadow-[0_-8px_28px_rgba(0,0,0,0.45)]">
-              <div className="flex min-w-0 items-center gap-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-9 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-cyan-500/30 bg-cyan-400/10 text-cyan-300 transition-colors hover:bg-cyan-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
-                      aria-label="Choose opacity mode"
-                      title="Opacity"
-                    >
-                      <Eye size={17} aria-hidden="true" />
-                      <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" side="top" className="min-w-44 border-cyan-500/20 bg-[#12161A]">
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                      Opacity
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator className="bg-white/10" />
-                    <DropdownMenuRadioGroup value="selected-object">
-                      <DropdownMenuRadioItem value="selected-object" className="text-xs">
-                        Selected object
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+          <div className="absolute bottom-full left-1/2 z-[9999] mb-2 flex w-[min(720px,calc(100vw-20px))] -translate-x-1/2 flex-col" data-testid="opacity-panel">
+            <div
+              className={`overflow-hidden rounded-2xl transition-all duration-300 ${
+                opacityExpanded
+                  ? 'mb-2 max-h-[min(72vh,650px)] overflow-y-auto opacity-100'
+                  : 'pointer-events-none max-h-0 opacity-0'
+              }`}
+              style={{
+                background: '#11141A',
+                border: opacityExpanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent',
+                boxShadow: opacityExpanded ? '0 -8px 30px rgba(0,0,0,0.45)' : 'none',
+              }}
+              aria-hidden={!opacityExpanded}
+              data-testid="opacity-settings-drawer"
+            >
+              <div className="space-y-4 px-4 pb-4 pt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Eye size={14} className="text-primary" />
+                    <span className="text-xs font-semibold text-primary">Opacity Settings</span>
+                  </div>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Live transparency controls
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground">Selected object opacity</span>
+                    <span className="font-mono text-[11px] text-primary">{quickFillOpacity}%</span>
+                  </div>
+                  <Slider
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={[quickFillOpacity]}
+                    onValueChange={([value]) => handleFillOpacityChange(value)}
+                    className="w-full"
+                    aria-label="Selected object opacity"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Shapes keep stroke opacity independent; images use whole-object transparency.
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="flex w-full items-center gap-2 rounded-2xl border px-2.5 py-2.5"
+              style={{
+                background: '#11141A',
+                borderColor: 'rgba(0,245,255,0.3)',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)',
+              }}
+              data-testid="opacity-compact-pill"
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-8 w-12 max-w-[48px] shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary hover:bg-primary/10"
+                    aria-label="Choose opacity target"
+                    title="Opacity target"
+                  >
+                    <Eye size={14} aria-hidden="true" />
+                    <ChevronDown size={11} className="shrink-0" aria-hidden="true" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" sideOffset={8} className="w-52 border-cyan-400/20 bg-[#11141A] text-foreground">
+                  <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-cyan-300">
+                    Opacity target
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuRadioGroup value="selected-object">
+                    <DropdownMenuRadioItem value="selected-object" className="gap-2 text-xs data-[state=checked]:text-primary">
+                      Selected object
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <div className="min-w-0 w-full flex-1">
                 <Slider
-                  min={0} max={100} step={1}
+                  min={0}
+                  max={100}
+                  step={1}
                   value={[quickFillOpacity]}
-                  onValueChange={([v]) => handleFillOpacityChange(v)}
-                  className="w-full flex-1"
+                  onValueChange={([value]) => handleFillOpacityChange(value)}
+                  className="w-full"
                   aria-label="Opacity"
                 />
-                <span className="min-w-[52px] shrink-0 rounded-md border border-cyan-500/20 bg-cyan-400/10 px-2 py-1 text-right font-mono text-xs tabular-nums text-cyan-300">
-                  {quickFillOpacity}%
-                </span>
               </div>
+              <span className="min-w-[42px] shrink-0 text-right font-mono text-[10px] text-primary">
+                {quickFillOpacity}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setOpacityExpanded((open) => !open)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+                aria-label={opacityExpanded ? 'Collapse opacity settings' : 'Expand opacity settings'}
+                aria-expanded={opacityExpanded}
+              >
+                {opacityExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              </button>
             </div>
           </div>
         )}

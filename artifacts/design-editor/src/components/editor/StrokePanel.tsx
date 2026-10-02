@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController, extractColorAlpha, withAlpha } from '@/hooks/useFabricCanvas';
 import { FabricObject } from 'fabric';
@@ -26,10 +25,10 @@ function SliderRow({ label, value, min, max, step = 1, onChange, unit = '', deci
 }) {
   const display = decimals > 0 ? value.toFixed(decimals) : Math.round(value);
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <span className="text-xs text-muted-foreground">{display}{unit}</span>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px] text-muted-foreground">{label}</Label>
+        <span className="font-mono text-[11px] text-primary">{display}{unit}</span>
       </div>
       <Slider
         min={min}
@@ -44,8 +43,13 @@ function SliderRow({ label, value, min, max, step = 1, onChange, unit = '', deci
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs font-semibold uppercase tracking-wider pt-1" style={{ color: '#00F5FF' }}>{children}</p>;
+function SectionHeader({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="flex items-end justify-between gap-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">{title}</p>
+      <p className="text-right text-[10px] text-muted-foreground">{description}</p>
+    </div>
+  );
 }
 
 const DASH_PRESETS: { id: string; label: string; dashLen: number | null; dotLen: number | null }[] = [
@@ -186,160 +190,176 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
   const previewDash = buildDashArray(dashPreset, gapWidth);
   const widthLabel = Number.isInteger(width) ? `${width}` : width.toFixed(2);
 
+  const renderCompactControls = () => (
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex h-8 w-12 max-w-[48px] shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary hover:bg-primary/10"
+            aria-label={`Choose stroke parameter, currently ${STROKE_PARAMETER_LABELS[activeParameter]}`}
+            title={STROKE_PARAMETER_LABELS[activeParameter]}
+          >
+            <PenLine size={14} aria-hidden="true" />
+            <ChevronDown size={11} className="shrink-0" aria-hidden="true" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" sideOffset={8} className="w-52 border-cyan-400/20 bg-[#11141A] text-foreground">
+          <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-cyan-300">
+            Stroke parameter
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={activeParameter}
+            onValueChange={(value) => setActiveParameter(value as StrokeParameter)}
+          >
+            {(Object.keys(STROKE_PARAMETER_LABELS) as StrokeParameter[]).map((parameter) => (
+              <DropdownMenuRadioItem key={parameter} value={parameter} className="gap-2 text-xs data-[state=checked]:text-primary">
+                {STROKE_PARAMETER_LABELS[parameter]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {activeParameter === 'capJoin' ? (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <select
+            value={lineCap}
+            onChange={(event) => {
+              const value = event.target.value as typeof lineCap;
+              setLineCap(value);
+              applyStroke(enabled, color, width, dashPreset, gapWidth, strokeOpacity, value, lineJoin);
+            }}
+            className="h-8 min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary/60"
+            aria-label="Stroke cap"
+          >
+            <option value="butt">Butt cap</option>
+            <option value="round">Round cap</option>
+            <option value="square">Square cap</option>
+          </select>
+          <select
+            value={lineJoin}
+            onChange={(event) => {
+              const value = event.target.value as typeof lineJoin;
+              setLineJoin(value);
+              applyStroke(enabled, color, width, dashPreset, gapWidth, strokeOpacity, lineCap, value);
+            }}
+            className="h-8 min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary/60"
+            aria-label="Stroke join"
+          >
+            <option value="miter">Miter join</option>
+            <option value="round">Round join</option>
+            <option value="bevel">Bevel join</option>
+          </select>
+        </div>
+      ) : (
+        <>
+          <div className="min-w-0 w-full flex-1">
+            <Slider
+              min={activeParameter === 'width' ? 0 : 1}
+              max={activeParameter === 'width' ? 40 : 60}
+              step={activeParameter === 'width' ? 0.05 : 1}
+              value={[activeParameter === 'width' ? width : gapWidth]}
+              onValueChange={([value]) => {
+                if (activeParameter === 'width') {
+                  setWidth(value);
+                  applyStroke(enabled, color, value, dashPreset, gapWidth, strokeOpacity);
+                } else {
+                  setGapWidth(value);
+                  applyStroke(enabled, color, width, dashPreset, value, strokeOpacity);
+                }
+              }}
+              className="w-full"
+              aria-label={STROKE_PARAMETER_LABELS[activeParameter]}
+              disabled={!enabled}
+            />
+          </div>
+          <span className="min-w-[42px] shrink-0 text-right font-mono text-[10px] text-primary">
+            {activeParameter === 'width' ? `${widthLabel}px` : `${Math.round(gapWidth)}px`}
+          </span>
+        </>
+      )}
+
+      <Switch
+        checked={enabled}
+        onCheckedChange={(value) => {
+          setEnabled(value);
+          applyStroke(value, color, width, dashPreset, gapWidth, strokeOpacity);
+        }}
+        aria-label="Toggle stroke"
+      />
+      <button
+        type="button"
+        onClick={() => {
+          const nextExpanded = !expanded;
+          setExpanded(nextExpanded);
+          if (!nextExpanded) setColorOpen(false);
+        }}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+        aria-label={expanded ? 'Collapse stroke settings' : 'Expand stroke settings'}
+        aria-expanded={expanded}
+      >
+        {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+      </button>
+    </div>
+  );
+
   if (!isOpen || !obj) return null;
 
   return (
     <div
-      className="absolute bottom-full left-1/2 z-50 mb-3 w-[calc(100%-1rem)] max-w-2xl -translate-x-1/2"
+      className="absolute bottom-full left-1/2 z-[9999] mb-2 flex w-[min(720px,calc(100vw-20px))] -translate-x-1/2 flex-col"
       data-testid="stroke-panel"
     >
-      <div className="overflow-hidden rounded-2xl border border-cyan-500/30 bg-[#12161A] shadow-[0_-8px_28px_rgba(0,0,0,0.45)]">
-        {!expanded ? (
-          /* ── Compact quick bar ── */
-          <div className="flex min-w-0 items-center gap-2 p-2.5">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-9 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-cyan-500/30 bg-cyan-400/10 text-cyan-300 transition-colors hover:bg-cyan-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
-                  aria-label={`Choose stroke parameter, currently ${STROKE_PARAMETER_LABELS[activeParameter]}`}
-                  title={STROKE_PARAMETER_LABELS[activeParameter]}
-                >
-                  <PenLine size={17} aria-hidden="true" />
-                  <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" className="min-w-44 border-cyan-500/20 bg-[#12161A]">
-                <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                  Stroke control
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuRadioGroup
-                  value={activeParameter}
-                  onValueChange={(value) => setActiveParameter(value as StrokeParameter)}
-                >
-                  {(Object.keys(STROKE_PARAMETER_LABELS) as StrokeParameter[]).map((parameter) => (
-                    <DropdownMenuRadioItem key={parameter} value={parameter} className="text-xs">
-                      {STROKE_PARAMETER_LABELS[parameter]}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Switch
-              checked={enabled}
-              onCheckedChange={(value) => {
-                setEnabled(value);
-                applyStroke(value, color, width, dashPreset, gapWidth, strokeOpacity);
-              }}
-              aria-label="Toggle stroke"
-              className="shrink-0 data-[state=checked]:bg-cyan-400"
-            />
-
-            {activeParameter === 'capJoin' ? (
-              <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                <select
-                  value={lineCap}
-                  onChange={(event) => {
-                    const value = event.target.value as typeof lineCap;
-                    setLineCap(value);
-                    applyStroke(enabled, color, width, dashPreset, gapWidth, strokeOpacity, value, lineJoin);
-                  }}
-                  className="h-8 min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-cyan-300/60"
-                  aria-label="Stroke cap"
-                >
-                  <option value="butt">Butt cap</option>
-                  <option value="round">Round cap</option>
-                  <option value="square">Square cap</option>
-                </select>
-                <select
-                  value={lineJoin}
-                  onChange={(event) => {
-                    const value = event.target.value as typeof lineJoin;
-                    setLineJoin(value);
-                    applyStroke(enabled, color, width, dashPreset, gapWidth, strokeOpacity, lineCap, value);
-                  }}
-                  className="h-8 min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-cyan-300/60"
-                  aria-label="Stroke join"
-                >
-                  <option value="miter">Miter join</option>
-                  <option value="round">Round join</option>
-                  <option value="bevel">Bevel join</option>
-                </select>
-              </div>
-            ) : (
-              <>
-                <span className="min-w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-cyan-300">
-                  {activeParameter === 'width' ? `${widthLabel}px` : `${Math.round(gapWidth)}px`}
-                </span>
-                <Slider
-                  min={activeParameter === 'width' ? 0 : 1}
-                  max={activeParameter === 'width' ? 40 : 60}
-                  step={activeParameter === 'width' ? 0.05 : 1}
-                  value={[activeParameter === 'width' ? width : gapWidth]}
-                  onValueChange={([value]) => {
-                    if (activeParameter === 'width') {
-                      setWidth(value);
-                      applyStroke(enabled, color, value, dashPreset, gapWidth, strokeOpacity);
-                    } else {
-                      setGapWidth(value);
-                      applyStroke(enabled, color, width, dashPreset, value, strokeOpacity);
-                    }
-                  }}
-                  className="w-full flex-1"
-                  aria-label={STROKE_PARAMETER_LABELS[activeParameter]}
-                  disabled={!enabled}
-                />
-              </>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setExpanded(true)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-400/10 text-cyan-300 transition-colors hover:bg-cyan-400/15"
-              aria-label="Expand stroke settings"
-              title="Advanced stroke settings"
-            >
-              <ChevronUp size={16} />
-            </button>
-          </div>
-        ) : (
-          /* ── Expanded advanced drawer ── */
-          <div
-            className="max-h-[min(72vh,560px)] overflow-y-auto px-4 pt-3"
-            style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
-          >
-            <div className="flex items-center justify-between pb-2">
+      <div
+        className={`overflow-hidden rounded-2xl transition-all duration-300 ${
+          expanded
+            ? 'mb-2 max-h-[min(72vh,650px)] overflow-y-auto opacity-100'
+            : 'pointer-events-none max-h-0 opacity-0'
+        }`}
+        style={{
+          background: '#11141A',
+          border: expanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent',
+          boxShadow: expanded
+            ? '0 -8px 30px rgba(0,0,0,0.45)'
+            : 'none',
+        }}
+        aria-hidden={!expanded}
+        data-testid="stroke-settings-drawer"
+      >
+        <div
+          className="space-y-4 px-4 pb-4 pt-3"
+          style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+        >
+            <div className="mb-1 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <PenLine size={15} style={{ color: '#00F5FF' }} />
-                <span className="text-xs font-semibold tracking-wider" style={{ color: '#00F5FF' }}>
+                <PenLine size={14} className="text-primary" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-primary">
                   STROKE SETTINGS
                 </span>
               </div>
+              <span className="mr-auto pl-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                Fine-tune the selected outline
+              </span>
               <button
                 type="button"
                 onClick={() => {
                   setExpanded(false);
                   setColorOpen(false);
                 }}
-                className="h-8 w-8 rounded-lg flex items-center justify-center"
-                style={{
-                  color: '#00F5FF',
-                  background: 'rgba(0,245,255,0.1)',
-                  border: '1px solid rgba(0,245,255,0.3)',
-                }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
                 aria-label="Collapse stroke settings"
                 title="Collapse stroke settings"
               >
-                <ChevronDown size={16} />
+                <ChevronUp size={15} />
               </button>
             </div>
 
             <div className="space-y-4">
               {/* ── Enable ── */}
-              <div className="flex items-center justify-between">
-                <SectionLabel>Border Stroke</SectionLabel>
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                <SectionHeader title="Border Stroke" description="Show or hide the outline" />
                 <Switch
                   checked={enabled}
                   onCheckedChange={(v) => {
@@ -350,39 +370,40 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
               </div>
 
               {/* ── Color ── */}
-              <div className="space-y-1.5">
-                <Separator />
-                <SectionLabel>Color</SectionLabel>
+              <div className="space-y-3 border-t border-border pt-3">
+                <SectionHeader title="Color" description="Choose the outline color" />
                 <button
                   type="button"
                   disabled={!enabled}
-                  className="flex items-center gap-3 w-full py-1 rounded-lg px-2 transition-all disabled:opacity-45"
-                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
-                  onClick={() => setColorOpen((o) => !o)}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => setColorOpen((open) => !open)}
+                  aria-expanded={colorOpen}
                 >
-                  <div
-                    className="w-8 h-8 rounded border border-border flex-shrink-0"
-                    style={{ background: buildStrokeColor(color, strokeOpacity) }}
-                  />
-                  <span className="text-xs font-mono text-muted-foreground">{color.toUpperCase()}</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">{colorOpen ? '▲' : '▼'}</span>
+                  <span className="text-[11px] text-muted-foreground">Stroke color</span>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-5 w-5 rounded-md border border-white/20"
+                      style={{ background: buildStrokeColor(color, strokeOpacity) }}
+                    />
+                    <span className="font-mono text-[10px] text-muted-foreground">{color.toUpperCase()}</span>
+                    {colorOpen ? <ChevronUp size={13} className="text-primary" /> : <ChevronDown size={13} className="text-primary" />}
+                  </span>
                 </button>
-                {colorOpen && enabled && (
+                <div className={`overflow-hidden transition-all duration-300 ${colorOpen && enabled ? 'mt-2 max-h-72 opacity-100' : 'max-h-0 opacity-0'}`}>
                   <ColorPicker
                     value={color}
-                    onChange={(v) => {
-                      const hex = colorToHex(v);
+                    onChange={(value) => {
+                      const hex = colorToHex(value);
                       setColor(hex);
                       applyStroke(true, hex, width, dashPreset, gapWidth, strokeOpacity);
                     }}
                   />
-                )}
+                </div>
               </div>
 
               {/* ── Stroke Opacity (independent of fill opacity) ── */}
-              <div className="space-y-1.5">
-                <Separator />
-                <SectionLabel>Stroke Opacity</SectionLabel>
+              <div className="space-y-3 border-t border-border pt-3">
+                <SectionHeader title="Stroke Opacity" description="Set stroke transparency" />
                 <div className={!enabled ? 'opacity-45' : undefined}>
                   <SliderRow
                     label="Opacity"
@@ -401,9 +422,8 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
               </div>
 
               {/* ── Width and exact value ── */}
-              <div className="space-y-2">
-                <Separator />
-                <SectionLabel>Width</SectionLabel>
+              <div className="space-y-3 border-t border-border pt-3">
+                <SectionHeader title="Width" description="Adjust line thickness" />
                 <div className={!enabled ? 'opacity-45' : undefined}>
                   <SliderRow
                     label="Stroke Width"
@@ -421,7 +441,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <Label className="text-[10px] text-muted-foreground flex-shrink-0">Exact px</Label>
+                  <Label className="shrink-0 text-[10px] text-muted-foreground">Exact px</Label>
                   <input
                     type="number"
                     min={0}
@@ -429,56 +449,61 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                     step={0.05}
                     value={width}
                     disabled={!enabled}
-                    onChange={(e) => {
-                      const v = Math.max(0, Math.min(40, parseFloat(e.target.value) || 0));
-                      setWidth(v);
-                      applyStroke(true, color, v, dashPreset, gapWidth, strokeOpacity);
+                    onChange={(event) => {
+                      const value = Math.max(0, Math.min(40, parseFloat(event.target.value) || 0));
+                      setWidth(value);
+                      applyStroke(true, color, value, dashPreset, gapWidth, strokeOpacity);
                     }}
-                    className="w-24 h-8 bg-transparent border border-border rounded px-2 text-xs text-foreground focus:outline-none focus:border-primary disabled:opacity-45"
+                    className="h-8 w-24 rounded-lg border border-white/10 bg-white/[0.03] px-2 text-right font-mono text-xs text-primary focus:outline-none focus:ring-1 focus:ring-primary/60 disabled:opacity-45"
                     aria-label="Exact stroke width in pixels"
                   />
                 </div>
               </div>
 
               {/* ── Pattern ── */}
-              <div className="space-y-2">
-                <Separator />
-                <SectionLabel>Pattern</SectionLabel>
-                <div className={`grid grid-cols-4 gap-1.5 ${!enabled ? 'opacity-45' : ''}`}>
-                  {DASH_PRESETS.map((p) => (
-                    <button
-                      type="button"
-                      key={p.id}
-                      disabled={!enabled}
-                      onClick={() => {
-                        setDashPreset(p.id);
-                        applyStroke(true, color, width, p.id, gapWidth, strokeOpacity);
-                      }}
-                      className="py-2 rounded-lg text-xs transition-all border disabled:cursor-not-allowed"
-                      style={{
-                        background: dashPreset === p.id ? 'rgba(0,245,255,0.15)' : 'rgba(255,255,255,0.04)',
-                        borderColor: dashPreset === p.id ? '#00F5FF' : 'rgba(255,255,255,0.1)',
-                        color: dashPreset === p.id ? '#00F5FF' : '#9ca3af',
-                      }}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+              <div className="space-y-3 border-t border-border pt-3">
+                <SectionHeader title="Pattern" description="Choose a line treatment" />
+                <div className="grid grid-cols-4 gap-2">
+                  {DASH_PRESETS.map((preset) => {
+                    const active = dashPreset === preset.id;
+                    return (
+                      <button
+                        type="button"
+                        key={preset.id}
+                        disabled={!enabled}
+                        onClick={() => {
+                          setDashPreset(preset.id);
+                          applyStroke(true, color, width, preset.id, gapWidth, strokeOpacity);
+                        }}
+                        className={`rounded-lg border px-2 py-2 text-center text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                          active
+                            ? 'border-primary/50 bg-primary/10 text-primary'
+                            : 'border-white/10 bg-white/[0.035] text-muted-foreground hover:border-primary/40 hover:bg-primary/10'
+                        }`}
+                        aria-pressed={active}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Live SVG preview */}
-                <svg width="100%" height="20" style={{ overflow: 'visible', opacity: enabled ? 1 : 0.45 }}>
-                  <line
-                    x1="0" y1="10" x2="100%" y2="10"
-                    stroke={buildStrokeColor(color, strokeOpacity)}
-                    strokeWidth={Math.min(width, 6)}
-                    strokeDasharray={previewDash ? previewDash.join(' ') : ''}
-                  />
-                </svg>
+                <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3">
+                  <svg width="100%" height="20" style={{ overflow: 'visible', opacity: enabled ? 1 : 0.45 }}>
+                    <line
+                      x1="0" y1="10" x2="100%" y2="10"
+                      stroke={buildStrokeColor(color, strokeOpacity)}
+                      strokeWidth={Math.min(width, 6)}
+                      strokeDasharray={previewDash ? previewDash.join(' ') : ''}
+                    />
+                  </svg>
+                </div>
 
                 {isDashed && (
-                  <div className={!enabled ? 'opacity-45' : undefined}>
-                    <SectionLabel>Pattern Spacing</SectionLabel>
+                  <div className="space-y-2 border-t border-border pt-3">
+                    <SectionHeader title="Pattern Spacing" description="Set the gap between marks" />
+                    <div className={!enabled ? 'opacity-45' : undefined}>
                     <SliderRow
                       label="Gap Width"
                       value={gapWidth}
@@ -492,12 +517,24 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                         applyStroke(true, color, width, dashPreset, v, strokeOpacity);
                       }}
                     />
+                    </div>
                   </div>
                 )}
               </div>
             </div>
-          </div>
-        )}
+        </div>
+      </div>
+
+      <div
+        className="flex w-full items-center gap-2 rounded-2xl border px-2.5 py-2.5"
+        style={{
+          background: '#11141A',
+          borderColor: 'rgba(0,245,255,0.3)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.55), 0 0 18px rgba(0,245,255,0.08)',
+        }}
+        data-testid="stroke-compact-pill"
+      >
+        {renderCompactControls()}
       </div>
     </div>
   );

@@ -189,6 +189,7 @@ export default function BottomToolbar({
       id: 'stroke',
       icon: <PenLine size={22} />,
       label: 'Stroke',
+      accent: '#00F5FF',
       action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'stroke' }),
       disabled: !hasSelection,
     },

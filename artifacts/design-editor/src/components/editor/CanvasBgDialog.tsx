@@ -18,6 +18,7 @@ import {
   type RecentColorEntry,
   type Stop,
 } from './ColorStudioPanel';
+import { interpolateColor } from './colorUtils';
 
 export interface BackgroundEyedropperContext {
   mode: FillMode;
@@ -64,20 +65,7 @@ function lerpStopColor(stops: Stop[], position: number): string {
     const second = sorted[index + 1];
     if (position < first.offset || position > second.offset) continue;
     const ratio = (position - first.offset) / Math.max(0.0001, second.offset - first.offset);
-    const parse = (color: string) => {
-      const value = color.replace('#', '');
-      const expanded = value.length === 3 ? value.split('').map((part) => part + part).join('') : value;
-      return [
-        parseInt(expanded.slice(0, 2), 16) || 0,
-        parseInt(expanded.slice(2, 4), 16) || 0,
-        parseInt(expanded.slice(4, 6), 16) || 0,
-      ];
-    };
-    const a = parse(first.color);
-    const b = parse(second.color);
-    return `#${a.map((channel, channelIndex) => (
-      Math.round(channel + (b[channelIndex] - channel) * ratio)
-    ).toString(16).padStart(2, '0')).join('')}`;
+    return interpolateColor(first.color, second.color, ratio);
   }
   return '#888888';
 }

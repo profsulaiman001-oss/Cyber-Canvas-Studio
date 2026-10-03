@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
+import { colorToHexInput, formatRgba, isValidColorInput, parseColor } from './colorUtils';
+import { Slider } from '@/components/ui/slider';
 
 /* ─── Color math ─── */
 function hsbToRgb(h: number, s: number, b: number): [number, number, number] {
@@ -16,10 +18,8 @@ function rgbToHex(r: number, g: number, b: number): string {
 }
 
 function hexToRgb(hex: string): [number, number, number] | null {
-  let c = hex.replace(/\s/g, '').replace(/^#+/, '');
-  if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
-  if (c.length !== 6 || !/^[0-9A-Fa-f]{6}$/.test(c)) return null;
-  return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16)];
+  const color = parseColor(hex);
+  return [color.red, color.green, color.blue];
 }
 
 function rgbToHsb(r: number, g: number, b: number): [number, number, number] {
@@ -52,8 +52,11 @@ interface ColorPickerProps {
 }
 
 export default function ColorPicker({ value, onChange }: ColorPickerProps) {
+  const opacityInputId = useId();
   const [hsb, setHsb] = useState<[number, number, number]>(() => hexToHsb(value));
-  const [hexInput, setHexInput] = useState(() => value.replace('#', '').toUpperCase());
+  const [alpha, setAlpha] = useState(() => parseColor(value).alpha);
+  const [colorInput, setColorInput] = useState(() => colorToHexInput(parseColor(value)));
+  const [opacityInput, setOpacityInput] = useState(() => String(Math.round(parseColor(value).alpha * 100)));
   const pickerRef = useRef<HTMLCanvasElement>(null);
   const hueRef = useRef<HTMLCanvasElement>(null);
   const pickDrag = useRef(false);
@@ -67,18 +70,24 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
   const lastEmittedRef = useRef('');
   useEffect(() => {
     if (value === lastEmittedRef.current) return;
-    const newHsb = hexToHsb(value);
-    setHsb(newHsb);
-    setHexInput(value.replace('#', '').toUpperCase());
+    const color = parseColor(value);
+    setHsb(rgbToHsb(color.red, color.green, color.blue));
+    setAlpha(color.alpha);
+    setColorInput(colorToHexInput(color));
+    setOpacityInput(String(Math.round(color.alpha * 100)));
   }, [value]);
 
-  const commit = useCallback((nh: number, ns: number, nb: number) => {
-    const hex = hsbToHex(nh, ns, nb);
+  const commit = useCallback((nh: number, ns: number, nb: number, na = alpha) => {
+    const [red, green, blue] = hsbToRgb(nh, ns, nb);
+    const color = { red, green, blue, alpha: na };
+    const formattedColor = formatRgba(color);
     setHsb([nh, ns, nb]);
-    setHexInput(hex.replace('#', '').toUpperCase());
-    lastEmittedRef.current = hex;
-    onChangeRef.current(hex);
-  }, []);
+    setAlpha(na);
+    setColorInput(colorToHexInput(color));
+    setOpacityInput(String(Math.round(na * 100)));
+    lastEmittedRef.current = formattedColor;
+    onChangeRef.current(formattedColor);
+  }, [alpha]);
 
   /* Draw saturation/brightness square */
   useEffect(() => {
@@ -146,30 +155,33 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
   }, [pickerPick, huePick]);
 
   /* ─── Hex input handler: robust parsing, 3+6 digit support, strips garbage ─── */
-  const handleHexChange = (raw: string) => {
-    const stripped = raw.replace(/\s/g, '').replace(/^#+/, '');
-    const v = stripped.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6).toUpperCase();
-    setHexInput(v);
-    if (v.length === 3) {
-      const expanded = v[0]+v[0]+v[1]+v[1]+v[2]+v[2];
-      const newHsb = hexToHsb('#' + expanded);
-      setHsb(newHsb);
-      lastEmittedRef.current = '#' + expanded.toLowerCase();
-      onChangeRef.current('#' + expanded.toLowerCase());
-    } else if (v.length === 6) {
-      const newHsb = hexToHsb('#' + v);
-      setHsb(newHsb);
-      lastEmittedRef.current = '#' + v.toLowerCase();
-      onChangeRef.current('#' + v.toLowerCase());
-    }
+  const handleColorInputChange = (raw: string) => {
+    setColorInput(raw);
+    const color = parseColor(raw);
+    const trimmed = raw.trim();
+    if (!isValidColorInput(trimmed)) return;
+    const newHsb = rgbToHsb(color.red, color.green, color.blue);
+    const formattedColor = formatRgba(color);
+    setHsb(newHsb);
+    setAlpha(color.alpha);
+    setOpacityInput(String(Math.round(color.alpha * 100)));
+    lastEmittedRef.current = formattedColor;
+    onChangeRef.current(formattedColor);
   };
 
-  const handleHexPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handleColorInputPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    handleHexChange(e.clipboardData.getData('text'));
+    handleColorInputChange(e.clipboardData.getData('text'));
   };
 
-  const previewHex = hsbToHex(h, s, b);
+  const [previewRed, previewGreen, previewBlue] = hsbToRgb(h, s, b);
+  const previewColor = `rgba(${previewRed}, ${previewGreen}, ${previewBlue}, ${alpha})`;
+  const opacityPercent = Math.round(alpha * 100);
+  const commitOpacity = (value: number) => {
+    const next = Math.max(0, Math.min(100, Math.round(value)));
+    setOpacityInput(String(next));
+    commit(h, s, b, next / 100);
+  };
 
   return (
     <div className="space-y-2 pt-1 pb-1">
@@ -213,23 +225,82 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
           onTouchEnd={() => { hueDrag.current = false; }}
         />
       </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label htmlFor={opacityInputId} className="text-[11px] text-muted-foreground">Opacity</label>
+          <div className="flex h-7 items-center rounded-md border border-border bg-black/20 px-1.5">
+            <input
+              id={opacityInputId}
+              aria-label="Color opacity percentage"
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              inputMode="numeric"
+              value={opacityInput}
+              onChange={(event) => {
+                const raw = event.target.value;
+                setOpacityInput(raw);
+                if (raw === '') return;
+                const parsed = Number(raw);
+                if (Number.isFinite(parsed)) commitOpacity(parsed);
+              }}
+              onBlur={() => setOpacityInput(String(opacityPercent))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur();
+              }}
+              className="w-10 bg-transparent text-right text-xs font-mono text-foreground outline-none"
+              data-testid="color-opacity-input"
+            />
+            <span className="ml-0.5 text-xs text-muted-foreground">%</span>
+          </div>
+        </div>
+        <div
+          className="relative flex h-5 items-center overflow-hidden rounded-full"
+          style={{
+            backgroundImage: `linear-gradient(to right, rgba(${previewRed},${previewGreen},${previewBlue},0), rgba(${previewRed},${previewGreen},${previewBlue},1)), repeating-conic-gradient(#777 0% 25%, #bbb 0% 50%)`,
+            backgroundSize: '100% 100%, 12px 12px',
+            backgroundPosition: 'center, 0 0',
+            backgroundBlendMode: 'normal',
+          }}
+        >
+          <Slider
+            min={0}
+            max={100}
+            step={1}
+            value={[opacityPercent]}
+            onValueChange={([next]) => commitOpacity(next)}
+            aria-label="Color opacity"
+            className="[&>span:first-child]:!bg-transparent [&>span:first-child>span]:!bg-transparent"
+            data-testid="color-opacity-slider"
+          />
+        </div>
+      </div>
       {/* Color preview swatch + hex input */}
       <div className="flex items-center gap-2">
         <div
           className="w-8 h-8 rounded-md border border-border flex-shrink-0"
-          style={{ background: previewHex }}
+          style={{
+            backgroundImage: `linear-gradient(${previewColor}, ${previewColor}), repeating-conic-gradient(#777 0% 25%, #bbb 0% 50%)`,
+            backgroundSize: '100% 100%, 8px 8px',
+          }}
         />
         <div className="flex items-center gap-1 flex-1 h-8 border border-border rounded-md px-2">
-          <span className="text-xs text-muted-foreground select-none">#</span>
           <input
-            value={hexInput}
-            onChange={(e) => handleHexChange(e.target.value)}
-            onPaste={handleHexPaste}
-            maxLength={6}
+            value={colorInput}
+            onChange={(e) => handleColorInputChange(e.target.value)}
+            onPaste={handleColorInputPaste}
+            onBlur={() => {
+              const parsed = parseColor(value);
+              setColorInput(colorToHexInput(parsed));
+            }}
+            maxLength={40}
             spellCheck={false}
-            placeholder="000000"
+            placeholder="#000000 or rgba(...)"
             className="flex-1 bg-transparent text-xs font-mono text-foreground focus:outline-none uppercase placeholder:text-muted-foreground/40"
             style={{ letterSpacing: '0.06em' }}
+            aria-label="Color value"
+            data-testid="color-value-input"
           />
         </div>
       </div>

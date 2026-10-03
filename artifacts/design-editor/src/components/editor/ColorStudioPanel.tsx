@@ -7,6 +7,7 @@ import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import ColorPicker from './ColorPicker';
 import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
+import { interpolateColor } from './colorUtils';
 
 export interface Stop { offset: number; color: string }
 export type FillMode = 'solid' | 'linear' | 'radial' | 'angular';
@@ -34,16 +35,6 @@ interface ColorStudioProps {
   sampledColorCommitted?: string | null;
 }
 
-/* ─── Color helpers ─── */
-function hexToRgbArr(hex: string): [number, number, number] {
-  const c = hex.replace(/^#+/, '');
-  const clean = c.length === 3 ? c[0]+c[0]+c[1]+c[1]+c[2]+c[2] : c;
-  if (clean.length !== 6) return [0, 0, 0];
-  return [parseInt(clean.slice(0, 2), 16), parseInt(clean.slice(2, 4), 16), parseInt(clean.slice(4, 6), 16)];
-}
-function rgbToHexStr(r: number, g: number, b: number): string {
-  return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
-}
 function lerpStopColor(stops: Stop[], pos: number): string {
   const sorted = [...stops].sort((a, b) => a.offset - b.offset);
   if (!sorted.length) return '#888888';
@@ -52,13 +43,7 @@ function lerpStopColor(stops: Stop[], pos: number): string {
   for (let i = 0; i < sorted.length - 1; i++) {
     if (pos >= sorted[i].offset && pos <= sorted[i + 1].offset) {
       const t = (pos - sorted[i].offset) / (sorted[i + 1].offset - sorted[i].offset);
-      const [r1, g1, b1] = hexToRgbArr(sorted[i].color);
-      const [r2, g2, b2] = hexToRgbArr(sorted[i + 1].color);
-      return rgbToHexStr(
-        Math.round(r1 + (r2 - r1) * t),
-        Math.round(g1 + (g2 - g1) * t),
-        Math.round(b1 + (b2 - b1) * t),
-      );
+      return interpolateColor(sorted[i].color, sorted[i + 1].color, t);
     }
   }
   return '#888888';
@@ -152,7 +137,7 @@ export function GradientBar({
   const sortedStops = useMemo(() => [...stops].sort((a, b) => a.offset - b.offset), [stops]);
   const gradCSS = sortedStops.length >= 2
     ? `linear-gradient(to right, ${sortedStops.map((s) => `${s.color} ${(s.offset * 100).toFixed(1)}%`).join(', ')})`
-    : (sortedStops[0]?.color ?? '#888');
+    : `linear-gradient(to right, ${sortedStops[0]?.color ?? '#888'}, ${sortedStops[0]?.color ?? '#888'})`;
 
   const getBarOffset = useCallback((clientX: number): number => {
     if (!barRef.current) return 0;
@@ -211,7 +196,9 @@ export function GradientBar({
         ref={barRef}
         className="h-10 rounded-xl w-full"
         style={{
-          background: gradCSS,
+          backgroundImage: `${gradCSS}, repeating-conic-gradient(#888 0% 25%, #bbb 0% 50%)`,
+          backgroundSize: '100% 100%, 16px 16px',
+          backgroundPosition: 'center, 0 0',
           border: '1px solid rgba(255,255,255,0.12)',
           cursor: 'crosshair',
           touchAction: 'none',
@@ -241,7 +228,8 @@ export function GradientBar({
           }} />
           <div style={{
             width: 18, height: 18,
-            background: stop.color,
+            backgroundImage: `linear-gradient(${stop.color}, ${stop.color}), repeating-conic-gradient(#888 0% 25%, #bbb 0% 50%)`,
+            backgroundSize: '100% 100%, 8px 8px',
             border: `2.5px solid ${selectedIdx === i ? '#00F5FF' : 'rgba(255,255,255,0.3)'}`,
             borderRadius: 4,
             boxShadow: selectedIdx === i ? '0 0 0 1.5px rgba(0,245,255,0.35)' : 'none',
@@ -339,7 +327,8 @@ export function GradientPreview({
         className="relative w-full overflow-hidden rounded-2xl"
         style={{
           height: 178,
-          background,
+          backgroundImage: `${background}, repeating-conic-gradient(#888 0% 25%, #bbb 0% 50%)`,
+          backgroundSize: '100% 100%, 20px 20px',
           border: '1px solid rgba(255,255,255,0.16)',
           boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.15), 0 12px 30px rgba(0,0,0,0.18)',
           touchAction: 'none',
@@ -425,7 +414,7 @@ export function ColorHistory({ history, label, onPick }: {
             .map((stop) => `${stop.color} ${(stop.offset * 100).toFixed(1)}%`)
             .join(', ');
           const background = !isGradient
-            ? entry.color
+            ? `linear-gradient(${entry.color}, ${entry.color})`
             : entry.mode === 'radial'
               ? `radial-gradient(circle, ${stopCss})`
               : entry.mode === 'angular'
@@ -442,7 +431,13 @@ export function ColorHistory({ history, label, onPick }: {
             aria-label={`Apply recent ${title}`}
             onClick={() => onPick(entry)}
             className="rounded-md border border-border hover:scale-110 transition-transform"
-            style={{ width: 24, height: 24, background, flexShrink: 0 }}
+            style={{
+              width: 24,
+              height: 24,
+              backgroundImage: `${background}, repeating-conic-gradient(#888 0% 25%, #bbb 0% 50%)`,
+              backgroundSize: '100% 100%, 8px 8px',
+              flexShrink: 0,
+            }}
           />
           );
         })}

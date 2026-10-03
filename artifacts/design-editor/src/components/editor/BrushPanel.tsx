@@ -6,6 +6,8 @@ import {
   Paintbrush,
   Ruler,
   Sparkles,
+  Wind,
+  type LucideIcon,
 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import {
@@ -28,10 +30,10 @@ interface BrushPanelProps {
 
 type BrushParameter = 'size' | 'opacity';
 
-const PRESETS: { id: BrushPreset; label: string; icon: string; description: string }[] = [
-  { id: 'standard', label: 'Paint', icon: '🖌️', description: 'A clean, solid freehand stroke.' },
-  { id: 'glow', label: 'Neon', icon: '✨', description: 'A bright stroke with a soft neon bloom.' },
-  { id: 'airbrush', label: 'Airbrush', icon: '💨', description: 'A soft, feathered spray effect.' },
+const PRESETS: { id: BrushPreset; label: string; icon: LucideIcon; description: string }[] = [
+  { id: 'standard', label: 'Paint', icon: Paintbrush, description: 'A clean, solid freehand stroke.' },
+  { id: 'glow', label: 'Neon', icon: Sparkles, description: 'A bright stroke with a soft neon bloom.' },
+  { id: 'airbrush', label: 'Airbrush', icon: Wind, description: 'A soft, feathered spray effect.' },
 ];
 
 export default function BrushPanel({ open, onColorChange }: BrushPanelProps) {
@@ -39,6 +41,7 @@ export default function BrushPanel({ open, onColorChange }: BrushPanelProps) {
   const [activeParameter, setActiveParameter] = useState<BrushParameter>('size');
   const [expanded, setExpanded] = useState(false);
   const activePreset = PRESETS.find((preset) => preset.id === state.brushPreset) ?? PRESETS[0];
+  const ActivePresetIcon = activePreset.icon;
   const parameterValue = activeParameter === 'size'
     ? state.brushSize
     : state.brushPreset === 'glow'
@@ -110,7 +113,7 @@ export default function BrushPanel({ open, onColorChange }: BrushPanelProps) {
               title={activePreset.label}
               data-testid="brush-preset-selector"
             >
-              <span aria-hidden="true" className="text-sm leading-none">{activePreset.icon}</span>
+              <ActivePresetIcon size={16} className="shrink-0" aria-hidden="true" />
               <ChevronDown size={11} className="shrink-0" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
@@ -121,12 +124,24 @@ export default function BrushPanel({ open, onColorChange }: BrushPanelProps) {
               value={state.brushPreset}
               onValueChange={(value) => dispatch({ type: 'SET_BRUSH_PRESET', payload: value as BrushPreset })}
             >
-              {PRESETS.map((preset) => (
-                <DropdownMenuRadioItem key={preset.id} value={preset.id} className="gap-2 text-xs">
-                  <span className="text-sm" aria-hidden="true">{preset.icon}</span>
-                  <span>{preset.label}</span>
-                </DropdownMenuRadioItem>
-              ))}
+              {PRESETS.map((preset) => {
+                const PresetIcon = preset.icon;
+                const isActive = preset.id === state.brushPreset;
+                return (
+                  <DropdownMenuRadioItem
+                    key={preset.id}
+                    value={preset.id}
+                    className="gap-2 text-xs data-[state=checked]:text-primary"
+                  >
+                    <PresetIcon
+                      size={16}
+                      className={`shrink-0 ${isActive ? 'text-primary' : 'text-muted-foreground'}`}
+                      aria-hidden="true"
+                    />
+                    <span>{preset.label}</span>
+                  </DropdownMenuRadioItem>
+                );
+              })}
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>

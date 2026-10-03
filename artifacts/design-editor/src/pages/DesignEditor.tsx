@@ -31,6 +31,7 @@ import BrushPanel from '@/components/editor/BrushPanel';
 import KeyboardShortcutsDialog from '@/components/editor/KeyboardShortcutsDialog';
 import ContextMenu, { type ContextMenuActions } from '@/components/editor/ContextMenu';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useContextMenu } from '@/hooks/useContextMenu';
 import { Slider } from '@/components/ui/slider';
 import {
   AlertDialog,
@@ -95,7 +96,6 @@ export default function DesignEditor() {
 
   const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const importImagesRef = useRef<HTMLInputElement>(null);
   const fillWithImageRef = useRef<HTMLInputElement>(null);
   const handleImportImages = useCallback(() => { importImagesRef.current?.click(); }, []);
@@ -178,6 +178,12 @@ export default function DesignEditor() {
     onUndoRedoChange:  handleUndoRedoChange,
   });
   controllerRef.current = controller;
+  const {
+    position: contextMenu,
+    onContextMenu: handleCanvasContextMenu,
+    onLongPress: handleCanvasLongPress,
+    close: closeContextMenu,
+  } = useContextMenu(controller);
 
   const saveCurrentProject = useCallback(async () => {
     if (autoSaveTimerRef.current) {
@@ -622,35 +628,12 @@ export default function DesignEditor() {
     onNudge: handleNudgeElement,
   });
 
-  const handleCanvasContextMenu = useCallback((event: import('react').MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const fabricCanvas = controller.getCanvas();
-    if (!fabricCanvas) return;
-
-    // A right-click on a different object makes that object the context target;
-    // right-clicking inside the current selection preserves multi-selection.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const target = (fabricCanvas as any).findTarget?.(event.nativeEvent) as import('fabric').FabricObject | undefined;
-    const activeObjects = fabricCanvas.getActiveObjects();
-    if (target && !activeObjects.includes(target)) {
-      fabricCanvas.setActiveObject(target);
-      fabricCanvas.requestRenderAll();
-    } else if (!target) {
-      fabricCanvas.discardActiveObject();
-      fabricCanvas.requestRenderAll();
-    }
-
-    // Let Fabric finish selection events before opening the menu so the menu
-    // reflects the target object and does not get dismissed by that selection.
-    window.setTimeout(() => setContextMenu({ x: event.clientX, y: event.clientY }), 0);
-  }, [controller]);
-
   useEffect(() => {
-    if (contextMenu) setContextMenu(null);
+    if (contextMenu) closeContextMenu();
   // The menu state intentionally stays out of this dependency list: opening
   // the menu must not immediately trigger the dismissal effect itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.selectedObjectIds, state.activePanel, state.activeTool, controller.zoom, vpX, vpY]);
+  }, [state.selectedObjectIds, state.activePanel, state.activeTool, controller.zoom, vpX, vpY, closeContextMenu]);
 
   const exportSelection = useCallback(() => {
     const selected = controller.getCanvas()?.getActiveObject() as
@@ -1055,6 +1038,7 @@ export default function DesignEditor() {
         penLiveHandle={controller.penLiveHandle}
         selectedAnchorIdx={controller.selectedVectorAnchorIdx}
         onContextMenu={handleCanvasContextMenu}
+        onLongPressContextMenu={handleCanvasLongPress}
       />
 
       {/* Hidden file inputs */}
@@ -1366,7 +1350,7 @@ export default function DesignEditor() {
         selectedIsGroup={controller.selectedObject?.type === 'group'}
         canPaste={controller.hasClipboard()}
         canPasteStyle={controller.hasStyleClipboard()}
-        onClose={() => setContextMenu(null)}
+        onClose={closeContextMenu}
         actions={contextMenuActions}
       />
       <TextPanel controller={controller} />

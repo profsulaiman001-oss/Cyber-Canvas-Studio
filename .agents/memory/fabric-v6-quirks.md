@@ -15,5 +15,8 @@ description: Non-obvious Fabric.js serialization, API differences, and caching e
 - `util.invertTransform(matrix as any)` works for computing inverse delta transforms — zero out [4] and [5] for pure delta (no translation)
 - `path:created` event shape in v6: `{ path: FabricObject }` — access via `(e as Record<string, unknown>).path`
 - **Group reparenting:** `Group.remove(obj)` restores the child to canvas-space coordinates, and `targetGroup.add(obj)` re-enters it with the target group's transform; use these APIs for hierarchy moves instead of manually rewriting `left`/`top`.
+- **Context-menu propagation:** Fabric 7 defaults `stopContextMenu` to true and stops propagation on its upper canvas. App-level menus must intercept `contextmenu` in capture phase on an ancestor; a bubbling workspace listener will not receive canvas-targeted events.
 
 **Why:** These are undocumented breaking changes from v5 → v6 or subtle caching behaviours that caused runtime failures in previous sessions.
+
+**How to apply:** When adding an app-level context menu over Fabric, use an ancestor `onContextMenuCapture` handler and call both `preventDefault()` and `stopPropagation()` before opening the menu.

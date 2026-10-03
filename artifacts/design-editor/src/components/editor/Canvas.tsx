@@ -1,5 +1,6 @@
 import { Fragment, RefObject, useRef, useEffect, useState, type MouseEventHandler, type PointerEvent as ReactPointerEvent } from 'react';
 import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
+import { useLongPress, type LongPressPosition } from '@/hooks/useContextMenu';
 
 /** Build an SVG path string from committed bezier nodes, in canvas-pixel coords */
 function buildSvgBezierPath(
@@ -89,7 +90,8 @@ interface CanvasProps {
   /** Index of the currently highlighted anchor in the node editor */
   selectedAnchorIdx?: number | null;
   vectorAnchorOnly?: VectorAnchor[];
-  onContextMenu?: MouseEventHandler<HTMLDivElement>;
+  onContextMenu?: MouseEventHandler<HTMLElement>;
+  onLongPressContextMenu?: (position: LongPressPosition) => void;
 }
 
 /* Extra scroll room on each side for panning — canvas element stays design-sized,
@@ -132,7 +134,9 @@ export default function CanvasWorkspace({
   showGuides = true,
   showRulers = false,
   onContextMenu,
+  onLongPressContextMenu,
 }: CanvasProps) {
+  const longPressHandlers = useLongPress(onLongPressContextMenu ?? (() => {}));
   const showPenSvg = penActive && penPoints.length > 0;
   const gridColumnsResolved = gridColumnPositions.length === Math.max(0, gridColumns - 1)
     ? gridColumnPositions
@@ -223,6 +227,7 @@ export default function CanvasWorkspace({
   useEffect(() => { onVectorDragEndRef.current = onVectorAnchorDragEnd; }, [onVectorAnchorDragEnd]);
 
   const startVectorAnchorDrag = (e: ReactPointerEvent<SVGGElement>, idx: number) => {
+    if (e.button === 2) return;
     e.preventDefault();
     e.stopPropagation();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* Older browsers may not support pointer capture. */ }
@@ -379,6 +384,14 @@ export default function CanvasWorkspace({
       }}
       data-testid="canvas-workspace"
       onContextMenu={onContextMenu}
+      onPointerDown={longPressHandlers.onPointerDown}
+      onPointerMove={longPressHandlers.onPointerMove}
+      onPointerUp={longPressHandlers.onPointerUp}
+      onPointerCancel={longPressHandlers.onPointerCancel}
+      onTouchStart={longPressHandlers.onTouchStart}
+      onTouchMove={longPressHandlers.onTouchMove}
+      onTouchEnd={longPressHandlers.onTouchEnd}
+      onTouchCancel={longPressHandlers.onTouchCancel}
     >
       {/* Large scroll area — always PAN_MARGIN wider/taller than the canvas on each side.
           This gives the user room to pan in any direction without objects disappearing. */}
@@ -409,8 +422,16 @@ export default function CanvasWorkspace({
           onMouseLeave={() => {
             if (eyedropperActive) setEyedropperPoint(null);
           }}
+          onContextMenuCapture={onContextMenu}
+          onContextMenu={onContextMenu}
         >
-          <canvas ref={canvasRef} id="fabric-canvas" className="absolute top-0 left-0 w-full h-full" data-testid="fabric-canvas" />
+          <canvas
+            ref={canvasRef}
+            id="fabric-canvas"
+            className="absolute top-0 left-0 w-full h-full"
+            data-testid="fabric-canvas"
+            onContextMenu={onContextMenu}
+          />
 
           {showRulers && (
             <>
@@ -539,6 +560,7 @@ export default function CanvasWorkspace({
                         role="slider"
                         aria-label={`Adjust column ${index + 1}`}
                         onPointerDown={(e) => {
+                          if (e.button === 2) return;
                           e.preventDefault();
                           e.stopPropagation();
                           try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
@@ -586,6 +608,7 @@ export default function CanvasWorkspace({
                         role="slider"
                         aria-label={`Adjust row ${index + 1}`}
                         onPointerDown={(e) => {
+                          if (e.button === 2) return;
                           e.preventDefault();
                           e.stopPropagation();
                           try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
@@ -646,7 +669,7 @@ export default function CanvasWorkspace({
                     zIndex: 16,
                   }}
                   onPointerDown={(e) => {
-                    if (gridLocked) return;
+                    if (e.button === 2 || gridLocked) return;
                     e.preventDefault();
                     e.stopPropagation();
                     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }
@@ -695,7 +718,7 @@ export default function CanvasWorkspace({
                     zIndex: 16,
                   }}
                   onPointerDown={(e) => {
-                    if (gridLocked) return;
+                    if (e.button === 2 || gridLocked) return;
                     e.preventDefault();
                     e.stopPropagation();
                     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer capture is optional */ }

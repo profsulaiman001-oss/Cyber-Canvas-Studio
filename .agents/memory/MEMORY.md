@@ -6,7 +6,7 @@
 - [Brush engine](brush-engine.md) — standard: full-opacity + subtle drop shadow; glow: rgba 0.06 core + size*10 blur + screen blend on path:created; airbrush: rgba 0.03 core + size*5 width + rgba 0.35 blurry halo shadow
 - [Vector anchor editor](vector-anchor-editor.md) — total-delta drag with pointer capture and 44×44px SVG hit pads; subtract pathOffset before transform and compensate left/top after bbox changes
 - [3D extrusion](3d-extrusion.md) — draw3DLayer renders offset copies via destination-over in after:render, not Fabric shadow; stores _depth3d on obj
-- [Fabric v6 quirks](fabric-v6-quirks.md) — shadow mutations need setDirty(true)+requestRenderAll; path.path is [string,...number[]][]; util.invertTransform(matrix as any) works for delta math
+- [Fabric canvas quirks](fabric-v6-quirks.md) — Fabric 7 stops contextmenu bubbling on its upper canvas, so app menus need ancestor capture handlers; retain documented cache and path caveats
 - [Inner shadow geometry](inner-shadow-geometry.md) — derive masks from Fabric-native local paths, including pathOffset and rx/ry, then composite the inverted blur with source-atop
 - [Canvas coordinate alignment](canvas-coordinate-alignment.md) — fitToContainer must size canvas to dw*zoom × dh*zoom (design area), NOT container dimensions; no vp translation
 - [Toolbar overlay pattern](toolbar-overlay.md) — brush color picker and zoom tray must be absolute-positioned (bottom-full) inside a relative wrapper div, NOT inline in toolbar flex flow — avoids canvas resize

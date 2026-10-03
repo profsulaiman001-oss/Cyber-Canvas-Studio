@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlignCenterHorizontal,
   AlignCenterVertical,
@@ -172,18 +173,22 @@ export default function ContextMenu({
     action();
   };
 
-  const width = 292;
+  const width = Math.min(292, Math.max(0, window.innerWidth - 16));
+  const maxHeight = Math.min(620, Math.max(0, window.innerHeight - 16));
   const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
-  const top = Math.max(8, Math.min(y, window.innerHeight - 620));
+  const top = Math.max(8, Math.min(y, window.innerHeight - maxHeight - 8));
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       role="menu"
       aria-label={hasSelection ? 'Object context menu' : 'Canvas context menu'}
-      className="fixed z-[100] max-h-[min(80dvh,620px)] w-[292px] overflow-y-auto rounded-xl border border-cyan-300/20 bg-[#11141A]/[.98] p-1 text-foreground shadow-2xl backdrop-blur-xl"
-      style={{ left, top }}
-      onContextMenu={(event) => event.preventDefault()}
+      className="fixed max-h-[min(80dvh,620px)] w-[292px] overflow-y-auto rounded-xl border border-cyan-300/20 bg-[#11141A]/[.98] p-1 text-foreground shadow-2xl backdrop-blur-xl"
+      style={{ left, top, width, maxHeight, zIndex: 999999 }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
     >
       <div className="flex items-center justify-between px-2.5 py-2">
         <div className="flex items-center gap-2">
@@ -269,6 +274,7 @@ export default function ContextMenu({
           </Section>
         </>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

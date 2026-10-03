@@ -954,6 +954,7 @@ export function useFabricCanvas(
   const brushPresetRef = useRef<BrushPreset>('standard');
   const panModeRef = useRef(false);
   const vectorEditObjRef = useRef<FabricObject | null>(null);
+  const vectorEditActiveRef = useRef(false);
   const vectorDragStartRef = useRef<{ anchorIdx: number; localX: number; localY: number } | null>(null);
   const [vectorAnchors, setVectorAnchors] = useState<VectorAnchor[]>([]);
   const [isVectorEditActive, setIsVectorEditActive] = useState(false);
@@ -1688,7 +1689,13 @@ export function useFabricCanvas(
       }
     });
 
-    const ro = new ResizeObserver(() => fitToContainer());
+    const ro = new ResizeObserver(() => {
+      // Vector editing is an in-place overlay on the existing canvas. Ignore
+      // layout-only changes while it is active so entering the mode cannot
+      // recenter the canvas or replace the user's current zoom and scroll pan.
+      if (vectorEditActiveRef.current) return;
+      fitToContainer();
+    });
     if (containerEl.current) ro.observe(containerEl.current);
 
     return () => {
@@ -2640,14 +2647,14 @@ export function useFabricCanvas(
   }, [finishEyedropper]);
 
   /* ─── Vector / path anchor editor ─── */
-  const refreshVectorAnchors = useCallback(() => {
+  const refreshVectorAnchors = useCallback((activeViewportTransform?: readonly number[]) => {
     const obj = vectorEditObjRef.current;
     const c = canvasRef.current;
     if (!obj || !c) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawPath: [string, ...number[]][] = (obj as any).path ?? [];
     const matrix = obj.calcTransformMatrix();
-    const vt = c.viewportTransform ?? [1, 0, 0, 1, 0, 0];
+    const vt = activeViewportTransform ?? c.viewportTransform ?? [1, 0, 0, 1, 0, 0];
     const anchors: VectorAnchor[] = [];
 
     const toScreen = (lx: number, ly: number): { screenX: number; screenY: number } => {
@@ -2744,11 +2751,15 @@ export function useFabricCanvas(
 
   const activateVectorEdit = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
+    vectorEditActiveRef.current = true;
+    const activeViewportTransform = [...(c.viewportTransform ?? [1, 0, 0, 1, 0, 0])];
     vectorEditObjRef.current = obj;
     c.discardActiveObject();
     obj.set({ hasControls: false, hasBorders: false });
     c.requestRenderAll();
-    refreshVectorAnchors();
+    // Initialize vector-node screen coordinates from the camera the main
+    // canvas is using now; panning remains the shared workspace scroll offset.
+    refreshVectorAnchors(activeViewportTransform);
     setIsVectorEditActive(true);
   }, [refreshVectorAnchors]);
 
@@ -2765,6 +2776,7 @@ export function useFabricCanvas(
     }
     vectorEditObjRef.current = null;
     vectorDragStartRef.current = null;
+    vectorEditActiveRef.current = false;
     setVectorAnchors([]);
     setIsVectorEditActive(false);
   }, []);

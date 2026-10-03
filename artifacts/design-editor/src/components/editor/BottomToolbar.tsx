@@ -39,6 +39,8 @@ export default function BottomToolbar({
   isRect = false,
 }: BottomToolbarProps) {
   const { state, dispatch } = useEditor();
+  // Keep the canvas workspace size stable when swapping normal, pen, and vector modes.
+  const toolbarMinHeight = 'calc(65px + max(12px, env(safe-area-inset-bottom)))';
 
   const toolbarBg = penActive
     ? { borderTop: '1px solid rgba(255,107,107,0.4)' }
@@ -51,7 +53,7 @@ export default function BottomToolbar({
     return (
       <div
         className="flex-shrink-0 flex items-center justify-center gap-2 px-4"
-        style={{ minHeight: '40px', paddingBottom: 'max(8px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
+        style={{ minHeight: toolbarMinHeight, paddingBottom: 'max(8px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       >
         <Spline size={14} style={{ color: '#00F5FF', filter: 'drop-shadow(0 0 4px #00F5FF80)' }} />
         <span className="text-[11px] font-medium tracking-wide" style={{ color: '#00F5FF' }}>Vector Node Editor</span>
@@ -64,7 +66,7 @@ export default function BottomToolbar({
     return (
       <div
         className="flex-shrink-0 flex items-start justify-around px-2 pt-3"
-        style={{ minHeight: '64px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
+        style={{ minHeight: toolbarMinHeight, paddingBottom: 'max(12px, env(safe-area-inset-bottom))', background: '#11141A', ...toolbarBg }}
       >
         <button onClick={onPenCancel} className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl" style={{ color: '#ff6b6b' }}>
           <X size={22} />
@@ -254,7 +256,7 @@ export default function BottomToolbar({
   return (
     <div
       className="flex-shrink-0"
-      style={{ background: '#11141A', ...toolbarBg }}
+      style={{ minHeight: toolbarMinHeight, background: '#11141A', ...toolbarBg }}
       data-testid="bottom-toolbar"
     >
       {/* ── Scrollable icon row ── */}

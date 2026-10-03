@@ -3147,7 +3147,7 @@ export function useFabricCanvas(
   const applyZoom = useCallback((rawZ: number) => {
     const c = canvasRef.current; if (!c) return;
     if (!Number.isFinite(rawZ) || rawZ <= 0) return;
-    const z = Math.min(Math.max(rawZ, 0.1), 1.0);
+    const z = Math.min(Math.max(rawZ, 0.1), 2.0);
     c.setDimensions({ width: Math.round(designWidth.current * z), height: Math.round(designHeight.current * z) });
     c.setViewportTransform([z, 0, 0, z, 0, 0]);
     setZoom(z);

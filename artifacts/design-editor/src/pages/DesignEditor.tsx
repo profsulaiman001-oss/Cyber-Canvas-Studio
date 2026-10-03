@@ -19,6 +19,7 @@ import TextPanel from '@/components/editor/TextPanel';
 import ShapeModifiersPanel from '@/components/editor/ShapeModifiersPanel';
 import NudgePanel from '@/components/editor/NudgePanel';
 import AdjustPanel from '@/components/editor/AdjustPanel';
+import ZoomPanel from '@/components/editor/ZoomPanel';
 import TransformPanel from '@/components/editor/TransformPanel';
 import StrokePanel from '@/components/editor/StrokePanel';
 import ShadowsPanel from '@/components/editor/ShadowsPanel';
@@ -750,7 +751,6 @@ export default function DesignEditor() {
     onSaveComponent: saveReusableComponent,
   };
 
-  const zoomPercent = Math.round(controller.zoom * 100);
 
   /* ── Quick-tray: fill opacity + corner radius ── */
   const [quickFillOpacity, setQuickFillOpacity] = useState(100);
@@ -1107,46 +1107,7 @@ export default function DesignEditor() {
           </div>
         )}
 
-        {/* Zoom Tray overlay */}
-        {state.activePanel === 'zoom' && !brushActive && !penActive && (
-          <div
-            className="absolute bottom-full left-0 right-0 z-50 px-4 py-3"
-            style={{ background: '#11141A', borderTop: '1px solid rgba(0,245,255,0.4)', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)' }}
-          >
-            <div className="flex items-center gap-2 mb-2 justify-between">
-              <p className="text-xs font-semibold tracking-wider" style={{ color: '#00F5FF' }}>ZOOM</p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={controller.zoomOut}
-                  className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
-                  style={{ background: 'rgba(0,245,255,0.12)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
-                >−</button>
-                <span className="text-xs font-mono font-bold min-w-[52px] text-center" style={{ color: '#00F5FF' }}>{zoomPercent}%</span>
-                <button
-                  onClick={controller.zoomIn}
-                  className="text-[10px] w-7 h-7 rounded-lg flex items-center justify-center font-bold"
-                  style={{ background: 'rgba(0,245,255,0.12)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.3)' }}
-                >+</button>
-                <button
-                  onClick={controller.resetZoom}
-                  className="text-[10px] px-2 py-1 rounded-lg"
-                  style={{ background: 'rgba(0,245,255,0.08)', color: '#00F5FF', border: '1px solid rgba(0,245,255,0.2)' }}
-                >Fit</button>
-              </div>
-            </div>
-            <Slider
-              min={10} max={100} step={5}
-              value={[zoomPercent]}
-              onValueChange={([v]) => controller.setZoomLevel(v)}
-              className="w-full"
-            />
-            <div className="flex justify-between mt-1">
-              <span className="text-[9px] text-muted-foreground">10%</span>
-              <span className="text-[9px] text-muted-foreground">50%</span>
-              <span className="text-[9px] text-muted-foreground">100%</span>
-            </div>
-          </div>
-        )}
+        <ZoomPanel controller={controller} />
 
         {/* Opacity Tool overlay — compact micro-panel, only shown when eligible object is selected */}
         {state.activePanel === 'opacity-tool' && hasSelection && !brushActive && !penActive && !vectorEditActive && (

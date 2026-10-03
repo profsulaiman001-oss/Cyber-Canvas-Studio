@@ -74,7 +74,7 @@ function NumericInput({
   unit: string;
   onChange: (value: string) => void;
   onFocus: () => void;
-  onBlur: () => void;
+  onBlur: (value: string) => void;
 }) {
   return (
     <label className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -85,8 +85,17 @@ function NumericInput({
           inputMode="decimal"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          onFocus={onFocus}
-          onBlur={onBlur}
+          onFocus={(event) => {
+            event.currentTarget.select();
+            onFocus();
+          }}
+          onBlur={(event) => onBlur(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
           className="min-w-0 flex-1 bg-transparent py-2 text-sm font-mono tabular-nums text-foreground outline-none"
           aria-label={`${label} in pixels or degrees`}
         />
@@ -106,6 +115,8 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
   const [aspectLocked, setAspectLocked] = useState(true);
   const [widthInput, setWidthInput] = useState('');
   const [heightInput, setHeightInput] = useState('');
+  const [xInput, setXInput] = useState('');
+  const [yInput, setYInput] = useState('');
   const [rotationInput, setRotationInput] = useState('');
   const [scalePercent, setScalePercent] = useState(100);
   const [rotation, setRotation] = useState(0);
@@ -114,6 +125,8 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
     if (!obj) {
       setWidthInput('');
       setHeightInput('');
+      setXInput('');
+      setYInput('');
       setRotationInput('');
       setScalePercent(100);
       setRotation(0);
@@ -121,6 +134,8 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
     }
     setWidthInput(String(readDimension(obj, 'width')));
     setHeightInput(String(readDimension(obj, 'height')));
+    setXInput(String(obj.left ?? 0));
+    setYInput(String(obj.top ?? 0));
     setRotationInput(String(readAngle(obj)));
     setScalePercent(readScalePercent(obj));
     setRotation(readAngle(obj));
@@ -147,6 +162,8 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
   const applyObjectTransform = useCallback((changes: Partial<{
     scaleX: number;
     scaleY: number;
+    left: number;
+    top: number;
     skewX: number;
     skewY: number;
     angle: number;
@@ -190,6 +207,10 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
 
   const applyDimension = (axis: 'width' | 'height', rawValue: string) => {
     if (!obj) return;
+    if (axis === 'width') setWidthInput(rawValue);
+    else setHeightInput(rawValue);
+    if (!rawValue.trim()) return;
+
     const parsed = Number(rawValue);
     if (!Number.isFinite(parsed) || parsed <= 0) return;
 
@@ -200,18 +221,63 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
     const baseWidth = Math.max(0.001, Math.abs(obj.width || 1));
     const baseHeight = Math.max(0.001, Math.abs(obj.height || 1));
 
-    if (axis === 'width') setWidthInput(rawValue);
-    else setHeightInput(rawValue);
-    if (aspectLocked) {
-      if (axis === 'width') setHeightInput(String(Math.round(nextHeight)));
-      else setWidthInput(String(Math.round(nextWidth)));
-    }
     const scaleMax = readScaleMax(obj, controller.getCanvas());
     setScalePercent(clamp(Math.round(((nextWidth / baseWidth + nextHeight / baseHeight) / 2) * 100), MIN_SCALE_PERCENT, scaleMax));
     applyObjectTransform({
       scaleX: nextWidth / baseWidth,
       scaleY: nextHeight / baseHeight,
     });
+    // Preserve draft text while the controller synchronizes the canvas state.
+    if (axis === 'width') setWidthInput(rawValue);
+    else setHeightInput(rawValue);
+    if (aspectLocked) {
+      if (axis === 'width') setHeightInput(String(Math.max(1, Math.round(nextHeight))));
+      else setWidthInput(String(Math.max(1, Math.round(nextWidth))));
+    }
+  };
+
+  const commitDimension = (axis: 'width' | 'height', rawValue: string) => {
+    const parsed = Number(rawValue);
+    const normalized = String(Math.max(1, Number.isFinite(parsed) ? Math.round(parsed) : 1));
+    applyDimension(axis, normalized);
+  };
+
+  const applyPosition = (axis: 'x' | 'y', rawValue: string) => {
+    if (!obj) return;
+    if (axis === 'x') setXInput(rawValue);
+    else setYInput(rawValue);
+    if (!rawValue.trim()) return;
+
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) return;
+    applyObjectTransform(axis === 'x' ? { left: parsed } : { top: parsed });
+    if (axis === 'x') setXInput(rawValue);
+    else setYInput(rawValue);
+  };
+
+  const commitPosition = (axis: 'x' | 'y', rawValue: string) => {
+    const parsed = Number(rawValue);
+    if (!rawValue.trim() || !Number.isFinite(parsed)) {
+      if (axis === 'x') setXInput(String(obj?.left ?? 0));
+      else setYInput(String(obj?.top ?? 0));
+      return;
+    }
+    applyPosition(axis, String(parsed));
+  };
+
+  const applyRotationInput = (rawValue: string) => {
+    setRotationInput(rawValue);
+    if (!rawValue.trim()) return;
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) return;
+    applyRotation(parsed);
+    setRotationInput(rawValue);
+  };
+
+  const commitRotation = (rawValue: string) => {
+    if (!obj) return;
+    const parsed = Number(rawValue);
+    applyRotation(rawValue.trim() && Number.isFinite(parsed) ? parsed : readAngle(obj));
   };
 
   const resetTransform = () => {
@@ -282,7 +348,10 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
               unit="px"
               onChange={(value) => applyDimension('width', value)}
               onFocus={showHud}
-              onBlur={hideHud}
+              onBlur={(value) => {
+                commitDimension('width', value);
+                hideHud();
+              }}
             />
             <button
               type="button"
@@ -305,7 +374,35 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
               unit="px"
               onChange={(value) => applyDimension('height', value)}
               onFocus={showHud}
-              onBlur={hideHud}
+              onBlur={(value) => {
+                commitDimension('height', value);
+                hideHud();
+              }}
+            />
+          </div>
+
+          <div className="flex items-end gap-2">
+            <NumericInput
+              label="X Position"
+              value={xInput}
+              unit="px"
+              onChange={(value) => applyPosition('x', value)}
+              onFocus={showHud}
+              onBlur={(value) => {
+                commitPosition('x', value);
+                hideHud();
+              }}
+            />
+            <NumericInput
+              label="Y Position"
+              value={yInput}
+              unit="px"
+              onChange={(value) => applyPosition('y', value)}
+              onFocus={showHud}
+              onBlur={(value) => {
+                commitPosition('y', value);
+                hideHud();
+              }}
             />
           </div>
 
@@ -314,13 +411,12 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
               label="Rotation"
               value={rotationInput}
               unit="deg"
-              onChange={(value) => {
-                setRotationInput(value);
-                const parsed = Number(value);
-                if (Number.isFinite(parsed)) applyRotation(parsed);
-              }}
+              onChange={applyRotationInput}
               onFocus={showHud}
-              onBlur={hideHud}
+              onBlur={(value) => {
+                commitRotation(value);
+                hideHud();
+              }}
             />
             <div className="grid grid-cols-4 gap-1.5">
               <button

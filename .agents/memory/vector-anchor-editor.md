@@ -24,6 +24,14 @@ description: How the path anchor point drag-editor works in useFabricCanvas + Ca
 
 **How to apply:** Keep path nodes in local path coordinates; recompute the overlay from the object and viewport matrices on each transform event rather than translating every path command during body movement.
 
+## Straight-segment tangent handles
+
+Expose virtual incoming and outgoing handles for linear path segments at the one-third and two-thirds positions. Those control points reproduce the original straight segment exactly; promote the segment to a cubic only when a handle is dragged. For a closed path, treat its closing edge as the last anchor to first anchor segment and avoid adding a duplicate node when it becomes cubic.
+
+**Why:** Pen-created corner points are stored as straight segments without control coordinates, but users still need visible handles they can drag to create curves without changing the path before that drag.
+
+**How to apply:** Keep each virtual handle owned by the corresponding endpoint node, include it in the same single-node visibility filter as existing Bezier handles, and preserve the line's endpoint and exact straight geometry during conversion.
+
 **Why:** The node-edit panel must leave the canvas visible on phones while retaining precision controls on demand.
 
 **How to apply:** Keep the persistent panel to one 56px row and match ThreeDPanel's dropdown-plus-drawer hierarchy. Do not restore stacked mode controls, a large nudge pad, or instruction copy to the always-visible area.

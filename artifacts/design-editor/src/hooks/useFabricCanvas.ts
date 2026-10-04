@@ -335,6 +335,13 @@ export interface VectorAnchor {
   mirrorCmdIdx?: number;
   mirrorXOff?: number;
   mirrorYOff?: number;
+  /** A linear segment's virtual tangent, promoted to a cubic only when dragged. */
+  virtualSegment?: {
+    role: 'out' | 'in';
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    closesPath: boolean;
+  };
 }
 
 const HISTORY_ASSET_REF_PREFIX = '__spiexel_history_asset__:';
@@ -2673,15 +2680,93 @@ export function useFabricCanvas(
     let prevAnchorScreen: { screenX: number; screenY: number } | null = null;
 
     let prevAnchorLocal: { x: number; y: number } | null = null;
+    let firstAnchorLocal: { x: number; y: number } | null = null;
     let nextNodeIndex = 0;
 
+    const isClosingEndpoint = (cmdIdx: number, x: number, y: number) => (
+      firstAnchorLocal !== null
+      && rawPath.slice(cmdIdx + 1).every((next) => next[0] === 'Z')
+      && Math.abs(x - firstAnchorLocal.x) < 1e-6
+      && Math.abs(y - firstAnchorLocal.y) < 1e-6
+    );
+
+    const addLinearSegmentHandles = (
+      cmdIdx: number,
+      start: { x: number; y: number },
+      end: { x: number; y: number },
+      startNodeIndex: number,
+      endNodeIndex: number,
+      closesPath: boolean,
+    ) => {
+      const startScreen = toScreen(start.x, start.y);
+      const endScreen = toScreen(end.x, end.y);
+      const outgoing = {
+        x: start.x + (end.x - start.x) / 3,
+        y: start.y + (end.y - start.y) / 3,
+      };
+      const incoming = {
+        x: start.x + (end.x - start.x) * 2 / 3,
+        y: start.y + (end.y - start.y) * 2 / 3,
+      };
+      const previousCommand = rawPath[cmdIdx - 1];
+      const nextCommandIdx = closesPath ? 1 : cmdIdx + 1;
+      const nextCommand = rawPath[nextCommandIdx];
+
+      anchors.push({
+        cmdIdx, commandType: 'L', xOff: 1, yOff: 2,
+        localX: outgoing.x, localY: outgoing.y, ...toScreen(outgoing.x, outgoing.y),
+        kind: 'handle', nodeIndex: startNodeIndex,
+        pairScreenX: startScreen.screenX, pairScreenY: startScreen.screenY,
+        anchorLocalX: start.x, anchorLocalY: start.y,
+        mirrorCmdIdx: previousCommand?.[0] === 'C' ? cmdIdx - 1 : undefined,
+        mirrorXOff: 3, mirrorYOff: 4,
+        virtualSegment: { role: 'out', start, end, closesPath },
+      });
+      anchors.push({
+        cmdIdx, commandType: 'L', xOff: 3, yOff: 4,
+        localX: incoming.x, localY: incoming.y, ...toScreen(incoming.x, incoming.y),
+        kind: 'handle', nodeIndex: endNodeIndex,
+        pairScreenX: endScreen.screenX, pairScreenY: endScreen.screenY,
+        anchorLocalX: end.x, anchorLocalY: end.y,
+        mirrorCmdIdx: nextCommand?.[0] === 'C' ? nextCommandIdx : undefined,
+        mirrorXOff: 1, mirrorYOff: 2,
+        virtualSegment: { role: 'in', start, end, closesPath },
+      });
+    };
+
     rawPath.forEach((cmd, cmdIdx) => {
-      if (cmd[0] === 'M' || cmd[0] === 'L') {
+      if (cmd[0] === 'M') {
         const lx = cmd[1] as number, ly = cmd[2] as number;
         const screen = toScreen(lx, ly);
-        anchors.push({ cmdIdx, commandType: cmd[0] as VectorAnchor['commandType'], xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', nodeIndex: nextNodeIndex++, pairScreenX: null, pairScreenY: null });
+        const nodeIndex = nextNodeIndex++;
+        firstAnchorLocal = { x: lx, y: ly };
+        anchors.push({ cmdIdx, commandType: 'M', xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', nodeIndex, pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = screen;
         prevAnchorLocal = { x: lx, y: ly };
+      } else if (cmd[0] === 'L') {
+        const lx = cmd[1] as number, ly = cmd[2] as number;
+        const endpoint = { x: lx, y: ly };
+        const endpointScreen = toScreen(lx, ly);
+        const closesPath = isClosingEndpoint(cmdIdx, lx, ly);
+        const endpointNodeIndex = closesPath ? 0 : nextNodeIndex;
+        if (prevAnchorLocal) {
+          addLinearSegmentHandles(
+            cmdIdx,
+            prevAnchorLocal,
+            endpoint,
+            Math.max(0, nextNodeIndex - 1),
+            endpointNodeIndex,
+            closesPath,
+          );
+        }
+        if (!closesPath) {
+          anchors.push({
+            cmdIdx, commandType: 'L', xOff: 1, yOff: 2, localX: lx, localY: ly,
+            ...endpointScreen, kind: 'anchor', nodeIndex: nextNodeIndex++, pairScreenX: null, pairScreenY: null,
+          });
+        }
+        prevAnchorScreen = endpointScreen;
+        prevAnchorLocal = endpoint;
       } else if (cmd[0] === 'C') {
         const cx1 = cmd[1] as number, cy1 = cmd[2] as number;
         const cx2 = cmd[3] as number, cy2 = cmd[4] as number;
@@ -2690,7 +2775,9 @@ export function useFabricCanvas(
         const h1  = toScreen(cx1, cy1);
         const h2  = toScreen(cx2, cy2);
         const incomingNodeIndex = Math.max(0, nextNodeIndex - 1);
-        const endpointNodeIndex = nextNodeIndex++;
+        const closesPath = isClosingEndpoint(cmdIdx, ex, ey);
+        const endpointNodeIndex = closesPath ? 0 : nextNodeIndex;
+        if (!closesPath) nextNodeIndex += 1;
         // cp1 = out-handle of prevAnchor. Mirror = cp2 of previous C cmd (cmdIdx-1, xOff=3,4)
         anchors.push({
           cmdIdx, commandType: 'C', xOff: 1, yOff: 2, localX: cx1, localY: cy1, ...h1,
@@ -2705,7 +2792,9 @@ export function useFabricCanvas(
           anchorLocalX: ex, anchorLocalY: ey,
           mirrorCmdIdx: cmdIdx + 1, mirrorXOff: 1, mirrorYOff: 2,
         });
-        anchors.push({ cmdIdx, commandType: 'C', xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', nodeIndex: endpointNodeIndex, pairScreenX: null, pairScreenY: null });
+        if (!closesPath) {
+          anchors.push({ cmdIdx, commandType: 'C', xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', nodeIndex: endpointNodeIndex, pairScreenX: null, pairScreenY: null });
+        }
         prevAnchorScreen = ep;
         prevAnchorLocal = { x: ex, y: ey };
       } else if (cmd[0] === 'Q') {
@@ -2714,14 +2803,35 @@ export function useFabricCanvas(
         const ep = toScreen(ex, ey);
         const h  = toScreen(cx, cy);
         const controlNodeIndex = Math.max(0, nextNodeIndex - 1);
-        const endpointNodeIndex = nextNodeIndex++;
+        const closesPath = isClosingEndpoint(cmdIdx, ex, ey);
+        const endpointNodeIndex = closesPath ? 0 : nextNodeIndex;
+        if (!closesPath) nextNodeIndex += 1;
         anchors.push({
           cmdIdx, commandType: 'Q', xOff: 1, yOff: 2, localX: cx, localY: cy, ...h,
           kind: 'handle', nodeIndex: controlNodeIndex, pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
         });
-        anchors.push({ cmdIdx, commandType: 'Q', xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', nodeIndex: endpointNodeIndex, pairScreenX: null, pairScreenY: null });
+        if (!closesPath) {
+          anchors.push({ cmdIdx, commandType: 'Q', xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', nodeIndex: endpointNodeIndex, pairScreenX: null, pairScreenY: null });
+        }
         prevAnchorScreen = ep;
         prevAnchorLocal = { x: ex, y: ey };
+      } else if (cmd[0] === 'Z' && firstAnchorLocal && prevAnchorLocal) {
+        const closesPath = (
+          Math.abs(prevAnchorLocal.x - firstAnchorLocal.x) > 1e-6
+          || Math.abs(prevAnchorLocal.y - firstAnchorLocal.y) > 1e-6
+        );
+        if (closesPath) {
+          addLinearSegmentHandles(
+            cmdIdx,
+            prevAnchorLocal,
+            firstAnchorLocal,
+            Math.max(0, nextNodeIndex - 1),
+            0,
+            true,
+          );
+        }
+        prevAnchorLocal = firstAnchorLocal;
+        prevAnchorScreen = toScreen(firstAnchorLocal.x, firstAnchorLocal.y);
       }
     });
 
@@ -2813,14 +2923,35 @@ export function useFabricCanvas(
     const newHandleX = drag.localX + localDx;
     const newHandleY = drag.localY + localDy;
 
-    // Update the dragged handle
-    let newPath = rawPath.map((cmd, i) => {
-      if (i !== anchor.cmdIdx) return cmd;
-      const nc = [...cmd] as [string, ...number[]];
-      nc[anchor.xOff] = newHandleX;
-      nc[anchor.yOff] = newHandleY;
-      return nc;
-    });
+    // Linear paths expose virtual handles at their one-third/two-thirds
+    // positions. Promote that segment to a cubic only after the user drags one;
+    // the default control points reproduce the original straight line exactly.
+    let newPath: [string, ...number[]][];
+    if (anchor.virtualSegment) {
+      const { start, end, role } = anchor.virtualSegment;
+      const defaultCp1 = {
+        x: start.x + (end.x - start.x) / 3,
+        y: start.y + (end.y - start.y) / 3,
+      };
+      const defaultCp2 = {
+        x: start.x + (end.x - start.x) * 2 / 3,
+        y: start.y + (end.y - start.y) * 2 / 3,
+      };
+      const cp1 = role === 'out' ? { x: newHandleX, y: newHandleY } : defaultCp1;
+      const cp2 = role === 'in' ? { x: newHandleX, y: newHandleY } : defaultCp2;
+      const cubic: [string, ...number[]] = ['C', cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y];
+      // Replacing Z with a cubic that ends at the initial anchor keeps the
+      // closing segment closed without adding a duplicate anchor node.
+      newPath = rawPath.map((cmd, i) => i === anchor.cmdIdx ? cubic : cmd);
+    } else {
+      newPath = rawPath.map((cmd, i) => {
+        if (i !== anchor.cmdIdx) return cmd;
+        const nc = [...cmd] as [string, ...number[]];
+        nc[anchor.xOff] = newHandleX;
+        nc[anchor.yOff] = newHandleY;
+        return nc;
+      });
+    }
 
     // Photoshop-style symmetric mirroring: when dragging a handle, update its
     // sibling handle to maintain C1 continuity (smooth node behaviour).

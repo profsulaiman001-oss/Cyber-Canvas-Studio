@@ -810,7 +810,12 @@ export default function CanvasWorkspace({
                 ))}
 
               {/* Anchors and handles */}
-              {vectorAnchors.map((anchor, i) => {
+              {vectorAnchors
+                .map((anchor, i) => ({ anchor, i }))
+                // Keep selected diamonds above overlapping anchor hit pads so
+                // their touch targets remain draggable on compact paths.
+                .sort((a, b) => Number(a.anchor.kind === 'handle') - Number(b.anchor.kind === 'handle'))
+                .map(({ anchor, i }) => {
                 const isHandle = anchor.kind === 'handle';
                 const isSelected = anchor.nodeIndex === selectedAnchorIdx;
                 if (isHandle && !isSelected) return null;
@@ -857,7 +862,7 @@ export default function CanvasWorkspace({
                     )}
                   </g>
                 );
-              })}
+                })}
             </svg>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -214,7 +214,8 @@ function ColorField({
 }
 
 export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
-  const { state } = useEditor();
+  const { state, dispatch } = useEditor();
+  const panelRef = useRef<HTMLDivElement>(null);
   const obj = controller.selectedObject;
   const [expanded, setExpanded] = useState(false);
   const [activeParam, setActiveParam] = useState<ThreeDParam>('depth');
@@ -265,6 +266,31 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
     setExpanded(false);
     setActiveParam('depth');
   }, [syncFromObj]);
+
+  useEffect(() => {
+    if (state.activePanel !== 'threeD') {
+      setExpanded(false);
+      return;
+    }
+
+    const dismissIfOutside = (target: EventTarget | null) => {
+      if (!(target instanceof Node)) return;
+      if (panelRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(
+        '[data-testid="toolbar-threeD"], [data-radix-popper-content-wrapper], [data-radix-portal], [role="menu"], [role="listbox"], [role="dialog"]',
+      )) return;
+      dispatch({ type: 'CLOSE_PANEL' });
+    };
+    const handlePointerDown = (event: PointerEvent) => dismissIfOutside(event.target);
+    const handleFocusIn = (event: FocusEvent) => dismissIfOutside(event.target);
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('focusin', handleFocusIn, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('focusin', handleFocusIn, true);
+    };
+  }, [state.activePanel, dispatch]);
 
   const applyDepth = useCallback((next: {
     enabled: boolean;
@@ -394,7 +420,7 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
   if (state.activePanel !== 'threeD') return null;
 
   return (
-    <div className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(720px,calc(100vw-20px))] -translate-x-1/2" data-testid="threed-panel">
+    <div ref={panelRef} className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(720px,calc(100vw-20px))] -translate-x-1/2" data-testid="threed-panel">
       <div
         className={`overflow-hidden rounded-2xl transition-all duration-300 ${expanded ? 'mb-2 max-h-[min(72vh,650px)] overflow-y-auto opacity-100' : 'pointer-events-none max-h-0 opacity-0'}`}
         style={{ background: '#11141A', border: expanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent', boxShadow: expanded ? '0 -8px 30px rgba(0,0,0,0.45)' : 'none' }}
@@ -402,7 +428,6 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
         <div className="space-y-4 px-4 pb-4 pt-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2"><Box size={14} className="text-primary" /><span className="text-xs font-semibold text-primary">3D Extrusion Studio</span></div>
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Live lighting controls</span>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -490,7 +515,6 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
           {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         </button>
       </div>
-      {!obj && <div className="mt-1 text-center text-[10px] text-muted-foreground">Select an object to edit 3D lighting</div>}
       {obj && <div className="sr-only"><Lightbulb /> {enabled ? '3D lighting enabled' : '3D lighting disabled'}</div>}
     </div>
   );

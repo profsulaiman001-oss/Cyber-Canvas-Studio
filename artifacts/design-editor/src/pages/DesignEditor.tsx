@@ -96,6 +96,15 @@ export default function DesignEditor() {
 
   const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const handleGridSettingsOpenChange = useCallback((open: boolean) => {
+    setGridSettingsOpen(open);
+    if (open) dispatch({ type: 'CLOSE_PANEL' });
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (state.activePanel !== null) setGridSettingsOpen(false);
+  }, [state.activePanel]);
+
   const importImagesRef = useRef<HTMLInputElement>(null);
   const fillWithImageRef = useRef<HTMLInputElement>(null);
   const handleImportImages = useCallback(() => { importImagesRef.current?.click(); }, []);
@@ -990,7 +999,7 @@ export default function DesignEditor() {
         onPaste={controller.pasteSelected}
         onOpenProjects={requestProjectManager}
         gridSettingsOpen={gridSettingsOpen}
-        onGridSettingsOpenChange={setGridSettingsOpen}
+        onGridSettingsOpenChange={handleGridSettingsOpenChange}
       />
 
       <CanvasWorkspace

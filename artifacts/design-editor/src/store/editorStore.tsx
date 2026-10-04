@@ -5,7 +5,7 @@ export type ActivePanel =
   | 'layers' | 'properties' | 'add' | 'export' | 'project'
   | 'canvasSize' | 'alignment' | 'canvasBg' | 'colorStudio'
   | 'text' | 'shapeModifiers' | 'adjust' | 'nudge'
-  | 'stroke' | 'shadows' | 'threeD'
+  | 'stroke' | 'shadows' | 'threeD' | 'grid'
   | 'transform'
   | 'vectors' | 'zoom'
   | 'opacity-tool' | 'radius-tool'

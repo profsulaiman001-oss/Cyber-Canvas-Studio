@@ -94,16 +94,14 @@ export default function DesignEditor() {
   const [vpX, setVpX] = useState(0);
   const [vpY, setVpY] = useState(0);
 
-  const [gridSettingsOpen, setGridSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const handleGridSettingsOpenChange = useCallback((open: boolean) => {
-    setGridSettingsOpen(open);
-    if (open) dispatch({ type: 'CLOSE_PANEL' });
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (state.activePanel !== null) setGridSettingsOpen(false);
-  }, [state.activePanel]);
+    if (open && state.activePanel !== 'grid') {
+      dispatch({ type: 'TOGGLE_PANEL', payload: 'grid' });
+    } else if (!open && state.activePanel === 'grid') {
+      dispatch({ type: 'CLOSE_PANEL' });
+    }
+  }, [dispatch, state.activePanel]);
 
   const importImagesRef = useRef<HTMLInputElement>(null);
   const fillWithImageRef = useRef<HTMLInputElement>(null);
@@ -616,8 +614,8 @@ export default function DesignEditor() {
   }, [handleEyedropper]);
 
   const toggleGridStudio = useCallback(() => {
-    setGridSettingsOpen((open) => !open);
-  }, []);
+    dispatch({ type: 'TOGGLE_PANEL', payload: 'grid' });
+  }, [dispatch]);
 
   const setActiveTool = useCallback((tool: import('@/store/editorStore').ActiveTool) => {
     dispatch({ type: 'SET_TOOL', payload: tool });
@@ -998,7 +996,7 @@ export default function DesignEditor() {
         onCopy={controller.copySelected}
         onPaste={controller.pasteSelected}
         onOpenProjects={requestProjectManager}
-        gridSettingsOpen={gridSettingsOpen}
+        gridSettingsOpen={state.activePanel === 'grid'}
         onGridSettingsOpenChange={handleGridSettingsOpenChange}
       />
 

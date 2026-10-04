@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -7,6 +7,7 @@ import { CanvasController, extractColorAlpha, withAlpha } from '@/hooks/useFabri
 import { FabricObject } from 'fabric';
 import { ChevronDown, ChevronUp, PenLine } from 'lucide-react';
 import ColorPicker from './ColorPicker';
+import { usePanelOutsideDismissal } from './usePanelOutsideDismissal';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,11 +44,10 @@ function SliderRow({ label, value, min, max, step = 1, onChange, unit = '', deci
   );
 }
 
-function SectionHeader({ title, description }: { title: string; description: string }) {
+function SectionHeader({ title }: { title: string }) {
   return (
     <div className="flex items-end justify-between gap-3">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">{title}</p>
-      <p className="text-right text-[10px] text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -114,7 +114,13 @@ function colorToHex(cssColor: string): string {
 export default function StrokePanel({ controller }: StrokePanelProps) {
   const { state } = useEditor();
   const isOpen = state.activePanel === 'stroke';
+  const panelRef = useRef<HTMLDivElement>(null);
   const obj = controller.selectedObject;
+  usePanelOutsideDismissal({
+    active: isOpen && !!obj,
+    panelRef,
+    triggerSelector: '[data-testid="toolbar-stroke"]',
+  });
 
   const [enabled, setEnabled] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -309,6 +315,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
   return (
     <div
+      ref={panelRef}
       className="absolute bottom-full left-1/2 z-[9999] mb-2 flex w-[min(720px,calc(100vw-20px))] -translate-x-1/2 flex-col"
       data-testid="stroke-panel"
     >
@@ -339,9 +346,6 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                   STROKE SETTINGS
                 </span>
               </div>
-              <span className="mr-auto pl-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-                Fine-tune the selected outline
-              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -359,7 +363,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
             <div className="space-y-4">
               {/* ── Enable ── */}
               <div className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-                <SectionHeader title="Border Stroke" description="Show or hide the outline" />
+                <SectionHeader title="Border Stroke" />
                 <Switch
                   checked={enabled}
                   onCheckedChange={(v) => {
@@ -371,7 +375,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
               {/* ── Color ── */}
               <div className="space-y-3 border-t border-border pt-3">
-                <SectionHeader title="Color" description="Choose the outline color" />
+                <SectionHeader title="Color" />
                 <button
                   type="button"
                   disabled={!enabled}
@@ -403,7 +407,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
               {/* ── Stroke Opacity (independent of fill opacity) ── */}
               <div className="space-y-3 border-t border-border pt-3">
-                <SectionHeader title="Stroke Opacity" description="Set stroke transparency" />
+                <SectionHeader title="Stroke Opacity" />
                 <div className={!enabled ? 'opacity-45' : undefined}>
                   <SliderRow
                     label="Opacity"
@@ -423,7 +427,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
               {/* ── Width and exact value ── */}
               <div className="space-y-3 border-t border-border pt-3">
-                <SectionHeader title="Width" description="Adjust line thickness" />
+                <SectionHeader title="Width" />
                 <div className={!enabled ? 'opacity-45' : undefined}>
                   <SliderRow
                     label="Stroke Width"
@@ -462,7 +466,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
               {/* ── Pattern ── */}
               <div className="space-y-3 border-t border-border pt-3">
-                <SectionHeader title="Pattern" description="Choose a line treatment" />
+                <SectionHeader title="Pattern" />
                 <div className="grid grid-cols-4 gap-2">
                   {DASH_PRESETS.map((preset) => {
                     const active = dashPreset === preset.id;
@@ -502,7 +506,6 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
                 {isDashed && (
                   <div className="space-y-2 border-t border-border pt-3">
-                    <SectionHeader title="Pattern Spacing" description="Set the gap between marks" />
                     <div className={!enabled ? 'opacity-45' : undefined}>
                     <SliderRow
                       label="Gap Width"

@@ -30,6 +30,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import ColorPicker from './ColorPicker';
+import { usePanelOutsideDismissal } from './usePanelOutsideDismissal';
 
 interface ThreeDPanelProps {
   controller: CanvasController;
@@ -214,7 +215,7 @@ function ColorField({
 }
 
 export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
-  const { state, dispatch } = useEditor();
+  const { state } = useEditor();
   const panelRef = useRef<HTMLDivElement>(null);
   const obj = controller.selectedObject;
   const [expanded, setExpanded] = useState(false);
@@ -267,30 +268,15 @@ export default function ThreeDPanel({ controller }: ThreeDPanelProps) {
     setActiveParam('depth');
   }, [syncFromObj]);
 
+  usePanelOutsideDismissal({
+    active: state.activePanel === 'threeD',
+    panelRef,
+    triggerSelector: '[data-testid="toolbar-threeD"]',
+  });
+
   useEffect(() => {
-    if (state.activePanel !== 'threeD') {
-      setExpanded(false);
-      return;
-    }
-
-    const dismissIfOutside = (target: EventTarget | null) => {
-      if (!(target instanceof Node)) return;
-      if (panelRef.current?.contains(target)) return;
-      if (target instanceof Element && target.closest(
-        '[data-testid="toolbar-threeD"], [data-radix-popper-content-wrapper], [data-radix-portal], [role="menu"], [role="listbox"], [role="dialog"]',
-      )) return;
-      dispatch({ type: 'CLOSE_PANEL' });
-    };
-    const handlePointerDown = (event: PointerEvent) => dismissIfOutside(event.target);
-    const handleFocusIn = (event: FocusEvent) => dismissIfOutside(event.target);
-
-    document.addEventListener('pointerdown', handlePointerDown, true);
-    document.addEventListener('focusin', handleFocusIn, true);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('focusin', handleFocusIn, true);
-    };
-  }, [state.activePanel, dispatch]);
+    if (state.activePanel !== 'threeD') setExpanded(false);
+  }, [state.activePanel]);
 
   const applyDepth = useCallback((next: {
     enabled: boolean;

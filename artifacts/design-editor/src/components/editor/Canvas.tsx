@@ -799,7 +799,7 @@ export default function CanvasWorkspace({
             >
               {/* Handle tangent arms */}
               {vectorAnchors
-                .filter(a => a.kind === 'handle' && a.pairScreenX !== null)
+                .filter(a => a.kind === 'handle' && a.nodeIndex === selectedAnchorIdx && a.pairScreenX !== null)
                 .map((a, i) => (
                   <line key={`arm-${i}`}
                     x1={a.screenX} y1={a.screenY}
@@ -812,11 +812,8 @@ export default function CanvasWorkspace({
               {/* Anchors and handles */}
               {vectorAnchors.map((anchor, i) => {
                 const isHandle = anchor.kind === 'handle';
-                // Find anchor-only index to compare with selectedAnchorIdx
-                const anchorOnlyIdx = !isHandle
-                  ? vectorAnchors.slice(0, i).filter(a => a.kind === 'anchor').length
-                  : -1;
-                const isSelected = !isHandle && anchorOnlyIdx === selectedAnchorIdx;
+                const isSelected = anchor.nodeIndex === selectedAnchorIdx;
+                if (isHandle && !isSelected) return null;
                 return (
                   <g
                     key={`va-${i}`}

@@ -324,6 +324,8 @@ export interface VectorAnchor {
   screenX: number;
   screenY: number;
   kind: 'anchor' | 'handle';
+  /** Zero-based anchor node index that owns this point or tangent handle. */
+  nodeIndex: number;
   pairScreenX: number | null;
   pairScreenY: number | null;
   /** Local coords of the anchor this handle belongs to (for mirror math) */
@@ -2671,12 +2673,13 @@ export function useFabricCanvas(
     let prevAnchorScreen: { screenX: number; screenY: number } | null = null;
 
     let prevAnchorLocal: { x: number; y: number } | null = null;
+    let nextNodeIndex = 0;
 
     rawPath.forEach((cmd, cmdIdx) => {
       if (cmd[0] === 'M' || cmd[0] === 'L') {
         const lx = cmd[1] as number, ly = cmd[2] as number;
         const screen = toScreen(lx, ly);
-        anchors.push({ cmdIdx, commandType: cmd[0] as VectorAnchor['commandType'], xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        anchors.push({ cmdIdx, commandType: cmd[0] as VectorAnchor['commandType'], xOff: 1, yOff: 2, localX: lx, localY: ly, ...screen, kind: 'anchor', nodeIndex: nextNodeIndex++, pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = screen;
         prevAnchorLocal = { x: lx, y: ly };
       } else if (cmd[0] === 'C') {
@@ -2686,21 +2689,23 @@ export function useFabricCanvas(
         const ep  = toScreen(ex, ey);
         const h1  = toScreen(cx1, cy1);
         const h2  = toScreen(cx2, cy2);
+        const incomingNodeIndex = Math.max(0, nextNodeIndex - 1);
+        const endpointNodeIndex = nextNodeIndex++;
         // cp1 = out-handle of prevAnchor. Mirror = cp2 of previous C cmd (cmdIdx-1, xOff=3,4)
         anchors.push({
           cmdIdx, commandType: 'C', xOff: 1, yOff: 2, localX: cx1, localY: cy1, ...h1,
-          kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
+          kind: 'handle', nodeIndex: incomingNodeIndex, pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
           anchorLocalX: prevAnchorLocal?.x, anchorLocalY: prevAnchorLocal?.y,
           mirrorCmdIdx: cmdIdx - 1, mirrorXOff: 3, mirrorYOff: 4,
         });
         // cp2 = in-handle of endpoint. Mirror = cp1 of next C cmd (cmdIdx+1, xOff=1,2)
         anchors.push({
           cmdIdx, commandType: 'C', xOff: 3, yOff: 4, localX: cx2, localY: cy2, ...h2,
-          kind: 'handle', pairScreenX: ep.screenX, pairScreenY: ep.screenY,
+          kind: 'handle', nodeIndex: endpointNodeIndex, pairScreenX: ep.screenX, pairScreenY: ep.screenY,
           anchorLocalX: ex, anchorLocalY: ey,
           mirrorCmdIdx: cmdIdx + 1, mirrorXOff: 1, mirrorYOff: 2,
         });
-        anchors.push({ cmdIdx, commandType: 'C', xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        anchors.push({ cmdIdx, commandType: 'C', xOff: 5, yOff: 6, localX: ex, localY: ey, ...ep, kind: 'anchor', nodeIndex: endpointNodeIndex, pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = ep;
         prevAnchorLocal = { x: ex, y: ey };
       } else if (cmd[0] === 'Q') {
@@ -2708,11 +2713,13 @@ export function useFabricCanvas(
         const ex = cmd[3] as number, ey = cmd[4] as number;
         const ep = toScreen(ex, ey);
         const h  = toScreen(cx, cy);
+        const controlNodeIndex = Math.max(0, nextNodeIndex - 1);
+        const endpointNodeIndex = nextNodeIndex++;
         anchors.push({
           cmdIdx, commandType: 'Q', xOff: 1, yOff: 2, localX: cx, localY: cy, ...h,
-          kind: 'handle', pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
+          kind: 'handle', nodeIndex: controlNodeIndex, pairScreenX: prevAnchorScreen?.screenX ?? null, pairScreenY: prevAnchorScreen?.screenY ?? null,
         });
-        anchors.push({ cmdIdx, commandType: 'Q', xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', pairScreenX: null, pairScreenY: null });
+        anchors.push({ cmdIdx, commandType: 'Q', xOff: 3, yOff: 4, localX: ex, localY: ey, ...ep, kind: 'anchor', nodeIndex: endpointNodeIndex, pairScreenX: null, pairScreenY: null });
         prevAnchorScreen = ep;
         prevAnchorLocal = { x: ex, y: ey };
       }
@@ -2784,6 +2791,7 @@ export function useFabricCanvas(
   const vectorAnchorDragStart = useCallback((anchorIdx: number) => {
     const anchor = vectorAnchors[anchorIdx];
     if (!anchor) return;
+    setSelectedVectorAnchorIdx(anchor.nodeIndex);
     vectorDragStartRef.current = { anchorIdx, localX: anchor.localX, localY: anchor.localY };
   }, [vectorAnchors]);
 

@@ -16,10 +16,27 @@ import { useToast } from '@/hooks/use-toast';
 import { Type } from 'lucide-react';
 import localforage from 'localforage';
 import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
+import {
+  applyCharacterRangeStyle,
+  getCharacterCount,
+  getCharacterRangeStyleState,
+} from '@/lib/characterStyles';
+import type { CanvasTextProperties, CharacterStylePatch } from '@/types/canvas';
 
 const SYSTEM_FONTS = ['Inter', 'Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Impact'];
 
 interface TextPanelProps { controller: CanvasController }
+
+function toColorInputValue(color: string | undefined): string {
+  if (!color) return '#00F5FF';
+  if (/^#[\da-f]{6}$/i.test(color)) return color;
+  if (/^#[\da-f]{3}$/i.test(color)) {
+    return `#${color.slice(1).split('').map((part) => part + part).join('')}`;
+  }
+  const rgb = color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (!rgb) return '#00F5FF';
+  return `#${rgb.slice(1, 4).map((part) => Math.max(0, Math.min(255, Math.round(Number(part)))).toString(16).padStart(2, '0')).join('')}`;
+}
 
 function SliderRow({ label, value, min, max, step = 1, onChange, unit = '' }: {
   label: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void; unit?: string;
@@ -60,6 +77,12 @@ export default function TextPanel({ controller }: TextPanelProps) {
   const [glowEnabled, setGlowEnabled] = useState(false);
   const [glowColor, setGlowColor] = useState('#00F5FF');
   const [glowIntensity, setGlowIntensity] = useState(20);
+  const [rangeStart, setRangeStart] = useState(0);
+  const [rangeEnd, setRangeEnd] = useState(0);
+  const [rangeFill, setRangeFill] = useState('#00F5FF');
+  const [rangeBold, setRangeBold] = useState(false);
+  const [rangeItalic, setRangeItalic] = useState(false);
+  const [rangeUnderline, setRangeUnderline] = useState(false);
 
   /* ── Add-mode state ── */
   const [addContent, setAddContent] = useState('New Text');
@@ -85,8 +108,13 @@ export default function TextPanel({ controller }: TextPanelProps) {
     setFontStyle((textObj.fontStyle as string) || 'normal');
     setUnderline(!!(textObj as IText & { underline?: boolean }).underline);
     setTextAlign((textObj.textAlign as string) || 'left');
-    setCharSpacing(typeof textObj.charSpacing === 'number' ? textObj.charSpacing / 10 : 0);
+    setCharSpacing(typeof textObj.charSpacing === 'number'
+      ? (textObj.charSpacing * (textObj.fontSize || 40)) / 1000
+      : 0);
     setLineHeight(typeof textObj.lineHeight === 'number' ? textObj.lineHeight : 1.16);
+    const initialEnd = Math.max(0, Math.min(4, getCharacterCount(textObj.text || '') - 1));
+    setRangeStart(0);
+    setRangeEnd(initialEnd);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const glow = (obj as any)?._glow as { enabled?: boolean; color?: string; intensity?: number } | undefined;
     if (glow?.enabled) {
@@ -104,6 +132,9 @@ export default function TextPanel({ controller }: TextPanelProps) {
   const apply = useCallback((props: Record<string, unknown>) => {
     if (!textObj) return;
     textObj.set(props);
+    textObj.initDimensions();
+    textObj.setCoords();
+    textObj.dirty = true;
     controller.getCanvas()?.renderAll();
     controller.commitChange();
   }, [textObj, controller]);
@@ -119,8 +150,41 @@ export default function TextPanel({ controller }: TextPanelProps) {
   const applyItalic = () => { const n = fontStyle === 'italic' ? 'normal' : 'italic'; setFontStyle(n); apply({ fontStyle: n }); };
   const applyUnderline = () => { const n = !underline; setUnderline(n); apply({ underline: n }); };
   const applyTextAlign = (v: string) => { if (!v) return; setTextAlign(v); apply({ textAlign: v }); };
-  const applyCharSpacing = (v: number) => { setCharSpacing(v); apply({ charSpacing: v * 10 }); };
+  const applyCharSpacing = (v: number) => {
+    setCharSpacing(v);
+    const size = Math.max(1, textObj?.fontSize || fontSize);
+    apply({ charSpacing: (v * 1000) / size });
+  };
   const applyLineHeight = (v: number) => { setLineHeight(v); apply({ lineHeight: v }); };
+
+  useEffect(() => {
+    if (!textObj) return;
+    const count = getCharacterCount(textObj.text || '');
+    if (count === 0) return;
+    const start = Math.max(0, Math.min(count - 1, rangeStart));
+    const end = Math.max(start, Math.min(count - 1, rangeEnd));
+    const style = getCharacterRangeStyleState(
+      textObj as IText & CanvasTextProperties,
+      start,
+      end,
+    );
+    setRangeBold(style.fontWeight === 'bold');
+    setRangeItalic(style.fontStyle === 'italic');
+    setRangeUnderline(style.underline === true);
+    setRangeFill(toColorInputValue(style.fill));
+  }, [textObj, rangeStart, rangeEnd, textContent]);
+
+  const applyRangeStyle = (patch: CharacterStylePatch) => {
+    if (!textObj || getCharacterCount(textObj.text || '') === 0) return;
+    applyCharacterRangeStyle(
+      textObj as IText & CanvasTextProperties,
+      rangeStart,
+      rangeEnd,
+      patch,
+    );
+    controller.getCanvas()?.renderAll();
+    controller.commitChange();
+  };
 
   const applyGlowEffect = useCallback((en: boolean, color: string, intensity: number) => {
     controller.applyGlow(obj, en ? { enabled: true, color, intensity } : null);
@@ -307,12 +371,136 @@ export default function TextPanel({ controller }: TextPanelProps) {
             <SectionLabel>Content</SectionLabel>
             <textarea
               value={textContent}
-              onChange={(e) => { setTextContent(e.target.value); apply({ text: e.target.value }); }}
+              onChange={(e) => {
+                const nextText = e.target.value;
+                const nextMax = Math.max(0, getCharacterCount(nextText) - 1);
+                setTextContent(nextText);
+                setRangeStart((value) => Math.min(value, nextMax));
+                setRangeEnd((value) => Math.min(value, nextMax));
+                apply({
+                  text: nextText,
+                  typographyTransform: 'none',
+                  typographyOriginalText: nextText,
+                });
+              }}
               rows={3}
               className="w-full rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
               style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'inherit', fontFamily }}
               placeholder="Enter text…"
             />
+
+            <Separator />
+            <SectionLabel>Character Range</SectionLabel>
+            <p className="text-[10px] text-muted-foreground">
+              Apply fill, bold, italic, or underline to an inclusive character range. Positions start at 0.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1 text-[10px] text-muted-foreground">
+                From
+                <input
+                  type="number"
+                  min={0}
+                  max={Math.max(0, getCharacterCount(textContent) - 1)}
+                  value={rangeStart}
+                  onChange={(event) => {
+                    const max = Math.max(0, getCharacterCount(textContent) - 1);
+                    const next = Math.max(0, Math.min(max, Math.floor(Number(event.currentTarget.value) || 0)));
+                    setRangeStart(next);
+                    if (next > rangeEnd) setRangeEnd(next);
+                  }}
+                  disabled={!getCharacterCount(textContent)}
+                  aria-label="Character range start index"
+                  data-testid="input-character-range-start"
+                  className="h-9 w-full rounded-lg border border-white/10 bg-white/[0.04] px-2 text-xs text-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-40"
+                />
+              </label>
+              <label className="space-y-1 text-[10px] text-muted-foreground">
+                To
+                <input
+                  type="number"
+                  min={rangeStart}
+                  max={Math.max(0, getCharacterCount(textContent) - 1)}
+                  value={rangeEnd}
+                  onChange={(event) => {
+                    const max = Math.max(0, getCharacterCount(textContent) - 1);
+                    const next = Math.max(rangeStart, Math.min(max, Math.floor(Number(event.currentTarget.value) || 0)));
+                    setRangeEnd(next);
+                  }}
+                  disabled={!getCharacterCount(textContent)}
+                  aria-label="Character range end index"
+                  data-testid="input-character-range-end"
+                  className="h-9 w-full rounded-lg border border-white/10 bg-white/[0.04] px-2 text-xs text-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-40"
+                />
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant={rangeBold ? 'default' : 'secondary'}
+                size="sm"
+                className="h-9 min-w-9 font-bold"
+                onClick={() => {
+                  const next = !rangeBold;
+                  setRangeBold(next);
+                  applyRangeStyle({ fontWeight: next ? 'bold' : 'normal' });
+                }}
+                disabled={!getCharacterCount(textContent)}
+                aria-label="Toggle bold for character range"
+                aria-pressed={rangeBold}
+                data-testid="button-character-range-bold"
+              >
+                <Bold size={14} />
+              </Button>
+              <Button
+                type="button"
+                variant={rangeItalic ? 'default' : 'secondary'}
+                size="sm"
+                className="h-9 min-w-9 italic"
+                onClick={() => {
+                  const next = !rangeItalic;
+                  setRangeItalic(next);
+                  applyRangeStyle({ fontStyle: next ? 'italic' : 'normal' });
+                }}
+                disabled={!getCharacterCount(textContent)}
+                aria-label="Toggle italic for character range"
+                aria-pressed={rangeItalic}
+                data-testid="button-character-range-italic"
+              >
+                <Italic size={14} />
+              </Button>
+              <Button
+                type="button"
+                variant={rangeUnderline ? 'default' : 'secondary'}
+                size="sm"
+                className="h-9 min-w-9 underline"
+                onClick={() => {
+                  const next = !rangeUnderline;
+                  setRangeUnderline(next);
+                  applyRangeStyle({ underline: next });
+                }}
+                disabled={!getCharacterCount(textContent)}
+                aria-label="Toggle underline for character range"
+                aria-pressed={rangeUnderline}
+                data-testid="button-character-range-underline"
+              >
+                <Underline size={14} />
+              </Button>
+              <label className="ml-auto flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-[10px] text-muted-foreground">
+                Fill
+                <input
+                  type="color"
+                  value={rangeFill}
+                  onChange={(event) => {
+                    setRangeFill(event.currentTarget.value);
+                    applyRangeStyle({ fill: event.currentTarget.value });
+                  }}
+                  disabled={!getCharacterCount(textContent)}
+                  aria-label="Set fill for character range"
+                  data-testid="input-character-range-fill"
+                  className="h-6 w-7 cursor-pointer rounded border-0 bg-transparent p-0 disabled:cursor-not-allowed"
+                />
+              </label>
+            </div>
 
             <SectionLabel>Style</SectionLabel>
             <div className="flex gap-2">
@@ -329,8 +517,11 @@ export default function TextPanel({ controller }: TextPanelProps) {
             <Separator />
             <SectionLabel>Typography</SectionLabel>
             <SliderRow label="Font Size" value={fontSize} min={8} max={300}
-              onChange={(v) => { setFontSize(v); apply({ fontSize: v }); }} unit="px" />
-            <SliderRow label="Letter Spacing" value={charSpacing} min={-50} max={200} step={1} onChange={applyCharSpacing} />
+              onChange={(v) => {
+                setFontSize(v);
+                apply({ fontSize: v, charSpacing: (charSpacing * 1000) / Math.max(1, v) });
+              }} unit="px" />
+            <SliderRow label="Letter Spacing" value={charSpacing} min={-50} max={200} step={1} onChange={applyCharSpacing} unit="px" />
             <SliderRow label="Line Height" value={lineHeight} min={0.5} max={4} step={0.05} onChange={applyLineHeight} />
 
             <Separator />

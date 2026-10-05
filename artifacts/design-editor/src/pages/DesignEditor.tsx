@@ -24,6 +24,7 @@ import TransformPanel from '@/components/editor/TransformPanel';
 import StrokePanel from '@/components/editor/StrokePanel';
 import ShadowsPanel from '@/components/editor/ShadowsPanel';
 import ThreeDPanel from '@/components/editor/ThreeDPanel';
+import TypographyPanel from '@/components/editor/TypographyPanel';
 import VectorsPanel from '@/components/editor/VectorsPanel';
 import VectorNodePanel from '@/components/editor/VectorNodePanel';
 import CropModal from '@/components/editor/CropModal';
@@ -1065,6 +1066,7 @@ export default function DesignEditor() {
       <div className="relative flex-shrink-0">
         <ShadowsPanel controller={controller} />
         <ThreeDPanel controller={controller} />
+        <TypographyPanel controller={controller} />
         <AdjustPanel controller={controller} />
         <TransformPanel controller={controller} />
         <BrushPanel open={brushActive} onColorChange={handleBrushColorChange} />

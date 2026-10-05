@@ -1,7 +1,7 @@
 import {
   MousePointer2, Plus, Layers, SlidersHorizontal, Download,
   PenTool, X, Paintbrush, Palette, Spline, Type, Layers2, SlidersVertical, Move,
-  PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus,
+  PenLine, Layers3, Box, GitBranch, Hand, ZoomIn, Image, Crop, ImagePlus, CaseSensitive,
   Droplet, SquareRoundCorner, Maximize2,
 } from 'lucide-react';
 import { useEditor, ActivePanel } from '@/store/editorStore';
@@ -28,6 +28,7 @@ interface BottomToolbarProps {
 export default function BottomToolbar({
   hasSelection, penActive, brushActive,
   selectedIsPath = false,
+  selectedIsText = false,
   selectedIsImage = false,
   vectorEditActive = false,
   panActive = false,
@@ -128,6 +129,14 @@ export default function BottomToolbar({
     },
     { id: 'add', icon: <Plus size={24} />, label: 'Add', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'add' }) },
     { id: 'text', icon: <Type size={22} />, label: 'Text', action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'text' }) },
+    {
+      id: 'typography',
+      icon: <CaseSensitive size={22} />,
+      label: 'Typography',
+      action: () => dispatch({ type: 'TOGGLE_PANEL', payload: 'typography' }),
+      disabled: !selectedIsText,
+      accent: '#00F5FF',
+    },
     {
       id: 'vectors',
       icon: <GitBranch size={22} />,

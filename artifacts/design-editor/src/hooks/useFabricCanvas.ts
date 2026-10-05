@@ -20,6 +20,7 @@ import {
   util,
   filters,
 } from 'fabric';
+import '@/lib/fabricWordSpacing';
 
 /* ── Color utilities for decoupled fill / stroke opacity ─────────────────── */
 /**
@@ -369,6 +370,11 @@ const EXTRA_PROPS = [
   '_textureKey',
   '_depth3d',
   '_glow',
+  'characterSpans',
+  'wordSpacing',
+  'typographyNeon',
+  'typographyTransform',
+  'typographyOriginalText',
   '_gradientConfig',
   '_adjustmentBase',
   '_adjustments',
@@ -3544,6 +3550,11 @@ export function useFabricCanvas(
       '_textureKey',
       '_depth3d',
       '_glow',
+      'characterSpans',
+      'wordSpacing',
+      'typographyNeon',
+      'typographyTransform',
+      'typographyOriginalText',
       '_gradientConfig',
       'cornerRadius',
       'innerShadow',

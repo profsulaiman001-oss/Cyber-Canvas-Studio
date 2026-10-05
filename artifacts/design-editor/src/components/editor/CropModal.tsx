@@ -357,32 +357,31 @@ export default function CropModal({
          if (h === 'tl' || h === 'tr' || h === 'bl' || h === 'br') {
             const isLeft = h.includes('l');
             const isTop = h.includes('t');
-            const pointerX = ds.left + px;
-            const pointerY = ds.top + py;
             const anchorX = isLeft ? ds.left + startW : ds.left;
             const anchorY = isTop ? ds.top + startH : ds.top;
-            // Measure from the fixed opposite corner to the current pointer.
-            // Using only |delta| here makes the box collapse as soon as a
-            // handle moves, because the initial crop size is discarded.
-            const requestedW = isLeft ? anchorX - pointerX : pointerX - anchorX;
-            const requestedH = isTop ? anchorY - pointerY : pointerY - anchorY;
-            const maxW = Math.max(1, Math.min(
+            // Convert pointer movement into signed size deltas from the
+            // original crop. Right/bottom handles grow with positive movement;
+            // left/top handles grow with negative movement.
+            const deltaW = isLeft ? -px : px;
+            const deltaH = isTop ? -py : py;
+            const widthFromX = startW + deltaW;
+            const widthFromY = (startH + deltaH) * ratio;
+
+            // Compare both axes in width units so a single-axis drag remains
+            // responsive while the opposite corner stays fixed.
+            const requestedW = Math.abs(deltaW) >= Math.abs(deltaH * ratio)
+              ? widthFromX
+              : widthFromY;
+            const maxW = Math.max(0, Math.min(
               isLeft ? anchorX : 100 - anchorX,
               (isTop ? anchorY : 100 - anchorY) * ratio,
             ));
-            const minW = Math.min(maxW, Math.max(1, Math.min(5, 100 * ratio)));
-            const widthFromX = Math.max(0, requestedW);
-            const widthFromY = Math.max(0, requestedH * ratio);
-            // Whichever pointer axis moved farther from its starting size
-            // drives the resize. This keeps a horizontal-only or vertical-only
-            // corner drag continuous instead of letting the unchanged axis
-            // force the crop back to its original dimensions.
-            const width = clamp(
-              Math.max(minW, Math.abs(widthFromX - startW) >= Math.abs(widthFromY - startW) ? widthFromX : widthFromY),
-              minW,
-              maxW,
-            );
-           const height = width / ratio;
+            if (maxW <= 0) return;
+            const minW = Math.min(maxW, Math.max(MIN, MIN * ratio));
+            const width = clamp(requestedW, minW, maxW);
+            // In percentage coordinates, this adjusted ratio is the exact
+            // locked source-pixel ratio for presets and Circle mode.
+            const height = width / ratio;
             nl = isLeft ? anchorX - width : anchorX;
             nt = isTop ? anchorY - height : anchorY;
            nr = 100 - nl - width;

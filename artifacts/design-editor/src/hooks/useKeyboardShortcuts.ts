@@ -305,7 +305,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutOptions): void {
             : key === 'ArrowLeft'
               ? 'left'
               : 'right';
-        current.onNudge(direction, shift ? 10 : 1);
+        current.onNudge(direction, shift ? 20 : 1);
       }
     };
 

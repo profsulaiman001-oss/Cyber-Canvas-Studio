@@ -27,7 +27,7 @@ interface NudgePanelProps {
   onDistribute?: (axis: 'horizontal' | 'vertical') => void;
 }
 
-const STEPS = [1, 2, 5, 10] as const;
+const STEPS = [1, 2, 5, 10, 20] as const;
 
 const iconButtonClass =
   'flex h-7 w-7 items-center justify-center rounded-md text-cyan-300 transition-colors hover:bg-cyan-400/10 hover:text-cyan-100 active:scale-95';

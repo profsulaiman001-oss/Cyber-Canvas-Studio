@@ -44,7 +44,7 @@ const sections: ShortcutSection[] = [
       { keys: '⌘/Ctrl + + / − / 0', description: 'Zoom in / out / fit' },
       { keys: '⌘/Ctrl + mouse wheel', description: 'Zoom canvas' },
       { keys: 'Arrow keys', description: 'Nudge 1px' },
-      { keys: 'Shift + Arrow keys', description: 'Nudge 10px' },
+      { keys: 'Shift + Arrow keys', description: 'Nudge 20px' },
     ],
   },
   {

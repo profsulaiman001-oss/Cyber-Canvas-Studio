@@ -190,6 +190,7 @@ export default function DesignEditor() {
     onContextMenu: handleCanvasContextMenu,
     onLongPress: handleCanvasLongPress,
     close: closeContextMenu,
+    menuRef,
   } = useContextMenu(controller);
 
   const saveCurrentProject = useCallback(async () => {
@@ -1358,6 +1359,7 @@ export default function DesignEditor() {
         canPaste={controller.hasClipboard()}
         canPasteStyle={controller.hasStyleClipboard()}
         onClose={closeContextMenu}
+        menuRef={menuRef}
         actions={contextMenuActions}
       />
       <TextPanel controller={controller} />

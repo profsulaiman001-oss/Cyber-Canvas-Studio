@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect } from 'react';
+import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlignCenterHorizontal,
@@ -32,6 +33,7 @@ import {
   Trash2,
   Unlock,
   Ungroup,
+  X,
   ZoomIn,
 } from 'lucide-react';
 
@@ -96,6 +98,7 @@ interface ContextMenuProps {
   selectedIsGroup: boolean;
   canPaste: boolean;
   canPasteStyle: boolean;
+  menuRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
   actions: ContextMenuActions;
 }
@@ -140,31 +143,25 @@ export default function ContextMenu({
   selectedIsGroup,
   canPaste,
   canPasteStyle,
+  menuRef,
   onClose,
   actions,
 }: ContextMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open || !menuRef.current) return;
+    const menu = menuRef.current;
+    const viewport = window.visualViewport;
+    const viewportWidth = viewport?.width ?? window.innerWidth;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    const margin = 8;
+    const menuWidth = menu.getBoundingClientRect().width;
+    const menuHeight = menu.getBoundingClientRect().height;
+    const left = Math.max(margin, Math.min(x, viewportWidth - menuWidth - margin));
+    const top = Math.max(margin, Math.min(y, viewportHeight - menuHeight - margin));
 
-  useEffect(() => {
-    if (!open) return;
-    const dismissOnOutside = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) onClose();
-    };
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    const dismissOnViewportChange = () => onClose();
-    document.addEventListener('pointerdown', dismissOnOutside);
-    window.addEventListener('keydown', dismissOnEscape);
-    window.addEventListener('scroll', dismissOnViewportChange, true);
-    window.addEventListener('wheel', dismissOnViewportChange, { passive: true });
-    return () => {
-      document.removeEventListener('pointerdown', dismissOnOutside);
-      window.removeEventListener('keydown', dismissOnEscape);
-      window.removeEventListener('scroll', dismissOnViewportChange, true);
-      window.removeEventListener('wheel', dismissOnViewportChange);
-    };
-  }, [onClose, open]);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }, [menuRef, open, x, y]);
 
   if (!open) return null;
 
@@ -173,35 +170,63 @@ export default function ContextMenu({
     action();
   };
 
-  const width = Math.min(292, Math.max(0, window.innerWidth - 16));
-  const maxHeight = Math.min(620, Math.max(0, window.innerHeight - 16));
-  const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
-  const top = Math.max(8, Math.min(y, window.innerHeight - maxHeight - 8));
+  const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const width = Math.min(292, Math.max(0, viewportWidth - 16));
+  const maxHeight = Math.max(0, viewportHeight - 80);
+  const left = Math.max(8, Math.min(x, viewportWidth - width - 8));
+  const top = Math.max(8, Math.min(y, viewportHeight - maxHeight - 8));
 
   return createPortal(
     <div
       ref={menuRef}
       role="menu"
       aria-label={hasSelection ? 'Object context menu' : 'Canvas context menu'}
-      className="fixed max-h-[min(80dvh,620px)] w-[292px] overflow-y-auto rounded-xl border border-cyan-300/20 bg-[#11141A]/[.98] p-1 text-foreground shadow-2xl backdrop-blur-xl"
-      style={{ left, top, width, maxHeight, zIndex: 999999 }}
+      className="fixed flex max-h-[calc(100vh-80px)] flex-col overflow-hidden rounded-xl border border-cyan-300/20 bg-[#11141A]/[.98] text-foreground shadow-2xl backdrop-blur-xl"
+      style={{ left, top, width, maxHeight: 'calc(100dvh - 80px)', zIndex: 999999 }}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
       }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+      onTouchMove={(event) => event.stopPropagation()}
     >
-      <div className="flex items-center justify-between px-2.5 py-2">
+      <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-white/10 bg-[#11141A] px-3 py-2">
         <div className="flex items-center gap-2">
           {hasSelection ? <Layers size={14} className="text-cyan-300" /> : <PanelTop size={14} className="text-cyan-300" />}
-          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-200">
-            {hasSelection ? `${selectionCount} selected` : 'Canvas'}
+          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
+            {hasSelection
+              ? `${selectionCount} ${selectionCount === 1 ? 'object' : 'objects'} selected`
+              : 'Canvas actions'}
           </span>
         </div>
-        <span className="text-[9px] text-muted-foreground">Right-click menu</span>
+        <button
+          type="button"
+          aria-label="Close context menu"
+          title="Close"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            onClose();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onClose();
+          }}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-cyan-400/10 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+          data-testid="context-menu-close"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
       </div>
 
-      {!hasSelection ? (
-        <>
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-1"
+        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+        data-testid="context-menu-list"
+      >
+        {!hasSelection ? (
+          <>
           <Section>
             <MenuItem icon={<Clipboard size={14} />} label="Paste" onClick={() => run(actions.onPaste)} disabled={!canPaste} hint="⌘/Ctrl V" />
             <MenuItem icon={<Clipboard size={14} />} label="Paste in Place" onClick={() => run(actions.onPasteInPlace)} disabled={!canPaste} />
@@ -223,9 +248,9 @@ export default function ContextMenu({
             <MenuItem icon={<ImageDown size={14} />} label="Import Asset" onClick={() => run(actions.onImportAsset)} />
             <MenuItem icon={<ImageDown size={14} />} label="Export Full Canvas" onClick={() => run(actions.onExportCanvas)} />
           </Section>
-        </>
-      ) : (
-        <>
+          </>
+        ) : (
+          <>
           <Section>
             <MenuItem icon={<Scissors size={14} />} label="Cut" onClick={() => run(actions.onCut)} hint="⌘/Ctrl X" />
             <MenuItem icon={<Copy size={14} />} label="Copy" onClick={() => run(actions.onCopy)} hint="⌘/Ctrl C" />
@@ -272,8 +297,9 @@ export default function ContextMenu({
             <MenuItem icon={<ImageDown size={14} />} label="Export Selection As…" onClick={() => run(actions.onExportSelection)} />
             <MenuItem icon={<FolderOpen size={14} />} label="Save as Reusable Component" onClick={() => run(actions.onSaveComponent)} />
           </Section>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>,
     document.body,
   );

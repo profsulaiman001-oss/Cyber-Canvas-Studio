@@ -162,6 +162,34 @@ export function useLongPress(onLongPress: LongPressCallback, threshold = 500) {
 
 export function useContextMenu(controller: CanvasController) {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const close = useCallback(() => setPosition(null), []);
+
+  useEffect(() => {
+    if (!position) return;
+
+    const dismissOnOutside = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Node) || menuRef.current?.contains(target)) return;
+      close();
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+
+    // Capture catches outside taps before canvas handlers run. The containment
+    // check keeps interactions inside the portal, including touch scrolling,
+    // from dismissing the menu.
+    document.addEventListener('pointerdown', dismissOnOutside, true);
+    document.addEventListener('touchstart', dismissOnOutside, { capture: true, passive: true });
+    window.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutside, true);
+      document.removeEventListener('touchstart', dismissOnOutside, true);
+      window.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [close, position]);
 
   const openAt = useCallback((clientX: number, clientY: number) => {
     const canvas = controller.getCanvas();
@@ -212,7 +240,5 @@ export function useContextMenu(controller: CanvasController) {
     openAt(clientX, clientY);
   }, [openAt]);
 
-  const close = useCallback(() => setPosition(null), []);
-
-  return { position, openAt, onContextMenu, onLongPress, close };
+  return { position, openAt, onContextMenu, onLongPress, close, menuRef };
 }

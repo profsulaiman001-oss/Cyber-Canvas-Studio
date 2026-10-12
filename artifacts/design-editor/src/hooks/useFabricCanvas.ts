@@ -719,27 +719,33 @@ function drawInnerShadow(
   // The inverse mask is the whole local bounds with the exact object path
   // removed. Its blurred/offset edge becomes visible only inside the object.
   shadowCtx.save();
-  shadowCtx.translate(pad + w / 2, pad + h / 2);
-  shadowCtx.shadowColor = cfg.color;
-  shadowCtx.shadowBlur = Math.max(0, cfg.blur);
-  shadowCtx.shadowOffsetX = cfg.offsetX;
-  shadowCtx.shadowOffsetY = cfg.offsetY;
-  shadowCtx.globalAlpha = Math.max(0, Math.min(1, cfg.opacity / 100));
-  shadowCtx.fillStyle = cfg.color;
-  shadowCtx.beginPath();
-  shadowCtx.rect(-w / 2 - pad, -h / 2 - pad, w + pad * 2, h + pad * 2);
-  appendNativeObjectPath(shadowCtx, obj);
-  shadowCtx.fill('evenodd');
-  shadowCtx.restore();
+  try {
+    shadowCtx.translate(pad + w / 2, pad + h / 2);
+    shadowCtx.shadowColor = cfg.color;
+    shadowCtx.shadowBlur = Math.max(0, cfg.blur);
+    shadowCtx.shadowOffsetX = cfg.offsetX;
+    shadowCtx.shadowOffsetY = cfg.offsetY;
+    shadowCtx.globalAlpha = Math.max(0, Math.min(1, cfg.opacity / 100));
+    shadowCtx.fillStyle = cfg.color;
+    shadowCtx.beginPath();
+    shadowCtx.rect(-w / 2 - pad, -h / 2 - pad, w + pad * 2, h + pad * 2);
+    appendNativeObjectPath(shadowCtx, obj);
+    shadowCtx.fill('evenodd');
+  } finally {
+    shadowCtx.restore();
+  }
 
   ctx.save();
-  // This runs inside the object's own draw/cache pass. Keeping the composition
-  // local prevents a grouped child's shadow from painting over sibling layers.
-  traceNativeObjectPath(ctx, obj);
-  ctx.clip();
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.drawImage(shadowCanvas, -w / 2 - pad, -h / 2 - pad);
-  ctx.restore();
+  try {
+    // The private object cache contains only this object's source alpha. Clip
+    // to its native path as well so the blurred inverse mask cannot escape it.
+    traceNativeObjectPath(ctx, obj);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.drawImage(shadowCanvas, -w / 2 - pad, -h / 2 - pad);
+  } finally {
+    ctx.restore();
+  }
 }
 
 /* ─── True 3D extrusion renderer ─── */
@@ -945,12 +951,16 @@ function installInnerShadowRenderHook(obj: FabricObject) {
     if (innerShadow?.enabled) drawInnerShadow(ctx, this, innerShadow);
   };
 
-  // An isolated object cache keeps source-atop confined to this object's own
-  // pixels when it is rendered as a child inside a cached group.
-  const originalNeedsItsOwnCache = obj.needsItsOwnCache;
-  obj.needsItsOwnCache = function (this: FabricObject) {
+  // Force a private cache for inner-shadow composition, even when the object's
+  // objectCaching flag is off or it is rendered inside a cached parent group.
+  const originalShouldCache = obj.shouldCache;
+  obj.shouldCache = function (this: FabricObject) {
     const innerShadow = (this as FabricObject & { _innerShadow?: { enabled?: boolean } | null })._innerShadow;
-    return Boolean(innerShadow?.enabled) || originalNeedsItsOwnCache.call(this);
+    if (innerShadow?.enabled) {
+      this.ownCaching = true;
+      return true;
+    }
+    return originalShouldCache.call(this);
   };
   objectsWithInnerShadowRenderHook.add(obj);
 }
@@ -1536,7 +1546,7 @@ export function useFabricCanvas(
       if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
     });
 
-    /* ─── Render-local 3D depth hooks + after-render inner shadows ─── */
+    /* ─── Render-local 3D and inner-shadow hooks ─── */
     c.on('before:render', () => {
       // Install on the actual Fabric objects (including group children) before
       // the ordered object pass, so their depth is painted immediately below

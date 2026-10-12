@@ -54,9 +54,6 @@ export interface LayerCardProps {
   cardRef: RefCallback<HTMLDivElement>;
   onSelect: () => void;
   onDragStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onDragMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onDragEnd: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onDragCancel: () => void;
   onSelectChecked: (checked: boolean) => void;
   onToggleVisibility: () => void;
   onToggleLock: () => void;
@@ -276,9 +273,6 @@ export default function LayerCard({
   cardRef,
   onSelect,
   onDragStart,
-  onDragMove,
-  onDragEnd,
-  onDragCancel,
   onSelectChecked,
   onToggleVisibility,
   onToggleLock,
@@ -336,11 +330,8 @@ export default function LayerCard({
       <div className="flex min-w-0 items-center gap-2">
         <div
           onPointerDown={onDragStart}
-          onPointerMove={onDragMove}
-          onPointerUp={onDragEnd}
-          onPointerCancel={onDragCancel}
           className="flex h-8 w-5 shrink-0 cursor-grab items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-cyan-200 active:cursor-grabbing"
-          style={{ touchAction: 'none' }}
+          style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
           title={`Drag ${obj.name} to reorder or organize`}
           aria-label={`Drag ${obj.name} to reorder or organize`}
         >

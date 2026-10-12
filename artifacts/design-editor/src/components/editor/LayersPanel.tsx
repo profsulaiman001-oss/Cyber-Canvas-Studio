@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
-import { Layers2, Ungroup } from 'lucide-react';
-import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useEffect, useRef, useState } from 'react';
+import { Layers2, Ungroup, X } from 'lucide-react';
+import { Sheet, SheetClose, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -130,12 +130,16 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   const [dropId, setDropId] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const dragTreeRef = useRef<ObjectMeta[] | null>(null);
+  const dragSessionRef = useRef<{ pointerId: number; id: string } | null>(null);
+  const pointerMoveHandlerRef = useRef<(event: PointerEvent) => void>(() => {});
+  const pointerUpHandlerRef = useRef<(event: PointerEvent) => void>(() => {});
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const displayedTree = dragTree || objects;
   const flatLayers = flattenLayers(displayedTree, collapsedGroups);
 
   const clearDragState = () => {
+    dragSessionRef.current = null;
     dragTreeRef.current = null;
     setDragTree(null);
     setDraggingId(null);
@@ -146,17 +150,24 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Window-level listeners below still handle the drag if capture is unavailable.
+    }
     const initialTree = cloneLayerTree(objects);
+    dragSessionRef.current = { pointerId: event.pointerId, id };
     dragTreeRef.current = initialTree;
     setDragTree(initialTree);
     setDraggingId(id);
     setDropId(id);
   };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = (event: PointerEvent) => {
+    const session = dragSessionRef.current;
+    if (!session || event.pointerId !== session.pointerId) return;
     const currentTree = dragTreeRef.current;
-    const currentDraggingId = draggingId;
+    const currentDraggingId = session.id;
     if (!currentTree || !currentDraggingId) return;
     event.preventDefault();
 
@@ -203,16 +214,37 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
     setDropId(visualDropId);
   };
 
-  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerUp = (event: PointerEvent) => {
+    const session = dragSessionRef.current;
+    if (!session || event.pointerId !== session.pointerId) return;
+    event.preventDefault();
     const finalTree = dragTreeRef.current;
     if (finalTree) {
       const original = JSON.stringify(toOrderNodes(objects));
       const next = JSON.stringify(toOrderNodes(finalTree));
       if (original !== next) controller.reorderLayerTree(toOrderNodes(finalTree));
     }
-    event.preventDefault();
     clearDragState();
   };
+
+  pointerMoveHandlerRef.current = handlePointerMove;
+  pointerUpHandlerRef.current = handlePointerUp;
+
+  useEffect(() => {
+    if (!draggingId) return;
+    const onPointerMove = (event: PointerEvent) => pointerMoveHandlerRef.current(event);
+    const onPointerUp = (event: PointerEvent) => pointerUpHandlerRef.current(event);
+    const onPointerCancel = (event: PointerEvent) => pointerUpHandlerRef.current(event);
+
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUp, { passive: false });
+    window.addEventListener('pointercancel', onPointerCancel, { passive: false });
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+    };
+  }, [draggingId]);
 
   const startRename = (obj: ObjectMeta) => {
     setEditingId(obj.id);
@@ -272,6 +304,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
       <Sheet open={isOpen} onOpenChange={(open) => !open && dispatch({ type: 'CLOSE_PANEL' })}>
         <ResponsiveDrawerWrapper
           className="rounded-t-2xl p-0"
+          showCloseButton={false}
           style={{
             maxHeight: '82vh',
             background: 'rgba(13, 17, 23, 0.90)',
@@ -281,6 +314,20 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
           }}
           data-testid="layers-panel"
         >
+          <SheetClose asChild>
+            <button
+              type="button"
+              aria-label="Close layers panel"
+              data-testid="button-close-layers-panel"
+              className="absolute right-4 top-4 z-20 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-80 transition-colors hover:bg-white/[0.08] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              onClick={(event) => {
+                event.stopPropagation();
+                dispatch({ type: 'CLOSE_PANEL' });
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </SheetClose>
           <SheetHeader className="px-4 pb-3 pt-5">
             <div className="relative flex items-start justify-between gap-3 pr-10">
               <div>
@@ -337,9 +384,6 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                     }}
                     onSelect={() => controller.selectObjectById(obj.id)}
                     onDragStart={(event) => handlePointerDown(event, obj.id)}
-                    onDragMove={handlePointerMove}
-                    onDragEnd={handlePointerUp}
-                    onDragCancel={clearDragState}
                     onSelectChecked={(checked) => handleToggleSelected(obj.id, checked)}
                     onToggleVisibility={() => handleToggleVisibility(obj)}
                     onToggleLock={() => handleToggleLock(obj)}

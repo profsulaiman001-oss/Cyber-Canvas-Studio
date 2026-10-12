@@ -7,8 +7,12 @@ Grouped layers should use Fabric's object-level data URL rendering so child fill
 
 The layer panel's compact row keeps the reorder handle, 40px preview, title/type badge, selection, visibility, lock, and More Actions control visible. Put fine z-order actions in the expandable shelf, while keeping rename, select/target, duplicate, group, delete, solo, and color tags available there or in existing panel-level group controls.
 
+For cross-platform layer dragging, start only from the drag handle, track the active pointer through window-level move/up/cancel events, and commit the current preview on pointer cancellation.
+
 **Why:** Low-level object rendering can produce blank group thumbnails, while row-index-only drops feel stepwise and make z-order actions difficult to discover.
 
 **Why:** The compact card reduces clutter without removing layer operations users already depend on.
+
+**Why:** Touch browsers may terminate pointer capture during a drag; a global pointer lifecycle prevents missed drops, and committing on cancellation avoids discarding the visible reorder.
 
 **How to apply:** Include nested group content in visual-change signatures so thumbnails refresh after child edits, keep panel order conversion separate from canvas stack order, and expose explicit front/back/forward/backward controller methods from the expanded action shelf.

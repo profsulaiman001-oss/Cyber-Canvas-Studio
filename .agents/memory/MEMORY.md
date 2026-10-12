@@ -17,6 +17,7 @@
 - [Copy/paste clipboard](copy-paste.md) — internal canvas clipboard via clipboardRef in useFabricCanvas; copySelected clones active obj into ref; pasteSelected clones ref and offsets +20,+20
 - [Pre-fill crop flow](pre-fill-crop.md) — FillCropModal intercepts fill-with-image in DesignEditor; pendingFillTargetRef stores target shape; onApply receives HTMLCanvasElement cropped region then calls fillShapeWithImage(obj, canvas)
 - [Fabric word spacing](fabric-word-spacing.md) — patch FabricText measurement for all text classes; recalculate dimensions and dirty the cache when spacing changes
+- [Fabric text selection timing](fabric-text-selection.md) — defer reading canvas text selection indices; Fabric 7 emits its change event before updating the final endpoint
 - [Workspace dependency install](workspace-dependencies.md) — use a package-scoped install when workspace links are missing; the generic package helper may target the root incorrectly
 - [Editor persistence](editor-persistence.md) — image sources must remain data URLs and undo entries store the prior committed canvas state
 - [Color Studio gradient context](color-studio-gradient-context.md) — solid color sources target the focused gradient stop; full gradient presets replace the whole fill; live edits commit only on Apply

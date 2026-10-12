@@ -8,8 +8,20 @@ import type {
 
 type StyledTextObject = IText & CanvasTextProperties;
 
+let graphemeSegmenter: Intl.Segmenter | null = null;
+
+function splitIntoCharacters(text: string): string[] {
+  if (typeof Intl.Segmenter === 'undefined') return Array.from(text);
+  graphemeSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  return Array.from(graphemeSegmenter.segment(text), ({ segment }) => segment);
+}
+
 export function getCharacterCount(text: string): number {
-  return Array.from(text).length;
+  return splitIntoCharacters(text).length;
+}
+
+export function getCharacterTextRange(text: string, start: number, end: number): string {
+  return splitIntoCharacters(text).slice(start, end + 1).join('');
 }
 
 export function getCharacterStyleAt(

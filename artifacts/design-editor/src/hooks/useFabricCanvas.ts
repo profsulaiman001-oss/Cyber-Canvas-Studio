@@ -775,7 +775,7 @@ function draw3DLayer(
   ctx: CanvasRenderingContext2D,
   obj: FabricObject,
   cfg: Depth3DRenderConfig,
-  vp: number[]
+  renderObject: FabricObject['render'],
 ) {
   const {
     steps,
@@ -813,8 +813,8 @@ function draw3DLayer(
   // Each step = 2px offset so depth is visible on large shapes; paint farthest first
   const PX_PER_STEP = 2;
   const totalDepth = Math.max(1, steps) * PX_PER_STEP;
-  // Bevel: object center in design-space coordinates for scale pivot
-  const center = bevel ? obj.getCenterPoint() : null;
+  // Bevel: object center in parent-plane coordinates for the scale pivot.
+  const center = bevel ? obj.getRelativeCenterPoint() : null;
   // bevelTaper is 0–50 (percentage); farthest layer shrinks by that fraction
   const taperFraction = bevelTaper / 100;
   const directionalLight = Math.max(0, Math.min(1, (Math.cos(lightRad - ar) + 1) / 2));
@@ -835,85 +835,107 @@ function draw3DLayer(
   // A soft cast shadow follows the extrusion direction and fades according to
   // the selected falloff. It is drawn before the slabs so depth remains behind
   // the front face instead of reading as a second object.
-  if (shadowDepth > 0) {
-    const shadowAlpha = baseOpacity * (shadowDepth / 100) * 0.38;
-    o.fill = '#05070A';
-    o.stroke = '#05070A';
-    o.shadow = new Shadow({
-      color: `rgba(0,0,0,${shadowAlpha.toFixed(3)})`,
-      blur: Math.max(1, totalDepth * (0.08 + shadowFalloff / 100 * 0.42)),
-      offsetX: Math.cos(ar) * totalDepth * 0.42,
-      offsetY: Math.sin(ar) * totalDepth * 0.42,
-    });
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = baseOpacity * (shadowDepth / 100) * 0.34;
-    ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
-    ctx.translate(Math.cos(ar) * totalDepth * 0.22, Math.sin(ar) * totalDepth * 0.22);
-    obj.render(ctx);
-    ctx.restore();
-    o.shadow = null;
-  }
-
-  for (let i = steps; i >= 1; i--) {
-    const t = i / steps; // 1 = farthest, near 0 = closest
-    const ox = Math.cos(ar) * i * PX_PER_STEP;
-    const oy = Math.sin(ar) * i * PX_PER_STEP;
-    const depthShade = Math.max(
-      0,
-      Math.min(0.92, (darkenIntensity / 100) * (0.35 + t * 0.65) + (shadowFalloff / 100) * t * 0.16),
-    );
-    const layerLight = Math.max(0, Math.min(1, lightFactor * (1 - t * 0.24)));
-    const specular = Math.pow(Math.max(0, directionalLight), specularExponent)
-      * (lightIntensity / 100)
-      * (1 - t * 0.78);
-    const shaded = mixExtrusionColor(color, '#05070A', depthShade);
-    const mid = mixExtrusionColor(shaded, '#182331', layerLight * 0.36);
-    const highlight = mixExtrusionColor(mid, '#D8F7FF', layerLight * 0.5);
-    const specularColor = mixExtrusionColor(highlight, '#FFFFFF', specular * 0.8);
-    const layerGradient = new Gradient({
-      type: 'linear',
-      coords: gradientCoords,
-      colorStops: [
-        { offset: 0, color: shaded },
-        { offset: Math.max(0.18, 0.46 - specularHardness / 260), color: mid },
-        { offset: Math.min(0.9, 0.72 + specularHardness / 360), color: specularColor },
-        { offset: 1, color: highlight },
-      ],
-      gradientUnits: 'pixels',
-    });
-    o.fill = layerGradient;
-    o.stroke = layerGradient;
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-over';
-    // Far slabs are quieter while near slabs retain the directional highlight.
-    ctx.globalAlpha = baseOpacity * (0.34 + 0.52 * (1 - t) + layerLight * 0.12);
-    ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
-    ctx.translate(ox, oy);
-    if (bevel && center) {
-      // Scale inward around the object's design-space center: farthest layer = (1 - taperFraction)
-      const s = 1 - t * taperFraction;
-      ctx.translate(center.x, center.y);
-      ctx.scale(s, s);
-      ctx.translate(-center.x, -center.y);
+  try {
+    if (shadowDepth > 0) {
+      const shadowAlpha = baseOpacity * (shadowDepth / 100) * 0.38;
+      o.fill = '#05070A';
+      o.stroke = '#05070A';
+      o.shadow = new Shadow({
+        color: `rgba(0,0,0,${shadowAlpha.toFixed(3)})`,
+        blur: Math.max(1, totalDepth * (0.08 + shadowFalloff / 100 * 0.42)),
+        offsetX: Math.cos(ar) * totalDepth * 0.42,
+        offsetY: Math.sin(ar) * totalDepth * 0.42,
+      });
+      ctx.save();
+      try {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = baseOpacity * (shadowDepth / 100) * 0.34;
+        ctx.translate(Math.cos(ar) * totalDepth * 0.22, Math.sin(ar) * totalDepth * 0.22);
+        renderObject.call(obj, ctx);
+      } finally {
+        ctx.restore();
+      }
+      o.shadow = null;
     }
-    obj.render(ctx);
-    ctx.restore();
-  }
 
-  // Restore original properties then re-render the main object on top of depth slabs
-  o.fill = origFill;
-  o.stroke = origStroke;
-  o.shadow = origShadow;
-  o.strokeWidth = origSW;
-  o.objectCaching = origCaching;
-  o.dirty = origDirty;
-  ctx.save();
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.globalAlpha = baseOpacity;
-  ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
-  obj.render(ctx);
-  ctx.restore();
+    for (let i = steps; i >= 1; i--) {
+      const t = i / steps; // 1 = farthest, near 0 = closest
+      const ox = Math.cos(ar) * i * PX_PER_STEP;
+      const oy = Math.sin(ar) * i * PX_PER_STEP;
+      const depthShade = Math.max(
+        0,
+        Math.min(0.92, (darkenIntensity / 100) * (0.35 + t * 0.65) + (shadowFalloff / 100) * t * 0.16),
+      );
+      const layerLight = Math.max(0, Math.min(1, lightFactor * (1 - t * 0.24)));
+      const specular = Math.pow(Math.max(0, directionalLight), specularExponent)
+        * (lightIntensity / 100)
+        * (1 - t * 0.78);
+      const shaded = mixExtrusionColor(color, '#05070A', depthShade);
+      const mid = mixExtrusionColor(shaded, '#182331', layerLight * 0.36);
+      const highlight = mixExtrusionColor(mid, '#D8F7FF', layerLight * 0.5);
+      const specularColor = mixExtrusionColor(highlight, '#FFFFFF', specular * 0.8);
+      const layerGradient = new Gradient({
+        type: 'linear',
+        coords: gradientCoords,
+        colorStops: [
+          { offset: 0, color: shaded },
+          { offset: Math.max(0.18, 0.46 - specularHardness / 260), color: mid },
+          { offset: Math.min(0.9, 0.72 + specularHardness / 360), color: specularColor },
+          { offset: 1, color: highlight },
+        ],
+        gradientUnits: 'pixels',
+      });
+      o.fill = layerGradient;
+      o.stroke = layerGradient;
+      ctx.save();
+      try {
+        ctx.globalCompositeOperation = 'source-over';
+        // Far slabs are quieter while near slabs retain the directional highlight.
+        ctx.globalAlpha = baseOpacity * (0.34 + 0.52 * (1 - t) + layerLight * 0.12);
+        ctx.translate(ox, oy);
+        if (bevel && center) {
+          // Scale inward around the object's parent-plane center.
+          const s = 1 - t * taperFraction;
+          ctx.translate(center.x, center.y);
+          ctx.scale(s, s);
+          ctx.translate(-center.x, -center.y);
+        }
+        renderObject.call(obj, ctx);
+      } finally {
+        ctx.restore();
+      }
+    }
+  } finally {
+    o.fill = origFill;
+    o.stroke = origStroke;
+    o.shadow = origShadow;
+    o.strokeWidth = origSW;
+    o.objectCaching = origCaching;
+    o.dirty = origDirty;
+  }
+}
+
+const objectsWith3DRenderHook = new WeakSet<FabricObject>();
+
+function install3DRenderHook(obj: FabricObject) {
+  const state = obj as FabricObject & { _depth3d?: ({ enabled: boolean } & Depth3DRenderConfig) | null };
+  if (!state._depth3d || objectsWith3DRenderHook.has(obj)) return;
+
+  const renderObject = obj.render;
+  obj.render = function (this: FabricObject, ctx: CanvasRenderingContext2D) {
+    const depth3d = (this as typeof state)._depth3d;
+    if (depth3d?.enabled) draw3DLayer(ctx, this, depth3d, renderObject);
+    renderObject.call(this, ctx);
+  };
+  objectsWith3DRenderHook.add(obj);
+}
+
+function install3DRenderHooks(objects: FabricObject[]) {
+  objects.forEach((obj) => {
+    install3DRenderHook(obj);
+    const children = (obj as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
+    if (children) install3DRenderHooks(children);
+  });
 }
 
 export function useFabricCanvas(
@@ -1488,7 +1510,13 @@ export function useFabricCanvas(
       if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
     });
 
-    /* ─── After:render – thumbnail refresh + inner shadow + 3D extrusion ─── */
+    /* ─── Render-local 3D depth hooks + after-render inner shadows ─── */
+    c.on('before:render', () => {
+      // Install on the actual Fabric objects (including group children) before
+      // the ordered object pass, so their depth is painted immediately below
+      // their own face and cannot escape the canvas layer stack.
+      install3DRenderHooks(c.getObjects());
+    });
     c.on('after:render', ({ ctx }) => {
       const visualSignatureNow = c.getObjects()
         .filter((obj) => !(obj as any)._isPenAux && !(obj as any)._isAuxLayer)
@@ -1505,10 +1533,6 @@ export function useFabricCanvas(
         // Inner shadow
         const cfg = (obj as FabricObject & { _innerShadow?: { enabled: boolean; color: string; blur: number; offsetX: number; offsetY: number; opacity: number } })._innerShadow;
         if (cfg?.enabled) drawInnerShadow(ctx, obj, cfg, vp);
-        // True 3D extrusion
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const depth3d = (obj as any)._depth3d as ({ enabled: boolean } & Depth3DRenderConfig) | undefined;
-        if (depth3d?.enabled) draw3DLayer(ctx, obj, depth3d, vp);
       });
     });
 
@@ -2084,7 +2108,14 @@ export function useFabricCanvas(
   } | null) => {
     if (!obj) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (obj as any)._depth3d = cfg;
+    const target = obj as FabricObject & { _depth3d?: unknown };
+    target._depth3d = cfg;
+    target.dirty = true;
+    let parent = target.group;
+    while (parent) {
+      parent.dirty = true;
+      parent = parent.group;
+    }
     canvasRef.current?.requestRenderAll();
     pushUndo();
   }, [pushUndo]);

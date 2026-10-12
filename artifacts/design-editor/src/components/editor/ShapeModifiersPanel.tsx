@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { Sheet, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController, FABRIC_EDITOR_CLONE_PROPS } from '@/hooks/useFabricCanvas';
-import { FabricObject, Path as FabricPath, Canvas } from 'fabric';
+import { FabricObject, Path as FabricPath, Canvas, Group } from 'fabric';
 import { useToast } from '@/hooks/use-toast';
 import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 import { Layers2 } from 'lucide-react';
@@ -134,12 +134,161 @@ function tagNewPath(path: FabricPath, name: string) {
   (path as any)._isCustomName = true;
 }
 
+function tagNewGroup(group: Group, name: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const target = group as any;
+  target._uid = `obj_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  target._name = name;
+  target._isCustomName = true;
+}
+
 function refFill(objs: FabricObject[]): string {
   for (const o of objs) if (typeof o.fill === 'string' && o.fill) return o.fill;
   return '#00F5FF';
 }
 
-async function performCompound(objs: FabricObject[], canvas: Canvas): Promise<boolean> {
+const UNION_STYLE_KEYS = [
+  'fill',
+  'stroke',
+  'strokeWidth',
+  'strokeDashArray',
+  'strokeDashOffset',
+  'strokeLineCap',
+  'strokeLineJoin',
+  'strokeMiterLimit',
+  'strokeUniform',
+  'opacity',
+  'shadow',
+  'fillRule',
+  'paintFirst',
+  'globalCompositeOperation',
+  'backgroundColor',
+  'effect3D',
+  'innerShadow',
+  '_depth3d',
+  '_innerShadow',
+  '_glow',
+  '_gradientConfig',
+  '_textureKey',
+  '_origFill',
+  '_adjustmentBase',
+  '_adjustments',
+  'typographyNeon',
+  'typographyTransform',
+  'typographyOriginalText',
+] as const;
+
+function hasUniformUnionStyle(objs: FabricObject[]): boolean {
+  if (objs.some((obj) =>
+    obj.type === 'image' ||
+    (obj.fill != null && typeof obj.fill !== 'string') ||
+    (obj.stroke != null && typeof obj.stroke !== 'string')
+  )) {
+    // Gradients/patterns and image pixels are object-local paints. Flattening
+    // them into a new path changes their coordinate space or drops their pixels.
+    return false;
+  }
+
+  const signatures = objs.map((obj) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const serialized = (obj as any).toObject(FABRIC_EDITOR_CLONE_PROPS) as Record<string, unknown>;
+    return JSON.stringify(Object.fromEntries(
+      UNION_STYLE_KEYS.map((key) => [key, serialized[key]]),
+    ));
+  });
+  return signatures.every((signature) => signature === signatures[0]);
+}
+
+function preserveAsStyledGroup(objs: FabricObject[], canvas: Canvas, name: string) {
+  // This is the lossless representation when one compound path cannot carry
+  // several different fills, gradients, strokes, shadows, or 3D settings.
+  const originalOrder = canvas.getObjects();
+  const selectedSet = new Set(objs);
+  const topmostSelectedIndex = Math.max(...objs.map((obj) => originalOrder.indexOf(obj)));
+  const groupIndex = topmostSelectedIndex < 0
+    ? -1
+    : originalOrder.slice(0, topmostSelectedIndex + 1).filter((obj) => !selectedSet.has(obj)).length;
+
+  canvas.discardActiveObject();
+  const group = new Group(objs);
+  canvas.remove(...objs);
+  tagNewGroup(group, name);
+  if (groupIndex >= 0) canvas.insertAt(Math.min(groupIndex, canvas.getObjects().length), group);
+  else canvas.add(group);
+  canvas.setActiveObject(group);
+  canvas.renderAll();
+}
+
+function cloneEffectConfig<T>(value: T): T {
+  if (value == null) return value;
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
+}
+
+function copyEditorEffects(source: FabricObject, target: FabricObject) {
+  const effectKeys = [
+    '_depth3d',
+    '_innerShadow',
+    '_glow',
+    '_gradientConfig',
+    '_textureKey',
+    '_origFill',
+    '_adjustmentBase',
+    '_adjustments',
+    'effect3D',
+    'innerShadow',
+    'typographyNeon',
+    'typographyTransform',
+    'typographyOriginalText',
+  ];
+  const sourceRecord = source as FabricObject & Record<string, unknown>;
+  const targetRecord = target as FabricObject & Record<string, unknown>;
+  effectKeys.forEach((key) => {
+    if (sourceRecord[key] !== undefined) {
+      targetRecord[key] = cloneEffectConfig(sourceRecord[key]);
+    }
+  });
+  target.dirty = true;
+}
+
+function makeStyledResultPath(
+  pathData: string,
+  source: FabricObject,
+  name: string,
+  overrides: { fillRule?: 'nonzero' | 'evenodd' } = {},
+) {
+  const path = new FabricPath(pathData, {
+    fill: source.fill ?? refFill([source]),
+    stroke: source.stroke,
+    strokeWidth: source.strokeWidth,
+    strokeDashArray: source.strokeDashArray ? [...source.strokeDashArray] : source.strokeDashArray,
+    strokeDashOffset: source.strokeDashOffset,
+    strokeLineCap: source.strokeLineCap,
+    strokeLineJoin: source.strokeLineJoin,
+    strokeMiterLimit: source.strokeMiterLimit,
+    strokeUniform: source.strokeUniform,
+    opacity: source.opacity,
+    shadow: source.shadow,
+    fillRule: overrides.fillRule ?? source.fillRule,
+    paintFirst: source.paintFirst,
+    globalCompositeOperation: source.globalCompositeOperation,
+    backgroundColor: source.backgroundColor,
+    visible: source.visible,
+  });
+  tagNewPath(path, name);
+  copyEditorEffects(source, path);
+  return path;
+}
+
+async function performCompound(objs: FabricObject[], canvas: Canvas): Promise<boolean | 'styled-group'> {
+  if (!hasUniformUnionStyle(objs)) {
+    preserveAsStyledGroup(objs, canvas, 'Compound (Styles Preserved)');
+    return 'styled-group';
+  }
+
   const pp = await getPaper();
   pp.project.clear();
 
@@ -161,14 +310,7 @@ async function performCompound(objs: FabricObject[], canvas: Canvas): Promise<bo
   const combinedD = dParts.filter(Boolean).join(' ');
   if (!combinedD.trim()) return false;
 
-  const newPath = new FabricPath(combinedD, {
-    fill: refFill(objs),
-    stroke: (objs[0].stroke as string) || undefined,
-    strokeWidth: objs[0].strokeWidth || 0,
-    opacity: objs[0].opacity ?? 1,
-    fillRule: 'evenodd',
-  });
-  tagNewPath(newPath, 'Compound Path');
+  const newPath = makeStyledResultPath(combinedD, objs[0], 'Compound Path', { fillRule: 'evenodd' });
   objs.forEach((o) => canvas.remove(o));
   canvas.add(newPath);
 
@@ -187,9 +329,13 @@ async function performCompound(objs: FabricObject[], canvas: Canvas): Promise<bo
   return true;
 }
 
-async function performBooleanOp(objs: FabricObject[], op: BoolOp, canvas: Canvas): Promise<boolean> {
+async function performBooleanOp(objs: FabricObject[], op: BoolOp, canvas: Canvas): Promise<boolean | 'styled-group'> {
   if (op === 'compound') return performCompound(objs, canvas);
   if (objs.length < 2) return false;
+  if (op === 'unite' && !hasUniformUnionStyle(objs)) {
+    preserveAsStyledGroup(objs, canvas, 'Union (Styles Preserved)');
+    return 'styled-group';
+  }
 
   // Capture bounding box BEFORE removing objects
   const activeObj = canvas.getActiveObject();
@@ -273,13 +419,7 @@ async function performBooleanOp(objs: FabricObject[], op: BoolOp, canvas: Canvas
       unite: 'Union', subtract: 'Subtract', intersect: 'Intersect',
       exclude: 'Exclude', divide: 'Divide', trim: 'Trim', weld: 'Weld',
     };
-    const newPath = new FabricPath(resultPathData, {
-      fill: refFill(objs),
-      stroke: (objs[0].stroke as string) || undefined,
-      strokeWidth: objs[0].strokeWidth || 0,
-      opacity: objs[0].opacity ?? 1,
-    });
-    tagNewPath(newPath, `${opLabels[op] || op} Result`);
+    const newPath = makeStyledResultPath(resultPathData, objs[0], `${opLabels[op] || op} Result`);
 
     objs.forEach((o) => canvas.remove(o));
     canvas.add(newPath);
@@ -330,10 +470,18 @@ export default function ShapeModifiersPanel({ controller }: ShapeModifiersPanelP
     }
     setProcessing(op);
     try {
-      const ok = await performBooleanOp(objs, op, c);
-      if (ok) {
+      const result = await performBooleanOp(objs, op, c);
+      if (result) {
+        controller.pushUndoNow();
         controller.syncObjects();
-        toast({ title: `${OPS.find(o => o.id === op)?.label} applied` });
+        toast({
+          title: result === 'styled-group'
+            ? `${OPS.find(o => o.id === op)?.label} kept as a styled group`
+            : `${OPS.find(o => o.id === op)?.label} applied`,
+          description: result === 'styled-group'
+            ? 'Different fills or effects cannot be represented by one path, so the original styled objects were preserved.'
+            : undefined,
+        });
       } else {
         toast({ title: 'Operation produced no result', description: 'Objects may not overlap', variant: 'destructive' });
       }

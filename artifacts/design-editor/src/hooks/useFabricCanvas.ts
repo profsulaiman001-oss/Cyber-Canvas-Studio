@@ -704,7 +704,6 @@ function drawInnerShadow(
   ctx: CanvasRenderingContext2D,
   obj: FabricObject,
   cfg: { color: string; blur: number; offsetX: number; offsetY: number; opacity: number },
-  vp: number[],
 ) {
   const w = Math.max(1, obj.width ?? 100);
   const h = Math.max(1, obj.height ?? 100);
@@ -733,13 +732,9 @@ function drawInnerShadow(
   shadowCtx.fill('evenodd');
   shadowCtx.restore();
 
-  const matrix = obj.calcTransformMatrix();
   ctx.save();
-  ctx.transform(vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]);
-  ctx.transform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
-
-  // Clip with the active native geometry, then use source-atop so the
-  // generated inverse-mask shadow cannot paint outside the object's pixels.
+  // This runs inside the object's own draw/cache pass. Keeping the composition
+  // local prevents a grouped child's shadow from painting over sibling layers.
   traceNativeObjectPath(ctx, obj);
   ctx.clip();
   ctx.globalCompositeOperation = 'source-atop';
@@ -916,6 +911,7 @@ function draw3DLayer(
 }
 
 const objectsWith3DRenderHook = new WeakSet<FabricObject>();
+const objectsWithInnerShadowRenderHook = new WeakSet<FabricObject>();
 
 function install3DRenderHook(obj: FabricObject) {
   const state = obj as FabricObject & { _depth3d?: ({ enabled: boolean } & Depth3DRenderConfig) | null };
@@ -930,9 +926,39 @@ function install3DRenderHook(obj: FabricObject) {
   objectsWith3DRenderHook.add(obj);
 }
 
+function installInnerShadowRenderHook(obj: FabricObject) {
+  if (objectsWithInnerShadowRenderHook.has(obj)) return;
+
+  const originalDrawObject = obj.drawObject;
+  obj.drawObject = function (
+    this: FabricObject,
+    ctx: CanvasRenderingContext2D,
+    forClipping: boolean,
+    context: Parameters<FabricObject['drawObject']>[2],
+  ) {
+    originalDrawObject.call(this, ctx, forClipping, context);
+    if (forClipping) return;
+
+    const innerShadow = (this as FabricObject & {
+      _innerShadow?: { enabled?: boolean; color: string; blur: number; offsetX: number; offsetY: number; opacity: number } | null;
+    })._innerShadow;
+    if (innerShadow?.enabled) drawInnerShadow(ctx, this, innerShadow);
+  };
+
+  // An isolated object cache keeps source-atop confined to this object's own
+  // pixels when it is rendered as a child inside a cached group.
+  const originalNeedsItsOwnCache = obj.needsItsOwnCache;
+  obj.needsItsOwnCache = function (this: FabricObject) {
+    const innerShadow = (this as FabricObject & { _innerShadow?: { enabled?: boolean } | null })._innerShadow;
+    return Boolean(innerShadow?.enabled) || originalNeedsItsOwnCache.call(this);
+  };
+  objectsWithInnerShadowRenderHook.add(obj);
+}
+
 function install3DRenderHooks(objects: FabricObject[]) {
   objects.forEach((obj) => {
     install3DRenderHook(obj);
+    installInnerShadowRenderHook(obj);
     const children = (obj as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.();
     if (children) install3DRenderHooks(children);
   });
@@ -1517,7 +1543,7 @@ export function useFabricCanvas(
       // their own face and cannot escape the canvas layer stack.
       install3DRenderHooks(c.getObjects());
     });
-    c.on('after:render', ({ ctx }) => {
+    c.on('after:render', () => {
       const visualSignatureNow = c.getObjects()
         .filter((obj) => !(obj as any)._isPenAux && !(obj as any)._isAuxLayer)
         .map(visualSignature)
@@ -1527,13 +1553,6 @@ export function useFabricCanvas(
       // changed so pointer renders do not rebuild every thumbnail.
       if (visualSignatureNow !== lastVisualSignatureRef.current) syncObjects();
 
-      const vp = c.viewportTransform;
-      if (!vp) return;
-      c.getObjects().forEach((obj) => {
-        // Inner shadow
-        const cfg = (obj as FabricObject & { _innerShadow?: { enabled: boolean; color: string; blur: number; offsetX: number; offsetY: number; opacity: number } })._innerShadow;
-        if (cfg?.enabled) drawInnerShadow(ctx, obj, cfg, vp);
-      });
     });
 
     /* ─── Brush stroke complete ─── */
@@ -2083,6 +2102,12 @@ export function useFabricCanvas(
     (obj: FabricObject | null, cfg: { enabled: boolean; color: string; blur: number; offsetX: number; offsetY: number; opacity: number } | null) => {
       const c = canvasRef.current; if (!c || !obj) return;
       (obj as FabricObject & { _innerShadow?: unknown })._innerShadow = cfg;
+      obj.dirty = true;
+      let parent = obj.group;
+      while (parent) {
+        parent.dirty = true;
+        parent = parent.group;
+      }
       c.requestRenderAll();
       pushUndo();
     },
@@ -3963,13 +3988,20 @@ export function useFabricCanvas(
     const selected = c.getActiveObjects();
     if (selected.length < 2) return;
 
-    // Fabric 7 no longer exposes ActiveSelection.toGroup(). Constructing a
-    // Group explicitly also keeps the conversion compatible with loaded
-    // projects and preserves the children as real editable objects.
+    // Keep the original Fabric children: flattening them to one path here would
+    // discard per-object paints, shadows, 3D depth, and other editor effects.
+    const originalOrder = c.getObjects();
+    const selectedSet = new Set(selected);
+    const topmostSelectedIndex = Math.max(...selected.map((obj) => originalOrder.indexOf(obj)));
+    const groupIndex = topmostSelectedIndex < 0
+      ? -1
+      : originalOrder.slice(0, topmostSelectedIndex + 1).filter((obj) => !selectedSet.has(obj)).length;
+
     c.discardActiveObject();
     const group = new Group(selected);
     c.remove(...selected);
-    c.add(group);
+    if (groupIndex >= 0) c.insertAt(Math.min(groupIndex, c.size()), group);
+    else c.add(group);
     tagObj(group, 'group');
     c.setActiveObject(group);
     c.requestRenderAll();

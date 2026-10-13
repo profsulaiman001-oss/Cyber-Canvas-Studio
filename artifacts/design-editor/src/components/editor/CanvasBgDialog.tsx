@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Pipette, FlipHorizontal2, Trash2, Plus } from 'lucide-react';
 import { useEditor, CanvasBgConfig } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
+import { TRANSPARENT_CHECKERBOARD_BACKGROUND } from '@/lib/canvasBackground';
 import ColorPicker from './ColorPicker';
 import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 import {
@@ -312,7 +313,7 @@ export default function CanvasBgDialog({
           {cfg.type === 'transparent' && (
             <div
               className="rounded-2xl overflow-hidden border border-border"
-              style={{ height: 178, background: 'repeating-conic-gradient(#888 0% 25%, #bbb 0% 50%) 0 0 / 24px 24px' }}
+              style={{ height: 178, background: TRANSPARENT_CHECKERBOARD_BACKGROUND }}
             />
           )}
 

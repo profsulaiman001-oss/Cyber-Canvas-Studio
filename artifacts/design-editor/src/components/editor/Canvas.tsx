@@ -1,6 +1,7 @@
 import { Fragment, RefObject, useRef, useEffect, useState, type MouseEventHandler, type PointerEvent as ReactPointerEvent } from 'react';
 import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
 import { useLongPress, type LongPressPosition } from '@/hooks/useContextMenu';
+import { TRANSPARENT_CHECKERBOARD_BACKGROUND } from '@/lib/canvasBackground';
 
 /** Build an SVG path string from committed bezier nodes, in canvas-pixel coords */
 function buildSvgBezierPath(
@@ -412,7 +413,7 @@ export default function CanvasWorkspace({
             top: `${PAN_MARGIN}px`,
             width: `${canvasWidth * zoom}px`,
             height: `${canvasHeight * zoom}px`,
-            background: transparentBg ? `repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 20px 20px` : `#ffffff`,
+            background: transparentBg ? TRANSPARENT_CHECKERBOARD_BACKGROUND : '#ffffff',
           }}
           onMouseMove={(event) => {
             if (eyedropperActive) {

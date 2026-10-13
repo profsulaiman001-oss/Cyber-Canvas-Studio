@@ -43,9 +43,9 @@ function StudioSlider({
   testId: string;
 }) {
   return (
-    <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+    <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <Label className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">{label}</Label>
+        <Label className="text-[11px] text-muted-foreground">{label}</Label>
         <span className="min-w-[42px] shrink-0 text-right font-mono text-[11px] tabular-nums text-primary">
           {Math.round(value * 100) / 100}{unit}
         </span>
@@ -93,8 +93,8 @@ export default function ShadowSettingsModal({
           : 'pointer-events-none max-h-0 opacity-0'
       }`}
       style={{
-        background: 'rgba(17,20,26,0.97)',
-        backdropFilter: 'blur(18px)',
+        background: '#0d1117',
+        backdropFilter: 'blur(16px)',
         border: expanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent',
         boxShadow: expanded ? '0 -8px 30px rgba(0,0,0,0.45)' : 'none',
       }}
@@ -121,9 +121,9 @@ export default function ShadowSettingsModal({
           </div>
         </div>
 
-        <section className="space-y-2.5 border-t border-cyan-400/10 pt-3">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Shadow Type</h3>
-          <div className="grid grid-cols-2 gap-2">
+        <section className="space-y-2 border-t border-border pt-3">
+          <Label className="text-[11px] text-muted-foreground">Shadow Type</Label>
+          <div className="grid grid-cols-2">
             {([
               { key: 'drop' as const, label: 'Drop Shadow', icon: Layers3 },
               { key: 'inner' as const, label: 'Inner Shadow', icon: Layers2 },
@@ -134,10 +134,10 @@ export default function ShadowSettingsModal({
                   key={key}
                   type="button"
                   onClick={() => onModeChange(key)}
-                  className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-[11px] font-semibold transition-colors ${
+                  className={`flex items-center gap-2 border-b-2 px-2 py-2.5 text-left text-[11px] font-semibold transition-colors ${
                     active
-                      ? 'border-primary/40 bg-primary/10 text-primary'
-                      : 'border-white/10 bg-white/[0.035] text-muted-foreground hover:border-primary/25 hover:bg-primary/[0.06]'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:bg-white/[0.03] hover:text-foreground'
                   }`}
                   aria-pressed={active}
                   data-testid={`shadow-studio-type-${key}`}
@@ -153,33 +153,35 @@ export default function ShadowSettingsModal({
           </div>
         </section>
 
-        <section className="space-y-2.5 border-t border-cyan-400/10 pt-3">
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            <StudioSlider label="Blur" value={blur} min={0} max={100} onChange={onBlurChange} testId="shadow-studio-blur" />
-            <StudioSlider label="Offset X" value={offsetX} min={-100} max={100} onChange={onOffsetXChange} testId="shadow-studio-offset-x" />
-            <StudioSlider label="Offset Y" value={offsetY} min={-100} max={100} onChange={onOffsetYChange} testId="shadow-studio-offset-y" />
-            <StudioSlider label="Opacity" value={opacity} min={0} max={100} unit="%" onChange={onOpacityChange} testId="shadow-studio-opacity" />
-
-            <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] sm:col-span-2">
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">Color</h3>
+        <section className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
+          <div className="space-y-3">
+            <div>
               <button
                 type="button"
-                className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5"
+                className="flex min-w-0 w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5"
                 onClick={() => setColorPickerOpen((open) => !open)}
                 aria-expanded={colorPickerOpen}
                 aria-label="Choose shadow color"
                 data-testid="shadow-color-picker-toggle"
               >
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Color value</span>
+                <Label className="pointer-events-none text-[11px] text-muted-foreground">Shadow Color</Label>
                 <span className="flex items-center gap-2">
                   <span className="h-5 w-5 rounded-md border border-white/20" style={{ background: color }} aria-hidden="true" />
-                  <span className="font-mono text-[10px] text-primary">{color.toUpperCase()}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">{color.toUpperCase()}</span>
                 </span>
               </button>
               <div className={`overflow-hidden transition-all duration-300 ease-in-out ${colorPickerOpen ? 'mt-2 max-h-72 opacity-100' : 'max-h-0 opacity-0'}`}>
                 <ColorPicker value={color} onChange={onColorChange} />
               </div>
             </div>
+
+            <StudioSlider label="Blur" value={blur} min={0} max={100} onChange={onBlurChange} testId="shadow-studio-blur" />
+            <StudioSlider label="Offset X" value={offsetX} min={-100} max={100} onChange={onOffsetXChange} testId="shadow-studio-offset-x" />
+          </div>
+
+          <div className="space-y-3">
+            <StudioSlider label="Offset Y" value={offsetY} min={-100} max={100} onChange={onOffsetYChange} testId="shadow-studio-offset-y" />
+            <StudioSlider label="Opacity" value={opacity} min={0} max={100} unit="%" onChange={onOpacityChange} testId="shadow-studio-opacity" />
           </div>
         </section>
       </div>

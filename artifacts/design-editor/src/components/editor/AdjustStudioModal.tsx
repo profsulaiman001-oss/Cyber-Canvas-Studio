@@ -52,8 +52,8 @@ export default function AdjustStudioModal({
           : 'pointer-events-none max-h-0 opacity-0'
       }`}
       style={{
-        background: 'rgba(17,20,26,0.97)',
-        backdropFilter: 'blur(18px)',
+        background: '#0d1117',
+        backdropFilter: 'blur(16px)',
         border: expanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent',
         boxShadow: expanded ? '0 -8px 30px rgba(0,0,0,0.45)' : 'none',
       }}
@@ -65,14 +65,14 @@ export default function AdjustStudioModal({
           <div className="flex items-center gap-2">
             <Sun size={14} className="text-primary" />
             <span className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">
-              Adjustments Studio
+              ADJUSTMENTS STUDIO
             </span>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 rounded-lg border border-primary/20 px-2 text-[10px] font-semibold uppercase tracking-wider text-primary hover:bg-primary/10 hover:text-primary"
+            className="h-7 gap-1.5 rounded-lg px-2 text-[10px] font-semibold uppercase tracking-wider text-primary hover:bg-primary/10 hover:text-primary"
             onClick={onResetAll}
             disabled={!hasSelection || !expanded}
             data-testid="adjust-reset-all"
@@ -82,39 +82,37 @@ export default function AdjustStudioModal({
           </Button>
         </div>
 
-        <section className="space-y-2.5 border-t border-cyan-400/10 pt-3">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Color &amp; Tone</h3>
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            {ADJUSTMENT_CONTROLS.map(({ key, label, icon: Icon, min, max, step }) => (
-              <div
-                key={key}
-                className="space-y-2 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]"
-                data-testid={`adjustment-card-${key}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
-                    <Icon size={13} className="shrink-0 text-primary" aria-hidden="true" />
-                    {label}
-                  </span>
-                  <span className="min-w-[48px] shrink-0 text-right font-mono text-[11px] tabular-nums text-primary">
-                    {formatAdjustmentValue(key, adjustments[key])}
-                  </span>
+        <section className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
+          {[ADJUSTMENT_CONTROLS.slice(0, 3), ADJUSTMENT_CONTROLS.slice(3)].map((column, columnIndex) => (
+            <div key={columnIndex} className="space-y-3">
+              {column.map(({ key, label, min, max, step }) => (
+                <div
+                  key={key}
+                  className="space-y-1.5 border-b border-border/70 pb-3 last:border-b-0 last:pb-0"
+                  data-testid={`adjustment-card-${key}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">{label}</span>
+                    <span className="min-w-[48px] shrink-0 text-right font-mono text-[11px] tabular-nums text-primary">
+                      {formatAdjustmentValue(key, adjustments[key])}
+                    </span>
+                  </div>
+                  <Slider
+                    min={min}
+                    max={max}
+                    step={step}
+                    value={[adjustments[key]]}
+                    onValueChange={([value]) => onChange(key, value)}
+                    onValueCommit={onCommit}
+                    disabled={!hasSelection || !expanded}
+                    className="w-full"
+                    aria-label={`${label} adjustment`}
+                    data-testid={`adjustment-studio-slider-${key}`}
+                  />
                 </div>
-                <Slider
-                  min={min}
-                  max={max}
-                  step={step}
-                  value={[adjustments[key]]}
-                  onValueChange={([value]) => onChange(key, value)}
-                  onValueCommit={onCommit}
-                  disabled={!hasSelection || !expanded}
-                  className="w-full"
-                  aria-label={`${label} adjustment`}
-                  data-testid={`adjustment-studio-slider-${key}`}
-                />
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ))}
         </section>
       </div>
     </div>

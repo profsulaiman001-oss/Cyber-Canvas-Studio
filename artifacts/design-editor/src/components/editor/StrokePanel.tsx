@@ -47,7 +47,7 @@ function SliderRow({ label, value, min, max, step = 1, onChange, unit = '', deci
 function SectionHeader({ title }: { title: string }) {
   return (
     <div className="flex items-end justify-between gap-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">{title}</p>
+      <p className="text-[11px] text-muted-foreground">{title}</p>
     </div>
   );
 }
@@ -316,7 +316,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
   return (
     <div
       ref={panelRef}
-      className="absolute bottom-full left-1/2 z-[9999] mb-2 flex w-[min(720px,calc(100vw-20px))] -translate-x-1/2 flex-col"
+      className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(720px,calc(100vw-20px))] -translate-x-1/2"
       data-testid="stroke-panel"
     >
       <div
@@ -326,7 +326,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
             : 'pointer-events-none max-h-0 opacity-0'
         }`}
         style={{
-          background: '#11141A',
+          background: '#0d1117',
           border: expanded ? '1px solid rgba(0,245,255,0.25)' : '1px solid transparent',
           boxShadow: expanded
             ? '0 -8px 30px rgba(0,0,0,0.45)'
@@ -339,28 +339,13 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
           className="space-y-4 px-4 pb-4 pt-3"
           style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
         >
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <PenLine size={14} className="text-primary" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-primary">
-                  STROKE SETTINGS
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setExpanded(false);
-                  setColorOpen(false);
-                }}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
-                aria-label="Collapse stroke settings"
-                title="Collapse stroke settings"
-              >
-                <ChevronUp size={15} />
-              </button>
-            </div>
+          <div className="flex items-center gap-2">
+            <PenLine size={14} className="text-primary" />
+            <span className="text-xs font-semibold text-primary">Stroke Studio</span>
+          </div>
 
-            <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-3">
               {/* ── Enable ── */}
               <div className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
                 <SectionHeader title="Border Stroke" />
@@ -375,22 +360,21 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
 
               {/* ── Color ── */}
               <div className="space-y-3 border-t border-border pt-3">
-                <SectionHeader title="Color" />
                 <button
                   type="button"
                   disabled={!enabled}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex min-w-0 w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
                   onClick={() => setColorOpen((open) => !open)}
                   aria-expanded={colorOpen}
+                  aria-label="Stroke color"
                 >
-                  <span className="text-[11px] text-muted-foreground">Stroke color</span>
+                  <Label className="pointer-events-none text-[11px] text-muted-foreground">Stroke Color</Label>
                   <span className="flex items-center gap-2">
                     <span
                       className="h-5 w-5 rounded-md border border-white/20"
                       style={{ background: buildStrokeColor(color, strokeOpacity) }}
                     />
                     <span className="font-mono text-[10px] text-muted-foreground">{color.toUpperCase()}</span>
-                    {colorOpen ? <ChevronUp size={13} className="text-primary" /> : <ChevronDown size={13} className="text-primary" />}
                   </span>
                 </button>
                 <div className={`overflow-hidden transition-all duration-300 ${colorOpen && enabled ? 'mt-2 max-h-72 opacity-100' : 'max-h-0 opacity-0'}`}>
@@ -424,7 +408,9 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                   />
                 </div>
               </div>
+            </div>
 
+            <div className="space-y-3">
               {/* ── Width and exact value ── */}
               <div className="space-y-3 border-t border-border pt-3">
                 <SectionHeader title="Width" />
@@ -525,6 +511,7 @@ export default function StrokePanel({ controller }: StrokePanelProps) {
                 )}
               </div>
             </div>
+          </div>
         </div>
       </div>
 

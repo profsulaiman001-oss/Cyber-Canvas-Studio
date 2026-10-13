@@ -175,14 +175,11 @@ export default function TextPanel({ controller }: TextPanelProps) {
     const canvas = controller.getCanvas();
     if (!canvas) return;
 
-    const cx = state.canvasSize.width / 2;
-    const cy = state.canvasSize.height / 2;
-
     const newText = new Textbox(addContent.trim() || 'New Text', {
-      left: cx - 125,
-      top: cy - 20,
+      left: 0,
+      top: 0,
       width: 250,
-      fontSize: 40,
+      fontSize: 48,
       fontFamily: 'Inter',
       fontWeight: 'normal',
       fontStyle: 'normal',
@@ -190,6 +187,11 @@ export default function TextPanel({ controller }: TextPanelProps) {
       textAlign: addTextAlign as 'left' | 'center' | 'right',
       fill: '#1A1A1A',
     });
+    newText.set({
+      left: (state.canvasSize.width - newText.getScaledWidth()) / 2,
+      top: (state.canvasSize.height - newText.getScaledHeight()) / 2,
+    });
+    newText.setCoords();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (newText as any)._name = addContent.trim() || 'New Text';

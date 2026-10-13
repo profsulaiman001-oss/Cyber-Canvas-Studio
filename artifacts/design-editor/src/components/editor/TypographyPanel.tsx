@@ -21,7 +21,7 @@ interface GlowConfig {
 }
 
 const DEFAULT_VALUES = {
-  fontSize: 40,
+  fontSize: 48,
   letterSpacing: 0,
   lineHeight: 1.16,
   wordSpacing: 0,

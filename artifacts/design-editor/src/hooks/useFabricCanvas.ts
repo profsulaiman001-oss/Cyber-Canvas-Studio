@@ -553,6 +553,31 @@ const HEART_PATH =
   'M 0,-35 C 5,-50 25,-50 25,-32 C 25,-15 0,10 0,30 C 0,10 -25,-15 -25,-32 C -25,-50 -5,-50 0,-35 Z';
 const RIGHT_TRI_PATH = 'M -50,50 L -50,-50 L 50,50 Z';
 const ARROW_PATH = 'M -55,-18 L 10,-18 L 10,-45 L 55,0 L 10,45 L 10,18 L -55,18 Z';
+const DEFAULT_SHAPE_SIZE = 180;
+
+function centerObjectAt(obj: FabricObject, centerX: number, centerY: number): void {
+  const bounds = obj.getBoundingRect();
+  obj.set({
+    left: (obj.left ?? 0) + centerX - (bounds.left + bounds.width / 2),
+    top: (obj.top ?? 0) + centerY - (bounds.top + bounds.height / 2),
+  });
+  obj.setCoords();
+}
+
+function prepareNewShape(obj: FabricObject, centerX: number, centerY: number): void {
+  obj.setCoords();
+  const initialBounds = obj.getBoundingRect();
+  const longestSide = Math.max(initialBounds.width, initialBounds.height);
+  if (longestSide > 0 && longestSide < DEFAULT_SHAPE_SIZE) {
+    const scale = DEFAULT_SHAPE_SIZE / longestSide;
+    obj.set({
+      scaleX: (obj.scaleX || 1) * scale,
+      scaleY: (obj.scaleY || 1) * scale,
+    });
+    obj.setCoords();
+  }
+  centerObjectAt(obj, centerX, centerY);
+}
 
 /* ─── Inner shadow canvas renderer ─── */
 const KAPPA = 0.5522847498;
@@ -1863,77 +1888,88 @@ export function useFabricCanvas(
   const addRect = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Rect({ left: cx - 50, top: cy - 50, width: 100, height: 100, fill: '#00F5FF', strokeWidth: 0, strokeUniform: true });
+    const obj = new Rect({ width: DEFAULT_SHAPE_SIZE, height: DEFAULT_SHAPE_SIZE, fill: '#00F5FF', strokeWidth: 0, strokeUniform: true });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'rect'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addCircle = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Circle({ left: cx - 50, top: cy - 50, radius: 50, fill: '#00F5FF', strokeWidth: 0 });
+    const obj = new Circle({ radius: DEFAULT_SHAPE_SIZE / 2, fill: '#00F5FF', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'circle'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addTriangle = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Triangle({ left: cx - 50, top: cy - 55, width: 100, height: 100, fill: '#00F5FF', strokeWidth: 0 });
+    const obj = new Triangle({ width: DEFAULT_SHAPE_SIZE, height: DEFAULT_SHAPE_SIZE, fill: '#00F5FF', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'triangle'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addStar = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Path(starPath(60, 26, 5), { left: cx - 60, top: cy - 60, fill: '#FFD700', strokeWidth: 0 });
+    const obj = new Path(starPath(DEFAULT_SHAPE_SIZE / 2, 38, 5), { fill: '#FFD700', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'star'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addHexagon = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Path(polygonPath(6, 60, Math.PI / 6), { left: cx - 60, top: cy - 60, fill: '#7B2FFF', strokeWidth: 0 });
+    const obj = new Path(polygonPath(6, DEFAULT_SHAPE_SIZE / 2, Math.PI / 6), { fill: '#7B2FFF', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'hexagon'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addPentagon = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Path(polygonPath(5, 60, -Math.PI / 2), { left: cx - 60, top: cy - 60, fill: '#FF6B6B', strokeWidth: 0 });
+    const obj = new Path(polygonPath(5, DEFAULT_SHAPE_SIZE / 2, -Math.PI / 2), { fill: '#FF6B6B', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'pentagon'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addHeart = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Path(HEART_PATH, { left: cx - 30, top: cy - 30, fill: '#FF2D55', strokeWidth: 0 });
+    const obj = new Path(HEART_PATH, { fill: '#FF2D55', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'heart'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addRightTriangle = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Path(RIGHT_TRI_PATH, { left: cx - 50, top: cy - 50, fill: '#34D399', strokeWidth: 0 });
+    const obj = new Path(RIGHT_TRI_PATH, { fill: '#34D399', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'triangle'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addArrow = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Path(ARROW_PATH, { left: cx - 55, top: cy - 45, fill: '#F59E0B', strokeWidth: 0 });
+    const obj = new Path(ARROW_PATH, { fill: '#F59E0B', strokeWidth: 0 });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'arrow'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addLine = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Line([cx - 80, cy, cx + 80, cy], { stroke: '#00F5FF', strokeWidth: 3, fill: 'transparent' });
+    const obj = new Line([0, 0, DEFAULT_SHAPE_SIZE, 0], { stroke: '#00F5FF', strokeWidth: 3, fill: 'transparent' });
+    prepareNewShape(obj, cx, cy);
     tagObj(obj, 'line'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
   const addText = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
     const { cx, cy } = getCenter();
-    const obj = new Textbox('Tap to edit', { left: cx - 125, top: cy - 20, width: 250, fontSize: 40, fill: '#1A1A1A', fontFamily: 'Inter' });
+    const obj = new Textbox('Tap to edit', { width: 250, fontSize: 48, fill: '#1A1A1A', fontFamily: 'Inter' });
+    centerObjectAt(obj, cx, cy);
     tagObj(obj, 'textbox'); c.add(obj); c.setActiveObject(obj); c.renderAll();
   }, [getCenter]);
 
@@ -1948,7 +1984,7 @@ export function useFabricCanvas(
     const scale = Math.min(maxDim / (img.width || 1), maxDim / (img.height || 1));
     img.scale(scale);
     const { cx, cy } = getCenter();
-    img.set({ left: cx - (img.width || 0) * scale / 2, top: cy - (img.height || 0) * scale / 2 });
+    centerObjectAt(img, cx, cy);
     tagObj(img, 'image'); c.add(img); c.setActiveObject(img); c.renderAll();
   }, [getCenter]);
 

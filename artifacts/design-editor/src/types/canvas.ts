@@ -22,4 +22,12 @@ export interface CanvasTextProperties {
   typographyOriginalText?: string;
 }
 
+/** Per-corner radius values in canvas design-space pixels. */
+export interface CornerRadiusValues {
+  topLeft: number;
+  topRight: number;
+  bottomLeft: number;
+  bottomRight: number;
+}
+
 export type CharacterStylePatch = Partial<CharacterStyle>;

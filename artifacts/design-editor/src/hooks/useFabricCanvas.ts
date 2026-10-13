@@ -21,6 +21,64 @@ import {
   filters,
 } from 'fabric';
 import '@/lib/fabricWordSpacing';
+import {
+  appendCornerRadiusPath,
+  buildCornerRadiusPathData,
+} from '@/lib/radiusUtils';
+import type { CornerRadiusValues } from '@/types/canvas';
+
+type RectWithCornerRadii = Rect & { cornerRadii?: CornerRadiusValues };
+
+const cornerRadiusPatchMarker = Symbol.for('spiexel.fabric.corner-radius-renderer');
+const rectPrototype = Rect.prototype as unknown as Record<PropertyKey, unknown>;
+
+if (!rectPrototype[cornerRadiusPatchMarker]) {
+  const nativeRectRender = Rect.prototype._render;
+  const nativeRectToSvg = Rect.prototype._toSVG;
+
+  Object.defineProperty(rectPrototype, cornerRadiusPatchMarker, { value: true });
+  Object.defineProperty(rectPrototype, '_render', {
+    configurable: true,
+    writable: true,
+    value: function (this: RectWithCornerRadii, ctx: CanvasRenderingContext2D) {
+      if (!this.cornerRadii) {
+        nativeRectRender.call(this, ctx);
+        return;
+      }
+      const scaling = this.getObjectScaling();
+      ctx.beginPath();
+      appendCornerRadiusPath(
+        ctx,
+        this.width,
+        this.height,
+        this.cornerRadii,
+        scaling.x,
+        scaling.y,
+      );
+      this._renderPaintInOrder(ctx);
+    },
+  });
+  Object.defineProperty(rectPrototype, '_toSVG', {
+    configurable: true,
+    writable: true,
+    value: function (this: RectWithCornerRadii) {
+      if (!this.cornerRadii) return nativeRectToSvg.call(this);
+      const scaling = this.getObjectScaling();
+      const path = buildCornerRadiusPathData(
+        this.width,
+        this.height,
+        this.cornerRadii,
+        scaling.x,
+        scaling.y,
+      );
+      return ['<path ', 'COMMON_PARTS', `d="${path}" />\n`];
+    },
+  });
+}
+
+if (!Rect.cacheProperties.includes('cornerRadii')) {
+  Rect.cacheProperties.push('cornerRadii');
+}
 
 /* ── Color utilities for decoupled fill / stroke opacity ─────────────────── */
 /**
@@ -351,6 +409,7 @@ const EXTRA_PROPS = [
   'id',
   'name',
   'cornerRadius',
+  'cornerRadii',
   'innerShadow',
   'effect3D',
   'shadow',
@@ -588,6 +647,7 @@ type ShapeWithPathData = FabricObject & {
   points?: Array<{ x: number; y: number }>;
   rx?: number;
   ry?: number;
+  cornerRadii?: CornerRadiusValues;
   radius?: number;
   startAngle?: number;
   endAngle?: number;
@@ -681,6 +741,11 @@ function appendNativeObjectPath(ctx: CanvasRenderingContext2D, obj: FabricObject
   }
 
   if (obj.type === 'rect') {
+    if (shape.cornerRadii) {
+      const scaling = obj.getObjectScaling();
+      appendCornerRadiusPath(ctx, w, h, shape.cornerRadii, scaling.x, scaling.y);
+      return;
+    }
     const x = -w / 2;
     const y = -h / 2;
     const rx = Math.min(Math.max(shape.rx ?? 0, 0), w / 2);
@@ -3651,6 +3716,7 @@ export function useFabricCanvas(
       '_innerShadow',
       '_textureKey',
       '_depth3d',
+      'cornerRadii',
       '_glow',
       'characterSpans',
       'wordSpacing',

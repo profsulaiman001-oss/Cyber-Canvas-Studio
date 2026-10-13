@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { useEditor } from '@/store/editorStore';
 import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject, Shadow } from 'fabric';
@@ -330,13 +329,6 @@ export default function ShadowsPanel({ controller }: ShadowsPanelProps) {
             })}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Switch
-          checked={activeEnabled}
-          onCheckedChange={setActiveEnabled}
-          aria-label={`Toggle ${activeLabel}`}
-          data-testid="shadow-enabled-toggle"
-        />
 
         <DropdownMenu
           open={parameterMenuOpen}

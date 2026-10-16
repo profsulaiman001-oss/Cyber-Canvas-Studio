@@ -47,6 +47,13 @@ import { useToast } from '@/hooks/use-toast';
 import { ChevronDown, ChevronUp, Eye, SquareRoundCorner } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import {
+  getCornerRadiusForTarget,
+  uniformCornerRadii,
+  updateCornerRadiusForTarget,
+  type CornerRadiusTarget,
+} from '@/lib/radiusUtils';
+import type { CornerRadiusValues } from '@/types/canvas';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
@@ -58,6 +65,25 @@ import {
 
 /* Pixel multiplier used when rasterising any non-image canvas object for crop */
 const RASTER_MULT = 2;
+
+function getRectCornerRadii(obj: import('fabric').FabricObject): CornerRadiusValues {
+  const rect = obj as import('fabric').FabricObject & {
+    cornerRadii?: CornerRadiusValues;
+    rx?: number;
+  };
+  if (rect.cornerRadii) {
+    const value = (radius: number) => Math.max(0, Number.isFinite(radius) ? radius : 0);
+    return {
+      topLeft: value(rect.cornerRadii.topLeft),
+      topRight: value(rect.cornerRadii.topRight),
+      bottomLeft: value(rect.cornerRadii.bottomLeft),
+      bottomRight: value(rect.cornerRadii.bottomRight),
+    };
+  }
+  const scaleX = Number.isFinite(obj.scaleX) && obj.scaleX !== 0 ? Math.abs(obj.scaleX!) : 1;
+  const radius = Math.max(0, Number(rect.rx) || 0) * scaleX;
+  return uniformCornerRadii(radius);
+}
 
 export default function DesignEditor() {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
@@ -107,8 +133,7 @@ export default function DesignEditor() {
   const importImagesRef = useRef<HTMLInputElement>(null);
   const fillWithImageRef = useRef<HTMLInputElement>(null);
   const handleImportImages = useCallback(() => { importImagesRef.current?.click(); }, []);
-  type RadiusTarget = 'all' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-  const [radiusTarget, setRadiusTarget] = useState<RadiusTarget>('all');
+  const [radiusTarget, setRadiusTarget] = useState<CornerRadiusTarget>('all');
 
   /* ── Unified crop modal state ── */
   type CropMode = 'image' | 'fill' | 'raster';
@@ -757,10 +782,7 @@ export default function DesignEditor() {
     if (!obj) { setQuickFillOpacity(100); setQuickCornerRadius(0); return; }
     setQuickFillOpacity(Math.round(controller.getFillOpacity(obj) * 100));
     if (obj.type === 'rect') {
-      const rx = (obj as import('fabric').FabricObject & { rx?: number }).rx ?? 0;
-      const scaleX = (obj.scaleX ?? 1) || 1;
-      const scaleY = (obj.scaleY ?? 1) || 1;
-      const currentRadius = Math.round(rx * scaleX);
+      const currentRadius = getCornerRadiusForTarget(getRectCornerRadii(obj), radiusTarget);
       const radiusMax = Math.max(4, Math.min(
         Math.round(obj.getScaledWidth() / 2),
         Math.round(obj.getScaledHeight() / 2),
@@ -771,14 +793,13 @@ export default function DesignEditor() {
       // Slider always reflects the live geometry — important when the panel
       // is (re-)opened after the object has been resized.
       setQuickCornerRadiusMax(radiusMax);
-      void scaleY; // used above for rxMax via getScaledHeight
     } else {
       setQuickCornerRadius(0);
     }
   // Include activePanel so re-opening the radius tray always re-syncs the
   // max from live object dimensions (fixes the stale-max / two-step bug).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controller.selectedObject, state.activePanel]);
+  }, [controller.selectedObject, radiusTarget, state.activePanel]);
 
   const handleFillOpacityChange = useCallback((v: number) => {
     setQuickFillOpacity(v);
@@ -806,8 +827,8 @@ export default function DesignEditor() {
   const handleCornerRadiusChange = useCallback((v: number) => {
     const obj = controller.selectedObject;
     if (!obj || obj.type !== 'rect') return;
-    const scaleX = (obj.scaleX ?? 1) || 1;
-    const scaleY = (obj.scaleY ?? 1) || 1;
+    const scaleX = Number.isFinite(obj.scaleX) && obj.scaleX !== 0 ? Math.abs(obj.scaleX!) : 1;
+    const scaleY = Number.isFinite(obj.scaleY) && obj.scaleY !== 0 ? Math.abs(obj.scaleY!) : 1;
     // Recompute the true geometric max from the live object dimensions so that
     // even if the Slider's `max` prop was stale (and emitted a clamped value),
     // we detect the user is at 100% of the rail and apply the real maximum.
@@ -818,26 +839,29 @@ export default function DesignEditor() {
     ));
     // If the incoming v equals the slider's (potentially stale) max, treat it
     // as a request for full rounding and promote it to the live max.
-    const resolvedV = (quickCornerRadiusMax > 0 && v === quickCornerRadiusMax) ? liveMax : Math.min(v, liveMax);
+    const resolvedV = Math.max(0, (quickCornerRadiusMax > 0 && v === quickCornerRadiusMax) ? liveMax : Math.min(v, liveMax));
     setQuickCornerRadius(resolvedV);
     if (resolvedV > 0) radiusRestoreValueRef.current = resolvedV;
     // Keep slider max in sync with live geometry for subsequent drags.
     if (liveMax !== quickCornerRadiusMax) setQuickCornerRadiusMax(liveMax);
-    // Convert screen-space radius to local (unscaled) space for Fabric, and
-    // hard-cap at obj.width/2 & obj.height/2 — the values Fabric itself clamps
-    // to — so the shape always fully rounds on the first interaction.
-    const localW = (obj as import('fabric').FabricObject & { width?: number }).width ?? 0;
-    const localH = (obj as import('fabric').FabricObject & { height?: number }).height ?? 0;
-    const rx = Math.min(resolvedV / scaleX, localW / 2);
-    const ry = Math.min(resolvedV / scaleY, localH / 2);
+    // Store radii in canvas-space pixels; the Fabric renderer converts these
+    // values back to local radii without changing the other selected corners.
+    const cornerRadii = updateCornerRadiusForTarget(getRectCornerRadii(obj), radiusTarget, resolvedV);
+    const updates: Record<string, unknown> = { cornerRadii };
+    if (radiusTarget === 'all') {
+      const localW = (obj as import('fabric').FabricObject & { width?: number }).width ?? 0;
+      const localH = (obj as import('fabric').FabricObject & { height?: number }).height ?? 0;
+      updates.rx = Math.min(resolvedV / scaleX, localW / 2);
+      updates.ry = Math.min(resolvedV / scaleY, localH / 2);
+    }
     // Mark dirty explicitly so Fabric 6 re-draws rounded corners immediately
     // on the very first slider interaction (without dirty=true the cached
     // texture is reused and the change is invisible).
-    obj.set({ rx, ry });
+    obj.set(updates as Record<string, unknown>);
     obj.dirty = true;
     controller.getCanvas()?.requestRenderAll();
     controller.commitChange();
-  }, [controller, quickCornerRadiusMax]);
+  }, [controller, quickCornerRadiusMax, radiusTarget]);
 
   /* ── Image toolbar actions ── */
   const handleImportImageFiles = useCallback(async (files: FileList) => {
@@ -1241,7 +1265,7 @@ export default function DesignEditor() {
                     <DropdownMenuSeparator />
                     <DropdownMenuRadioGroup
                       value={radiusTarget}
-                      onValueChange={(value) => setRadiusTarget(value as RadiusTarget)}
+                      onValueChange={(value) => setRadiusTarget(value as CornerRadiusTarget)}
                     >
                       <DropdownMenuRadioItem value="all" className="gap-2 text-xs data-[state=checked]:text-primary">All Corners</DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="top-left" className="gap-2 text-xs data-[state=checked]:text-primary">Top Left</DropdownMenuRadioItem>

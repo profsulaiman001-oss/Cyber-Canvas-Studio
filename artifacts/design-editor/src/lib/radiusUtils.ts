@@ -2,6 +2,47 @@ import type { CornerRadiusValues } from '@/types/canvas';
 
 const KAPPA = 0.5522847498;
 
+export type CornerRadiusTarget = 'all' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+const CORNER_BY_TARGET: Record<Exclude<CornerRadiusTarget, 'all'>, keyof CornerRadiusValues> = {
+  'top-left': 'topLeft',
+  'top-right': 'topRight',
+  'bottom-left': 'bottomLeft',
+  'bottom-right': 'bottomRight',
+};
+
+function safeRadius(value: number): number {
+  return Math.max(0, Number.isFinite(value) ? value : 0);
+}
+
+export function uniformCornerRadii(value: number): CornerRadiusValues {
+  const radius = safeRadius(value);
+  return { topLeft: radius, topRight: radius, bottomLeft: radius, bottomRight: radius };
+}
+
+/** Returns the selected corner value, or the rounded mean for the all-corners control. */
+export function getCornerRadiusForTarget(
+  radii: CornerRadiusValues,
+  target: CornerRadiusTarget,
+): number {
+  if (target === 'all') {
+    const total = radii.topLeft + radii.topRight + radii.bottomLeft + radii.bottomRight;
+    return Math.round(safeRadius(total) / 4);
+  }
+  return Math.round(safeRadius(radii[CORNER_BY_TARGET[target]]));
+}
+
+/** Updates only the targeted corner; all-corners intentionally replaces every value. */
+export function updateCornerRadiusForTarget(
+  radii: CornerRadiusValues,
+  target: CornerRadiusTarget,
+  value: number,
+): CornerRadiusValues {
+  const radius = safeRadius(value);
+  if (target === 'all') return uniformCornerRadii(radius);
+  return { ...radii, [CORNER_BY_TARGET[target]]: radius };
+}
+
 export interface CornerRadiusGeometry {
   topLeft: { rx: number; ry: number };
   topRight: { rx: number; ry: number };

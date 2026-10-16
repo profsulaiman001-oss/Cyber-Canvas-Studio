@@ -11,6 +11,8 @@ import { CanvasController } from '@/hooks/useFabricCanvas';
 import { FabricObject } from 'fabric';
 import ColorPicker from './ColorPicker';
 import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
+import { getCornerRadiusForTarget, uniformCornerRadii } from '@/lib/radiusUtils';
+import type { CornerRadiusValues } from '@/types/canvas';
 
 interface PropertiesPanelProps {
   controller: CanvasController;
@@ -139,10 +141,15 @@ export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelP
     }
 
     if (isRect) {
-      // Convert stored rx (in unscaled object space) → visual radius (after scaleX applied)
-      const rawRx = typeof o.rx === 'number' ? o.rx : 0;
-      const scaleX = typeof o.scaleX === 'number' ? o.scaleX : 1;
-      setRx(Math.round(rawRx * scaleX));
+      const rect = o as typeof o & { rx?: number; cornerRadii?: CornerRadiusValues };
+      if (rect.cornerRadii) {
+        setRx(getCornerRadiusForTarget(rect.cornerRadii, 'all'));
+      } else {
+        // Convert legacy rx (unscaled object space) into the displayed radius.
+        const rawRx = typeof rect.rx === 'number' ? rect.rx : 0;
+        const scaleX = typeof rect.scaleX === 'number' ? Math.abs(rect.scaleX) : 1;
+        setRx(Math.round(rawRx * scaleX));
+      }
     }
 
     setSkewX(typeof o.skewX === 'number' ? o.skewX : 0);
@@ -200,7 +207,7 @@ export default function PropertiesPanel({ controller, onCrop }: PropertiesPanelP
     const scaleY = (obj.scaleY ?? 1) || 1;
     const rxVal = v / scaleX;
     const ryVal = v / scaleY;
-    apply({ rx: rxVal, ry: ryVal });
+    apply({ rx: rxVal, ry: ryVal, cornerRadii: uniformCornerRadii(v) });
   }, [obj, apply]);
 
   const applyGlowEffect = useCallback((en: boolean, color: string, intensity: number) => {

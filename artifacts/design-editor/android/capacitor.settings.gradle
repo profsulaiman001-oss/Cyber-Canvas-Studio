@@ -3,7 +3,10 @@ include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../../../node_modules/.pnpm/@capacitor+android@8.4.2_@capacitor+core@8.4.2/node_modules/@capacitor/android/capacitor')
 
 include ':capacitor-community-media'
-project(':capacitor-community-media').projectDir = new File('../../../node_modules/.pnpm/@capacitor-community+media@8.0.1_@capacitor+core@8.4.2/node_modules/@capacitor-community/media/android')
+project(':capacitor-community-media').projectDir = new File('../../../node_modules/.pnpm/@capacitor-community+media@9.1.0_@capacitor+core@8.4.2/node_modules/@capacitor-community/media/android')
+
+include ':capacitor-app'
+project(':capacitor-app').projectDir = new File('../../../node_modules/.pnpm/@capacitor+app@8.1.2_@capacitor+core@8.4.2/node_modules/@capacitor/app/android')
 
 include ':capacitor-filesystem'
 project(':capacitor-filesystem').projectDir = new File('../../../node_modules/.pnpm/@capacitor+filesystem@8.1.2_@capacitor+core@8.4.2/node_modules/@capacitor/filesystem/android')

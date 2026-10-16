@@ -1,4 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import {
   Canvas,
   Rect,
@@ -25,6 +27,7 @@ import {
   appendCornerRadiusPath,
   buildCornerRadiusPathData,
 } from '@/lib/radiusUtils';
+import { repaintCanvasSurface } from '@/lib/canvasBackground';
 import type { CornerRadiusValues } from '@/types/canvas';
 
 type RectWithCornerRadii = Rect & { cornerRadii?: CornerRadiusValues };
@@ -155,6 +158,17 @@ function invalidateFabricObject(target: FabricObject): void {
   // need invalidation independently from the parent container.
   const children = (target as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.() ?? [];
   children.forEach(invalidateFabricObject);
+}
+
+function markFabricObjectTreeDirty(target: FabricObject): void {
+  const cachedObject = target as FabricObject & {
+    dirty?: boolean;
+    setDirty?: (dirty?: boolean) => void;
+    getObjects?: () => FabricObject[];
+  };
+  cachedObject.dirty = true;
+  cachedObject.setDirty?.(true);
+  cachedObject.getObjects?.().forEach(markFabricObjectTreeDirty);
 }
 
 export type GradientFillType = 'linear' | 'radial' | 'angular';
@@ -1070,6 +1084,8 @@ export function useFabricCanvas(
   options: UseFabricCanvasOptions
 ) {
   const canvasRef = useRef<Canvas | null>(null);
+  const fitToContainerFrameRef = useRef<number | null>(null);
+  const resumeRefreshFrameRef = useRef<number | null>(null);
   const undoStack = useRef<string[]>([]);
   const redoStack = useRef<string[]>([]);
   // History entries represent the state immediately before a committed
@@ -1353,7 +1369,7 @@ export function useFabricCanvas(
   const fitToContainer = useCallback(() => {
     const c = canvasRef.current;
     const container = containerEl.current;
-    if (!c || !container) return;
+    if (!c || !container || document.visibilityState === 'hidden') return;
     const w = container.clientWidth;
     const h = container.clientHeight;
     const newZoom = Math.min(w / designWidth.current, h / designHeight.current) * 0.9;
@@ -1370,7 +1386,12 @@ export function useFabricCanvas(
     const PAN_MARGIN = 600;
     const ct = containerEl.current;
     if (ct) {
-      requestAnimationFrame(() => {
+      if (fitToContainerFrameRef.current !== null) {
+        cancelAnimationFrame(fitToContainerFrameRef.current);
+      }
+      fitToContainerFrameRef.current = requestAnimationFrame(() => {
+        fitToContainerFrameRef.current = null;
+        if (canvasRef.current !== c || containerEl.current !== ct || !ct.isConnected) return;
         ct.scrollLeft = PAN_MARGIN - (ct.clientWidth - cw) / 2;
         ct.scrollTop = PAN_MARGIN - (ct.clientHeight - ch) / 2;
       });
@@ -1781,7 +1802,7 @@ export function useFabricCanvas(
         penMouseDownRef.current = false;
       }
       isPanning = false;
-      if (!penActiveRef.current && !brushActiveRef.current) c.selection = true;
+      c.selection = !panModeRef.current && !penActiveRef.current && !brushActiveRef.current;
       hideTransformHud();
     });
 
@@ -1856,11 +1877,251 @@ export function useFabricCanvas(
     });
     if (containerEl.current) ro.observe(containerEl.current);
 
+    type InterruptedCanvasTransform = {
+      target?: FabricObject;
+      actionPerformed?: boolean;
+    };
+    type CanvasLifecycleInternals = {
+      _currentTransform?: InterruptedCanvasTransform | null;
+      _groupSelector?: unknown;
+      _isCurrentlyDrawing?: boolean;
+      _willAddMouseDown?: number;
+      _onMouseDown?: EventListener;
+      _onMouseMove?: EventListener;
+      _onMouseUp?: EventListener;
+      _onTouchEnd?: EventListener;
+      _getEventPrefix?: () => string;
+      _resetTransformEventData?: () => void;
+      mainTouchId?: number;
+    };
+    const lifecycleCanvas = c as unknown as CanvasLifecycleInternals;
+
+    const hasInterruptedGesture = () => Boolean(
+      isPanning ||
+      penMouseDownRef.current ||
+      vectorDragStartRef.current ||
+      lifecycleCanvas._currentTransform ||
+      lifecycleCanvas._groupSelector ||
+      lifecycleCanvas._isCurrentlyDrawing ||
+      lifecycleCanvas.mainTouchId !== undefined
+    );
+
+    const clearInterruptedGesture = (force = false) => {
+      if (!force && !hasInterruptedGesture()) return;
+
+      const needsMouseDownRebind =
+        lifecycleCanvas.mainTouchId !== undefined || Boolean(lifecycleCanvas._willAddMouseDown);
+      const interruptedPenDrag = penMouseDownRef.current;
+      const transform = lifecycleCanvas._currentTransform;
+      if (transform?.target) {
+        transform.target.setCoords();
+        (transform.target as FabricObject & { __corner?: string }).__corner = undefined;
+        (transform.target as FabricObject & { isMoving?: boolean }).isMoving = false;
+        if (transform.actionPerformed) pushUndo();
+      }
+      if (vectorDragStartRef.current) pushUndo();
+      if (interruptedPenDrag && penPreviewRef.current) {
+        const wasProcessingHistory = isHistoryProcessingRef.current;
+        isHistoryProcessingRef.current = true;
+        try {
+          c.remove(penPreviewRef.current);
+        } finally {
+          isHistoryProcessingRef.current = wasProcessingHistory;
+          penPreviewRef.current = null;
+        }
+      }
+
+      const doc = c.upperCanvasEl.ownerDocument;
+      const eventPrefix = lifecycleCanvas._getEventPrefix?.() ?? 'mouse';
+      if (lifecycleCanvas._onMouseMove) {
+        doc.removeEventListener(`${eventPrefix}move`, lifecycleCanvas._onMouseMove);
+        doc.removeEventListener('touchmove', lifecycleCanvas._onMouseMove);
+      }
+      if (lifecycleCanvas._onMouseUp) {
+        doc.removeEventListener(`${eventPrefix}up`, lifecycleCanvas._onMouseUp);
+      }
+      if (lifecycleCanvas._onTouchEnd) {
+        doc.removeEventListener('touchend', lifecycleCanvas._onTouchEnd);
+      }
+      if (lifecycleCanvas._willAddMouseDown) {
+        clearTimeout(lifecycleCanvas._willAddMouseDown);
+        lifecycleCanvas._willAddMouseDown = 0;
+      }
+      if (needsMouseDownRebind && lifecycleCanvas._onMouseDown) {
+        lifecycleCanvas._willAddMouseDown = window.setTimeout(() => {
+          lifecycleCanvas._willAddMouseDown = 0;
+          if (canvasRef.current !== c || !c.upperCanvasEl.isConnected) return;
+          c.upperCanvasEl.addEventListener(
+            `${eventPrefix}down`,
+            lifecycleCanvas._onMouseDown!,
+          );
+        }, 400);
+      }
+      delete lifecycleCanvas.mainTouchId;
+      lifecycleCanvas._currentTransform = null;
+      lifecycleCanvas._groupSelector = null;
+      lifecycleCanvas._isCurrentlyDrawing = false;
+      lifecycleCanvas._resetTransformEventData?.();
+
+      isPanning = false;
+      lastPanX = 0;
+      lastPanY = 0;
+      lastDist = 0;
+      lastMidX = 0;
+      lastMidY = 0;
+      penMouseDownRef.current = false;
+      penDownPointerRef.current = null;
+      penLiveHandleRef.current = null;
+      eyedropperPointerDownRef.current = false;
+      vectorDragStartRef.current = null;
+      setPenLiveHandle(null);
+      if (!penActiveRef.current && !brushActiveRef.current) c.selection = true;
+
+      c.cancelRequestedRender();
+    };
+
+    const pauseCanvas = () => {
+      if (fitToContainerFrameRef.current !== null) {
+        cancelAnimationFrame(fitToContainerFrameRef.current);
+        fitToContainerFrameRef.current = null;
+      }
+      if (resumeRefreshFrameRef.current !== null) {
+        cancelAnimationFrame(resumeRefreshFrameRef.current);
+        resumeRefreshFrameRef.current = null;
+      }
+      clearInterruptedGesture(true);
+      c.cancelRequestedRender();
+    };
+
+    const scheduleResumeRefresh = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (resumeRefreshFrameRef.current !== null) {
+        cancelAnimationFrame(resumeRefreshFrameRef.current);
+      }
+      resumeRefreshFrameRef.current = requestAnimationFrame(() => {
+        resumeRefreshFrameRef.current = null;
+        if (
+          canvasRef.current !== c ||
+          document.visibilityState === 'hidden' ||
+          !c.lowerCanvasEl.isConnected
+        ) return;
+
+        const currentZoom = c.getZoom();
+        const safeZoom = Number.isFinite(currentZoom) && currentZoom > 0 ? currentZoom : 1;
+        const viewport = c.viewportTransform;
+        const viewportIsUsable = Boolean(
+          viewport?.every(Number.isFinite) &&
+          Math.abs(viewport[0] * viewport[3] - viewport[1] * viewport[2]) > 1e-8
+        );
+        const validViewport = (
+          viewportIsUsable && viewport
+            ? [...viewport]
+            : [safeZoom, 0, 0, safeZoom, 0, 0]
+        ) as [number, number, number, number, number, number];
+        const width = Math.max(1, Math.round(designWidth.current * safeZoom));
+        const height = Math.max(1, Math.round(designHeight.current * safeZoom));
+
+        // Reset both Fabric backing stores at their current logical size, keep
+        // the user's viewport transform, and force a fresh cache/render pass.
+        c.cancelRequestedRender();
+        c.setDimensions({ width, height });
+        c.setViewportTransform(validViewport);
+        c.getObjects().forEach(markFabricObjectTreeDirty);
+        c.getObjects().forEach((object) => object.setCoords());
+        c.calcOffset();
+        repaintCanvasSurface(c.lowerCanvasEl.closest<HTMLElement>('[data-canvas-surface]'));
+        c.renderAll();
+        c.renderTop();
+
+        if (penActiveRef.current && penPointsRef.current.length > 1 && !penPreviewRef.current) {
+          const wasProcessingHistory = isHistoryProcessingRef.current;
+          isHistoryProcessingRef.current = true;
+          try {
+            updatePenPreview(penPointsRef.current, null);
+          } finally {
+            isHistoryProcessingRef.current = wasProcessingHistory;
+          }
+        }
+      });
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') pauseCanvas();
+      else scheduleResumeRefresh();
+    };
+    const onPointerCancel = () => {
+      if (!hasInterruptedGesture()) return;
+      clearInterruptedGesture();
+      scheduleResumeRefresh();
+    };
+    const onTouchCancel = () => {
+      if (!hasInterruptedGesture()) return;
+      clearInterruptedGesture();
+      scheduleResumeRefresh();
+    };
+    const onContextLost = (event: Event) => {
+      event.preventDefault();
+      pauseCanvas();
+    };
+    const onContextRestored = () => scheduleResumeRefresh();
+    let lifecycleDisposed = false;
+    let nativeLifecycleHandles: Array<{ remove: () => Promise<void> }> = [];
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('pointercancel', onPointerCancel, true);
+    document.addEventListener('touchcancel', onTouchCancel, true);
+    window.addEventListener('pagehide', pauseCanvas);
+    window.addEventListener('pageshow', scheduleResumeRefresh);
+    window.addEventListener('focus', scheduleResumeRefresh);
+    c.lowerCanvasEl.addEventListener('contextlost', onContextLost);
+    c.lowerCanvasEl.addEventListener('contextrestored', onContextRestored);
+    c.upperCanvasEl.addEventListener('contextlost', onContextLost);
+    c.upperCanvasEl.addEventListener('contextrestored', onContextRestored);
+
+    if (Capacitor.isNativePlatform()) {
+      void Promise.all([
+        CapacitorApp.addListener('pause', pauseCanvas),
+        CapacitorApp.addListener('resume', scheduleResumeRefresh),
+      ]).then((handles) => {
+        if (lifecycleDisposed) {
+          handles.forEach((handle) => { void handle.remove(); });
+        } else {
+          nativeLifecycleHandles = handles;
+        }
+      }).catch((error: unknown) => {
+        console.warn('[canvas-lifecycle] Native resume listeners could not be registered.', error);
+      });
+    }
+
     return () => {
+      lifecycleDisposed = true;
+      nativeLifecycleHandles.forEach((handle) => { void handle.remove(); });
+      if (fitToContainerFrameRef.current !== null) {
+        cancelAnimationFrame(fitToContainerFrameRef.current);
+        fitToContainerFrameRef.current = null;
+      }
+      if (resumeRefreshFrameRef.current !== null) {
+        cancelAnimationFrame(resumeRefreshFrameRef.current);
+        resumeRefreshFrameRef.current = null;
+      }
       if (undoDebounceRef.current) {
         clearTimeout(undoDebounceRef.current);
         undoDebounceRef.current = null;
       }
+      if (lifecycleCanvas._willAddMouseDown) {
+        clearTimeout(lifecycleCanvas._willAddMouseDown);
+        lifecycleCanvas._willAddMouseDown = 0;
+      }
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener('pointercancel', onPointerCancel, true);
+      document.removeEventListener('touchcancel', onTouchCancel, true);
+      window.removeEventListener('pagehide', pauseCanvas);
+      window.removeEventListener('pageshow', scheduleResumeRefresh);
+      window.removeEventListener('focus', scheduleResumeRefresh);
+      c.lowerCanvasEl.removeEventListener('contextlost', onContextLost);
+      c.lowerCanvasEl.removeEventListener('contextrestored', onContextRestored);
+      c.upperCanvasEl.removeEventListener('contextlost', onContextLost);
+      c.upperCanvasEl.removeEventListener('contextrestored', onContextRestored);
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove', onTouchMove);
       ro.disconnect();

@@ -362,15 +362,35 @@ export default function CanvasWorkspace({
       }
       touchPanRef.current = null;
     };
+    const onTouchCancel = () => { touchPanRef.current = null; };
     ct.addEventListener('touchstart', onTouchStart, { passive: false });
     ct.addEventListener('touchmove', onTouchMove, { passive: false });
     ct.addEventListener('touchend', onTouchEnd);
+    ct.addEventListener('touchcancel', onTouchCancel);
     return () => {
       ct.removeEventListener('touchstart', onTouchStart);
       ct.removeEventListener('touchmove', onTouchMove);
       ct.removeEventListener('touchend', onTouchEnd);
+      ct.removeEventListener('touchcancel', onTouchCancel);
     };
   }, [containerRef, panActive, eyedropperActive]);
+
+  useEffect(() => {
+    const clearInterruptedCanvasDrags = () => {
+      touchPanRef.current = null;
+      gridDragRef.current = null;
+      guideDragRef.current = null;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') clearInterruptedCanvasDrags();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', clearInterruptedCanvasDrags);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', clearInterruptedCanvasDrags);
+    };
+  }, []);
 
   return (
     <div
@@ -407,6 +427,7 @@ export default function CanvasWorkspace({
         {/* The actual design canvas, centered inside the scroll area */}
         <div
           className="overflow-hidden shadow-2xl border border-neutral-800/40"
+          data-canvas-surface
           style={{
             position: 'absolute',
             left: `${PAN_MARGIN}px`,

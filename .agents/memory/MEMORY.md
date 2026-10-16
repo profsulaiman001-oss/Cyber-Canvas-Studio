@@ -28,3 +28,4 @@
 - [Grid settings surface](grid-settings-sheet.md) — top-bar settings inside horizontal scroll containers should open a portal-backed bottom sheet, not an inline popover
 - [Transform HUD](transform-hud.md) — reuse controller transform telemetry and place the size/angle HUD in pasteboard space outside the artboard
 - [Transform slider scaling](transform-scale-sliders.md) — scale relative to current scaleX/Y to preserve deliberate proportions; derive range from canvas size
+- [Fabric canvas resume](canvas-lifecycle-resume.md) — mobile cancel events can strand Fabric gestures; clear transient state, restore listeners, then redraw without reloading objects

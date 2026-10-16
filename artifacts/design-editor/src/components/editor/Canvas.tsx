@@ -1,5 +1,5 @@
 import { Fragment, RefObject, useRef, useEffect, useState, type MouseEventHandler, type PointerEvent as ReactPointerEvent } from 'react';
-import { PenPoint, VectorAnchor } from '@/hooks/useFabricCanvas';
+import { PenPoint, SmartGuide, VectorAnchor } from '@/hooks/useFabricCanvas';
 import { useLongPress, type LongPressPosition } from '@/hooks/useContextMenu';
 import { TRANSPARENT_CHECKERBOARD_BACKGROUND } from '@/lib/canvasBackground';
 
@@ -42,6 +42,7 @@ export interface DragInfo {
   angle: number;
   clientX: number;
   clientY: number;
+  angleSnapped: boolean;
 }
 
 interface CanvasProps {
@@ -59,6 +60,7 @@ interface CanvasProps {
   vpX: number;
   vpY: number;
   dragInfo: DragInfo | null;
+  smartGuides?: SmartGuide[];
   brushActive?: boolean;
   eyedropperActive?: boolean;
   canvasWidth?: number;
@@ -104,7 +106,7 @@ export default function CanvasWorkspace({
   gridEnabled, gridSize, transparentBg,
   penPoints, penActive,
   zoom, vpX, vpY,
-  dragInfo, brushActive, eyedropperActive,
+  dragInfo, smartGuides = [], brushActive, eyedropperActive,
   canvasWidth = 1080,
   canvasHeight = 1080,
   vectorAnchors = [],
@@ -653,6 +655,36 @@ export default function CanvasWorkspace({
             </g>
           </svg>
 
+          {smartGuides.length > 0 && (
+            <svg
+              aria-label="Smart alignment guides"
+              className="absolute z-20 pointer-events-none"
+              viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+              preserveAspectRatio="none"
+              style={{
+                left: vpX,
+                top: vpY,
+                width: canvasWidth * zoom,
+                height: canvasHeight * zoom,
+                overflow: 'visible',
+                pointerEvents: 'none',
+              }}
+            >
+              <g
+                fill="none"
+                stroke="#00F5FF"
+                strokeOpacity={0.85}
+                strokeWidth={1 / Math.max(zoom, 0.01)}
+                strokeDasharray={`${5 / Math.max(zoom, 0.01)} ${3 / Math.max(zoom, 0.01)}`}
+              >
+                {smartGuides.map((guide) => guide.axis === 'vertical'
+                  ? <line key={`snap-v-${guide.position}`} x1={guide.position} y1={0} x2={guide.position} y2={canvasHeight} />
+                  : <line key={`snap-h-${guide.position}`} x1={0} y1={guide.position} x2={canvasWidth} y2={guide.position} />
+                )}
+              </g>
+            </svg>
+          )}
+
           {/* Horizontal guide lines */}
           {showGuides && guides?.h.map((pos, i) => {
             const yPx = pos * zoom + vpY;
@@ -903,12 +935,14 @@ export default function CanvasWorkspace({
         className="absolute pointer-events-none z-30 px-2 py-1 rounded-lg text-xs font-mono whitespace-nowrap"
         style={{
           display: dragInfo ? 'block' : 'none', left: hudLeft, top: hudTop,
-          background: 'rgba(0,0,0,0.92)', color: '#00F5FF',
-          border: '1px solid rgba(0,245,255,0.4)', boxShadow: '0 0 10px rgba(0,245,255,0.25)',
+          background: 'rgba(0,0,0,0.92)',
+          color: dragInfo?.angleSnapped ? '#FFD166' : '#00F5FF',
+          border: dragInfo?.angleSnapped ? '1px solid rgba(255,209,102,0.9)' : '1px solid rgba(0,245,255,0.4)',
+          boxShadow: dragInfo?.angleSnapped ? '0 0 12px rgba(255,209,102,0.45)' : '0 0 10px rgba(0,245,255,0.25)',
         }}
         data-testid="transform-hud"
       >
-        {dragInfo ? `W: ${dragInfo.w}px | H: ${dragInfo.h}px | ${dragInfo.angle}°` : ''}
+        {dragInfo ? `W: ${dragInfo.w}px | H: ${dragInfo.h}px | ${dragInfo.angle}°${dragInfo.angleSnapped ? ' SNAP' : ''}` : ''}
       </div>
     </div>
   );

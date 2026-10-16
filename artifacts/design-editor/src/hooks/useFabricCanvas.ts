@@ -367,7 +367,102 @@ export type AlignType = 'left' | 'right' | 'top' | 'bottom' | 'centerH' | 'cente
 export type BrushPreset = 'standard' | 'glow' | 'airbrush';
 
 export interface DragInfo {
-  w: number; h: number; angle: number; clientX: number; clientY: number;
+  w: number;
+  h: number;
+  angle: number;
+  clientX: number;
+  clientY: number;
+  angleSnapped: boolean;
+}
+
+export interface SmartGuide {
+  axis: 'vertical' | 'horizontal';
+  position: number;
+}
+
+interface SnapAxisLock {
+  guide: number;
+  anchorIndex: number;
+}
+
+interface AxisSnapResult {
+  delta: number;
+  lock: SnapAxisLock | null;
+  guide: number | null;
+}
+
+function resolveAxisSnap(
+  anchors: number[],
+  targets: number[],
+  acquireThreshold: number,
+  releaseThreshold: number,
+  currentLock: SnapAxisLock | null,
+): AxisSnapResult {
+  if (currentLock && anchors[currentLock.anchorIndex] !== undefined) {
+    const delta = currentLock.guide - anchors[currentLock.anchorIndex];
+    const distance = Math.abs(delta);
+    if (distance < releaseThreshold) {
+      const weight = distance <= acquireThreshold
+        ? 1
+        : 1 - (distance - acquireThreshold) / (releaseThreshold - acquireThreshold);
+      return {
+        delta: delta * weight,
+        lock: currentLock,
+        guide: currentLock.guide,
+      };
+    }
+  }
+
+  let nearest: { delta: number; guide: number; anchorIndex: number; distance: number } | null = null;
+  anchors.forEach((anchor, anchorIndex) => {
+    targets.forEach((guide) => {
+      const delta = guide - anchor;
+      const distance = Math.abs(delta);
+      if (
+        distance <= acquireThreshold &&
+        (!nearest || distance < nearest.distance)
+      ) {
+        nearest = { delta, guide, anchorIndex, distance };
+      }
+    });
+  });
+
+  return nearest
+    ? {
+        delta: nearest.delta,
+        lock: { guide: nearest.guide, anchorIndex: nearest.anchorIndex },
+        guide: nearest.guide,
+      }
+    : { delta: 0, lock: null, guide: null };
+}
+
+function getCardinalAngleSnap(angle: number, currentSnap: number | null): number | null {
+  if (!Number.isFinite(angle)) return null;
+  const normalized = ((angle % 360) + 360) % 360;
+  const angularDistance = (a: number, b: number) =>
+    Math.abs((((a - b) % 360) + 540) % 360 - 180);
+
+  if (currentSnap !== null && angularDistance(normalized, currentSnap) <= 4.5) {
+    return currentSnap;
+  }
+
+  const nearest = Math.round(normalized / 90) * 90;
+  return angularDistance(normalized, nearest) <= 3 ? nearest % 360 : null;
+}
+
+function getEventClientPoint(event: unknown): { x?: number; y?: number } {
+  if (!event || typeof event !== 'object') return {};
+  const pointerEvent = event as {
+    clientX?: number;
+    clientY?: number;
+    touches?: ArrayLike<{ clientX: number; clientY: number }>;
+    changedTouches?: ArrayLike<{ clientX: number; clientY: number }>;
+  };
+  const touch = pointerEvent.changedTouches?.[0] ?? pointerEvent.touches?.[0];
+  return {
+    x: Number.isFinite(pointerEvent.clientX) ? pointerEvent.clientX : touch?.clientX,
+    y: Number.isFinite(pointerEvent.clientY) ? pointerEvent.clientY : touch?.clientY,
+  };
 }
 
 interface UseFabricCanvasOptions {
@@ -1110,6 +1205,19 @@ export function useFabricCanvas(
   const [selectedObject, setSelectedObject] = useState<FabricObject | null>(null);
   const [zoom, setZoom] = useState(1);
   const [dragInfo, setDragInfo] = useState<DragInfo | null>(null);
+  const [smartGuides, setSmartGuides] = useState<SmartGuide[]>([]);
+  const smartGuidesRef = useRef<SmartGuide[]>([]);
+  const updateSmartGuides = useCallback((next: SmartGuide[]) => {
+    const current = smartGuidesRef.current;
+    const unchanged = current.length === next.length &&
+      current.every((guide, index) =>
+        guide.axis === next[index].axis && Math.abs(guide.position - next[index].position) < 0.01
+      );
+    if (unchanged) return;
+    smartGuidesRef.current = next;
+    setSmartGuides(next);
+  }, []);
+  const clearSmartGuides = useCallback(() => updateSmartGuides([]), [updateSmartGuides]);
   const [isBrushActive, setIsBrushActive] = useState(false);
   const [eyedropperActive, setEyedropperActive] = useState(false);
   const [soloObjectId, setSoloObjectId] = useState<string | null>(null);
@@ -1120,6 +1228,15 @@ export function useFabricCanvas(
   const gridEnabledRef = useRef(false);
   const snapToGridRef = useRef(false);
   const gridSizeRef = useRef(20);
+  const movementSnapRef = useRef<{
+    target: FabricObject | null;
+    x: SnapAxisLock | null;
+    y: SnapAxisLock | null;
+  }>({ target: null, x: null, y: null });
+  const rotationSnapRef = useRef<{ target: FabricObject | null; angle: number | null }>({
+    target: null,
+    angle: null,
+  });
   const penActiveRef = useRef(false);
   const penModeRef = useRef<'pen' | 'bezier' | 'spline'>('pen');
   // Callback fired after a pen path is committed — wired to activateVectorEdit (defined later)
@@ -1166,6 +1283,7 @@ export function useFabricCanvas(
     target?: FabricObject | null,
     clientX?: number,
     clientY?: number,
+    angleSnapped = false,
   ) => {
     const c = canvasRef.current;
     const t = target ?? c?.getActiveObject();
@@ -1183,10 +1301,10 @@ export function useFabricCanvas(
     const fallbackY = canvasRect
       ? canvasRect.top + (bounds.top + bounds.height / 2) * cssScaleY
       : 0;
-    const pointerX = typeof clientX === 'number' && Number.isFinite(clientX) && clientX > 0
+    const pointerX = typeof clientX === 'number' && Number.isFinite(clientX) && clientX >= 0
       ? clientX
       : fallbackX;
-    const pointerY = typeof clientY === 'number' && Number.isFinite(clientY) && clientY > 0
+    const pointerY = typeof clientY === 'number' && Number.isFinite(clientY) && clientY >= 0
       ? clientY
       : fallbackY;
 
@@ -1196,6 +1314,7 @@ export function useFabricCanvas(
       angle: Math.round(t.angle ?? 0),
       clientX: pointerX,
       clientY: pointerY,
+      angleSnapped,
     });
   }, [canvasEl]);
 
@@ -1635,26 +1754,128 @@ export function useFabricCanvas(
     c.on('object:modified', handleChange);
     c.on('object:removed', handleChange);
 
-    /* ─── Snap to grid + drag telemetry ─── */
+    /* ─── Grid + smart alignment snapping ─── */
     c.on('object:moving', (e) => {
-      if (snapToGridRef.current && gridEnabledRef.current) {
-        const obj = e.target;
-        const g = gridSizeRef.current;
-        obj.set({
-          left: Math.round((obj.left ?? 0) / g) * g,
-          top: Math.round((obj.top ?? 0) / g) * g,
+      const target = e.target;
+      if (!target) return;
+
+      if (!snapToGridRef.current) {
+        movementSnapRef.current = { target: null, x: null, y: null };
+        updateSmartGuides([]);
+      } else {
+        if (movementSnapRef.current.target !== target) {
+          movementSnapRef.current = { target, x: null, y: null };
+        }
+
+        let changed = false;
+        let left = target.left ?? 0;
+        let top = target.top ?? 0;
+        if (gridEnabledRef.current && gridSizeRef.current > 0) {
+          const gridSize = gridSizeRef.current;
+          const gridLeft = Math.round(left / gridSize) * gridSize;
+          const gridTop = Math.round(top / gridSize) * gridSize;
+          changed = Math.abs(gridLeft - left) > 0.001 || Math.abs(gridTop - top) > 0.001;
+          left = gridLeft;
+          top = gridTop;
+          if (changed) target.set({ left, top });
+        }
+        if (changed) target.setCoords();
+
+        const bounds = target.getBoundingRect();
+        const xAnchors = [bounds.left, bounds.left + bounds.width / 2, bounds.left + bounds.width];
+        const yAnchors = [bounds.top, bounds.top + bounds.height / 2, bounds.top + bounds.height];
+        const selectedObjects = new Set(c.getActiveObjects());
+        const xTargets = [0, designWidth.current / 2, designWidth.current];
+        const yTargets = [0, designHeight.current / 2, designHeight.current];
+
+        c.getObjects().forEach((sibling) => {
+          const internal = sibling as FabricObject & { _isPenAux?: boolean; _isAuxLayer?: boolean };
+          if (
+            sibling === target ||
+            selectedObjects.has(sibling) ||
+            sibling.visible === false ||
+            (sibling.opacity ?? 1) <= 0 ||
+            internal._isPenAux ||
+            internal._isAuxLayer
+          ) return;
+
+          const siblingBounds = sibling.getBoundingRect();
+          xTargets.push(
+            siblingBounds.left,
+            siblingBounds.left + siblingBounds.width / 2,
+            siblingBounds.left + siblingBounds.width,
+          );
+          yTargets.push(
+            siblingBounds.top,
+            siblingBounds.top + siblingBounds.height / 2,
+            siblingBounds.top + siblingBounds.height,
+          );
         });
+
+        const zoomScale = Math.max(c.getZoom(), 0.01);
+        const acquireThreshold = 9 / zoomScale;
+        const releaseThreshold = 18 / zoomScale;
+        const currentLocks = movementSnapRef.current;
+        const xSnap = resolveAxisSnap(
+          xAnchors,
+          Array.from(new Set(xTargets)),
+          acquireThreshold,
+          releaseThreshold,
+          currentLocks.x,
+        );
+        const ySnap = resolveAxisSnap(
+          yAnchors,
+          Array.from(new Set(yTargets)),
+          acquireThreshold,
+          releaseThreshold,
+          currentLocks.y,
+        );
+
+        if (Math.abs(xSnap.delta) > 0.001 || Math.abs(ySnap.delta) > 0.001) {
+          target.set({
+            left: (target.left ?? 0) + xSnap.delta,
+            top: (target.top ?? 0) + ySnap.delta,
+          });
+          target.setCoords();
+        }
+
+        movementSnapRef.current = { target, x: xSnap.lock, y: ySnap.lock };
+        const guides: SmartGuide[] = [];
+        if (xSnap.guide !== null) guides.push({ axis: 'vertical', position: xSnap.guide });
+        if (ySnap.guide !== null) guides.push({ axis: 'horizontal', position: ySnap.guide });
+        updateSmartGuides(guides);
       }
-      const t = e.target;
-      if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
+
+      const point = getEventClientPoint(e.e);
+      showTransformHud(target, point.x, point.y);
     });
     c.on('object:scaling', (e) => {
       const t = e.target;
-      if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
+      if (t) {
+        const point = getEventClientPoint(e.e);
+        showTransformHud(t, point.x, point.y);
+      }
     });
     c.on('object:rotating', (e) => {
       const t = e.target;
-      if (t) showTransformHud(t, (e.e as MouseEvent).clientX, (e.e as MouseEvent).clientY);
+      if (!t) return;
+      let snappedAngle: number | null = null;
+      if (snapToGridRef.current) {
+        if (rotationSnapRef.current.target !== t) {
+          rotationSnapRef.current = { target: t, angle: null };
+        }
+        snappedAngle = getCardinalAngleSnap(t.angle ?? 0, rotationSnapRef.current.angle);
+        rotationSnapRef.current = { target: t, angle: snappedAngle };
+        if (snappedAngle !== null) {
+          t.set('angle', snappedAngle);
+          t.setCoords();
+        }
+      } else {
+        rotationSnapRef.current = { target: null, angle: null };
+      }
+      updateSmartGuides([]);
+      const point = getEventClientPoint(e.e);
+      showTransformHud(t, point.x, point.y, snappedAngle !== null);
     });
 
     /* ─── Render-local 3D and inner-shadow hooks ─── */
@@ -1773,6 +1994,9 @@ export function useFabricCanvas(
     });
 
     c.on('mouse:up', () => {
+      movementSnapRef.current = { target: null, x: null, y: null };
+      rotationSnapRef.current = { target: null, angle: null };
+      updateSmartGuides([]);
       if (eyedropperActiveRef.current) {
         finishEyedropper();
         return;
@@ -1909,6 +2133,9 @@ export function useFabricCanvas(
     const clearInterruptedGesture = (force = false) => {
       if (!force && !hasInterruptedGesture()) return;
 
+      movementSnapRef.current = { target: null, x: null, y: null };
+      rotationSnapRef.current = { target: null, angle: null };
+      updateSmartGuides([]);
       const needsMouseDownRebind =
         lifecycleCanvas.mainTouchId !== undefined || Boolean(lifecycleCanvas._willAddMouseDown);
       const interruptedPenDrag = penMouseDownRef.current;
@@ -2129,14 +2356,19 @@ export function useFabricCanvas(
       canvasRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasEl, getHistorySnapshot, hideTransformHud, showTransformHud]);
+  }, [canvasEl, getHistorySnapshot, hideTransformHud, showTransformHud, updateSmartGuides]);
 
   /* ─── Grid / snap setters ─── */
   const setGridOptions = useCallback((enabled: boolean, snap: boolean, size: number) => {
     gridEnabledRef.current = enabled;
     snapToGridRef.current = snap;
     gridSizeRef.current = size;
-  }, []);
+    if (!snap) {
+      movementSnapRef.current = { target: null, x: null, y: null };
+      rotationSnapRef.current = { target: null, angle: null };
+      clearSmartGuides();
+    }
+  }, [clearSmartGuides]);
 
   /* ─── Canvas background ─── */
   const setCanvasBackground = useCallback((cfg: CanvasBgConfig) => {

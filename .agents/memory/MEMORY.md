@@ -21,7 +21,7 @@
 - [Workspace dependency install](workspace-dependencies.md) — use a package-scoped install when workspace links are missing; the generic package helper may target the root incorrectly
 - [Editor persistence](editor-persistence.md) — image sources must remain data URLs and undo entries store the prior committed canvas state
 - [Color Studio gradient context](color-studio-gradient-context.md) — solid color sources target the focused gradient stop; full gradient presets replace the whole fill; live edits commit only on Apply
-- [Layer panel ordering](layer-panel-ordering.md) — group thumbnails use Fabric toDataURL; layer drag targets are final panel slots; z-order commands must sync and commit
+- [Layer panel ordering](layer-panel-ordering.md) — hit-test rendered geometry; adjust same-parent insertion slots before clamping and commit the full Fabric reorder
 - [Grouped object effects](grouped-effects.md) — retain original Fabric children; render custom inner shadows in each child cache; use styled groups when a union cannot keep distinct effects
 - [Eyedropper state](eyedropper-state.md) — preserve active object and gradient context while sampling, then restore selection before callbacks resume
 - [Floating effect panels](floating-effect-panels.md) — effect tools belong inside the bottom-toolbar wrapper; use bottom-full floating pills, not modal sheets or scrims

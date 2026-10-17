@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Layers2, Ungroup, X } from 'lucide-react';
 import { Sheet, SheetClose, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -103,10 +103,11 @@ function moveLayerInTree(
 
   const targetChildren = getChildrenAt(next, targetParentId);
   if (!targetChildren) return source;
-  let insertAt = Math.max(0, Math.min(targetIndex, targetChildren.length));
+  let insertAt = targetIndex;
   if (removed.parentId === targetParentId && removed.index < insertAt) insertAt -= 1;
-  targetChildren.splice(Math.max(0, insertAt), 0, removed.node);
-  return next;
+  insertAt = Math.max(0, Math.min(insertAt, targetChildren.length));
+  targetChildren.splice(insertAt, 0, removed.node);
+  return hasSameLayerOrder(source, next) ? source : next;
 }
 
 function toOrderNodes(nodes: ObjectMeta[]): LayerOrderNode[] {
@@ -114,6 +115,14 @@ function toOrderNodes(nodes: ObjectMeta[]): LayerOrderNode[] {
     id: node.id,
     children: node.children ? toOrderNodes(node.children) : [],
   }));
+}
+
+function hasSameLayerOrder(first: ObjectMeta[], second: ObjectMeta[]): boolean {
+  return first.length === second.length && first.every((node, index) => {
+    const other = second[index];
+    return node.id === other.id &&
+      hasSameLayerOrder(node.children ?? [], other.children ?? []);
+  });
 }
 
 export default function LayersPanel({ controller }: LayersPanelProps) {
@@ -130,7 +139,11 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   const [dropId, setDropId] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const dragTreeRef = useRef<ObjectMeta[] | null>(null);
+  const renderedTreeRef = useRef<ObjectMeta[] | null>(null);
   const dragSessionRef = useRef<{ pointerId: number; id: string } | null>(null);
+  const dragPointRef = useRef<{ x: number; y: number } | null>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const updateDragPreviewRef = useRef<(clientX: number, clientY: number) => ObjectMeta[] | null>(() => null);
   const pointerMoveHandlerRef = useRef<(event: PointerEvent) => void>(() => {});
   const pointerUpHandlerRef = useRef<(event: PointerEvent) => void>(() => {});
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -138,9 +151,20 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   const displayedTree = dragTree || objects;
   const flatLayers = flattenLayers(displayedTree, collapsedGroups);
 
+  useLayoutEffect(() => {
+    if (draggingId && dragTree) renderedTreeRef.current = dragTree;
+    else if (!draggingId) renderedTreeRef.current = null;
+  }, [dragTree, draggingId]);
+
   const clearDragState = () => {
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
     dragSessionRef.current = null;
+    dragPointRef.current = null;
     dragTreeRef.current = null;
+    renderedTreeRef.current = null;
     setDragTree(null);
     setDraggingId(null);
     setDropId(null);
@@ -157,68 +181,89 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
     }
     const initialTree = cloneLayerTree(objects);
     dragSessionRef.current = { pointerId: event.pointerId, id };
+    dragPointRef.current = { x: event.clientX, y: event.clientY };
     dragTreeRef.current = initialTree;
+    renderedTreeRef.current = initialTree;
     setDragTree(initialTree);
     setDraggingId(id);
     setDropId(id);
   };
 
-  const handlePointerMove = (event: PointerEvent) => {
+  const updateDragPreviewAtPoint = (clientX: number, clientY: number): ObjectMeta[] | null => {
     const session = dragSessionRef.current;
-    if (!session || event.pointerId !== session.pointerId) return;
-    const currentTree = dragTreeRef.current;
+    const currentTree = renderedTreeRef.current ?? dragTreeRef.current;
+    if (!session || !currentTree) return null;
     const currentDraggingId = session.id;
-    if (!currentTree || !currentDraggingId) return;
-    event.preventDefault();
 
     const flat = flattenLayers(currentTree, collapsedGroups);
-    const over = flat.find(({ obj }) => {
-      const card = cardRefs.current[obj.id];
-      if (!card) return false;
+    const positionedRows = flat.flatMap((row) => {
+      const card = cardRefs.current[row.obj.id];
+      if (!card) return [];
       const rect = card.getBoundingClientRect();
-      return event.clientY >= rect.top && event.clientY <= rect.bottom;
+      return [{ ...row, rect, centerY: rect.top + rect.height / 2 }];
     });
+    const over = positionedRows.find(({ rect }) => clientY >= rect.top && clientY <= rect.bottom);
+    const nearest = positionedRows.reduce<(typeof positionedRows)[number] | null>((best, row) => {
+      if (!best) return row;
+      return Math.abs(clientY - row.centerY) < Math.abs(clientY - best.centerY) ? row : best;
+    }, null);
+    const firstRow = positionedRows[0];
+    const lastRow = positionedRows[positionedRows.length - 1];
 
     let targetParentId: string | null = null;
     let targetIndex = currentTree.length;
-    let visualDropId: string | null = over?.obj.id || null;
+    let visualDropId: string | null = over?.obj.id ?? null;
+    const listRect = listRef.current?.getBoundingClientRect();
+    const rootRows = positionedRows.filter((row) => row.parentId === null);
+    const rootIntent = Boolean(listRect && clientX < listRect.left + 52);
+    const outsideTop = Boolean(firstRow && clientY < firstRow.rect.top);
+    const outsideBottom = Boolean(lastRow && clientY > lastRow.rect.bottom);
 
-    if (over) {
-      const overCard = cardRefs.current[over.obj.id];
-      const overRect = overCard?.getBoundingClientRect();
-      const listRect = listRef.current?.getBoundingClientRect();
-      const isRootIntent = Boolean(listRect && event.clientX < listRect.left + 52);
-      if (isRootIntent) {
-        const rootRows = flat.filter((row) => row.parentId === null);
-        const rootOver = rootRows.find((row) => {
-          const card = cardRefs.current[row.obj.id];
-          const rect = card?.getBoundingClientRect();
-          return rect && event.clientY >= rect.top && event.clientY <= rect.bottom;
-        });
-        targetIndex = rootOver ? rootOver.index + (event.clientY >= (cardRefs.current[rootOver.obj.id]?.getBoundingClientRect().top || 0) + (cardRefs.current[rootOver.obj.id]?.getBoundingClientRect().height || 0) / 2 ? 1 : 0) : currentTree.length;
-        visualDropId = rootOver?.obj.id || null;
-      } else if (over.obj.type === 'group' && overRect && event.clientY < overRect.top + Math.min(58, overRect.height * 0.55)) {
-        targetParentId = over.obj.id;
-        targetIndex = over.obj.children?.length || 0;
+    if (rootIntent || outsideTop || outsideBottom) {
+      const rootTarget = rootRows.find((row) => clientY < row.centerY);
+      targetIndex = rootTarget?.index ?? currentTree.length;
+      visualDropId = rootTarget?.obj.id ?? rootRows[rootRows.length - 1]?.obj.id ?? null;
+    } else {
+      const targetRow = over ?? nearest;
+      if (targetRow?.obj.type === 'group' && over === targetRow &&
+        clientY < targetRow.rect.top + Math.min(58, targetRow.rect.height * 0.55)) {
+        targetParentId = targetRow.obj.id;
+        targetIndex = targetRow.obj.children?.length || 0;
+        visualDropId = targetRow.obj.id;
+      } else if (targetRow) {
+        targetParentId = targetRow.parentId;
+        targetIndex = targetRow.index + (clientY >= targetRow.centerY ? 1 : 0);
+        visualDropId = targetRow.obj.id;
       } else {
-        targetParentId = over.parentId;
-        targetIndex = over.index + (overRect && event.clientY >= overRect.top + overRect.height / 2 ? 1 : 0);
+        visualDropId = null;
       }
     }
 
     const nextTree = moveLayerInTree(currentTree, currentDraggingId, targetParentId, targetIndex);
-    if (nextTree !== currentTree) {
+    if (nextTree !== dragTreeRef.current) {
       dragTreeRef.current = nextTree;
       setDragTree(nextTree);
     }
     setDropId(visualDropId);
+    return nextTree;
+  };
+
+  updateDragPreviewRef.current = updateDragPreviewAtPoint;
+
+  const handlePointerMove = (event: PointerEvent) => {
+    const session = dragSessionRef.current;
+    if (!session || event.pointerId !== session.pointerId) return;
+    event.preventDefault();
+    dragPointRef.current = { x: event.clientX, y: event.clientY };
+    updateDragPreviewAtPoint(event.clientX, event.clientY);
   };
 
   const handlePointerUp = (event: PointerEvent) => {
     const session = dragSessionRef.current;
     if (!session || event.pointerId !== session.pointerId) return;
     event.preventDefault();
-    const finalTree = dragTreeRef.current;
+    dragPointRef.current = { x: event.clientX, y: event.clientY };
+    const finalTree = updateDragPreviewRef.current(event.clientX, event.clientY) ?? dragTreeRef.current;
     if (finalTree) {
       const original = JSON.stringify(toOrderNodes(objects));
       const next = JSON.stringify(toOrderNodes(finalTree));
@@ -232,17 +277,53 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
 
   useEffect(() => {
     if (!draggingId) return;
-    const onPointerMove = (event: PointerEvent) => pointerMoveHandlerRef.current(event);
+    function scheduleAutoScroll() {
+      if (autoScrollFrameRef.current !== null) return;
+      autoScrollFrameRef.current = requestAnimationFrame(autoScroll);
+    }
+    function autoScroll() {
+      autoScrollFrameRef.current = null;
+      const list = listRef.current;
+      const point = dragPointRef.current;
+      if (!list || !point || !dragSessionRef.current) return;
+
+      const rect = list.getBoundingClientRect();
+      const edgeZone = 48;
+      let scrollDelta = 0;
+      if (point.y < rect.top + edgeZone && list.scrollTop > 0) {
+        const strength = Math.min(1, (rect.top + edgeZone - point.y) / edgeZone);
+        scrollDelta = -Math.ceil(1 + strength * 9);
+      } else if (point.y > rect.bottom - edgeZone && list.scrollTop + list.clientHeight < list.scrollHeight) {
+        const strength = Math.min(1, (point.y - (rect.bottom - edgeZone)) / edgeZone);
+        scrollDelta = Math.ceil(1 + strength * 9);
+      }
+
+      if (!scrollDelta) return;
+      const previousTop = list.scrollTop;
+      list.scrollTop = Math.max(0, Math.min(list.scrollHeight - list.clientHeight, previousTop + scrollDelta));
+      if (list.scrollTop === previousTop) return;
+      updateDragPreviewRef.current(point.x, point.y);
+      scheduleAutoScroll();
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      pointerMoveHandlerRef.current(event);
+      scheduleAutoScroll();
+    };
     const onPointerUp = (event: PointerEvent) => pointerUpHandlerRef.current(event);
     const onPointerCancel = (event: PointerEvent) => pointerUpHandlerRef.current(event);
 
     window.addEventListener('pointermove', onPointerMove, { passive: false });
     window.addEventListener('pointerup', onPointerUp, { passive: false });
     window.addEventListener('pointercancel', onPointerCancel, { passive: false });
+    scheduleAutoScroll();
     return () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerCancel);
+      if (autoScrollFrameRef.current !== null) {
+        cancelAnimationFrame(autoScrollFrameRef.current);
+        autoScrollFrameRef.current = null;
+      }
     };
   }, [draggingId]);
 

@@ -4606,10 +4606,13 @@ export function useFabricCanvas(
     tree.forEach((node) => reparent(node, null));
 
     const reorderCollection = (
-      collection: { moveObjectTo?: (obj: FabricObject, index: number) => void },
+      collection: {
+        moveObjectTo?: (obj: FabricObject, index: number) => void;
+        moveTo?: (obj: FabricObject, index: number) => void;
+      },
       nodes: LayerOrderNode[],
     ) => {
-      const move = collection.moveObjectTo;
+      const move = collection.moveObjectTo ?? collection.moveTo;
       if (typeof move !== 'function') return;
       nodes.slice().reverse().forEach((node, index) => {
         const obj = byId.get(node.id);

@@ -15,4 +15,6 @@ For cross-platform layer dragging, start only from the drag handle, track the ac
 
 **Why:** Touch browsers may terminate pointer capture during a drag; a global pointer lifecycle prevents missed drops, and committing on cancellation avoids discarding the visible reorder.
 
-**How to apply:** Include nested group content in visual-change signatures so thumbnails refresh after child edits, keep panel order conversion separate from canvas stack order, and expose explicit front/back/forward/backward controller methods from the expanded action shelf.
+**Why:** Drop destinations are measured against the pre-removal sibling list; clamping before adjusting for the removed source shifts end drops one slot early.
+
+**How to apply:** During live previews, hit-test against the last committed rendered tree so card geometry and sibling indices match. Include nested group content in visual-change signatures, keep panel order conversion separate from canvas stack order, adjust a same-parent destination for the removed source before clamping, and expose explicit front/back/forward/backward controller methods from the expanded action shelf.

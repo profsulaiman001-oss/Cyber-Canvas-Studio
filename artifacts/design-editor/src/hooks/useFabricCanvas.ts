@@ -28,6 +28,7 @@ import {
   buildCornerRadiusPathData,
 } from '@/lib/radiusUtils';
 import { repaintCanvasSurface } from '@/lib/canvasBackground';
+import { getCardinalAngleSnap, resolveAxisSnap, type SnapAxisLock } from '@/lib/snapEngine';
 import type { CornerRadiusValues } from '@/types/canvas';
 
 type RectWithCornerRadii = Rect & { cornerRadii?: CornerRadiusValues };
@@ -378,76 +379,6 @@ export interface DragInfo {
 export interface SmartGuide {
   axis: 'vertical' | 'horizontal';
   position: number;
-}
-
-interface SnapAxisLock {
-  guide: number;
-  anchorIndex: number;
-}
-
-interface AxisSnapResult {
-  delta: number;
-  lock: SnapAxisLock | null;
-  guide: number | null;
-}
-
-function resolveAxisSnap(
-  anchors: number[],
-  targets: number[],
-  acquireThreshold: number,
-  releaseThreshold: number,
-  currentLock: SnapAxisLock | null,
-): AxisSnapResult {
-  if (currentLock && anchors[currentLock.anchorIndex] !== undefined) {
-    const delta = currentLock.guide - anchors[currentLock.anchorIndex];
-    const distance = Math.abs(delta);
-    if (distance < releaseThreshold) {
-      const weight = distance <= acquireThreshold
-        ? 1
-        : 1 - (distance - acquireThreshold) / (releaseThreshold - acquireThreshold);
-      return {
-        delta: delta * weight,
-        lock: currentLock,
-        guide: currentLock.guide,
-      };
-    }
-  }
-
-  let nearest: { delta: number; guide: number; anchorIndex: number; distance: number } | null = null;
-  anchors.forEach((anchor, anchorIndex) => {
-    targets.forEach((guide) => {
-      const delta = guide - anchor;
-      const distance = Math.abs(delta);
-      if (
-        distance <= acquireThreshold &&
-        (!nearest || distance < nearest.distance)
-      ) {
-        nearest = { delta, guide, anchorIndex, distance };
-      }
-    });
-  });
-
-  return nearest
-    ? {
-        delta: nearest.delta,
-        lock: { guide: nearest.guide, anchorIndex: nearest.anchorIndex },
-        guide: nearest.guide,
-      }
-    : { delta: 0, lock: null, guide: null };
-}
-
-function getCardinalAngleSnap(angle: number, currentSnap: number | null): number | null {
-  if (!Number.isFinite(angle)) return null;
-  const normalized = ((angle % 360) + 360) % 360;
-  const angularDistance = (a: number, b: number) =>
-    Math.abs((((a - b) % 360) + 540) % 360 - 180);
-
-  if (currentSnap !== null && angularDistance(normalized, currentSnap) <= 4.5) {
-    return currentSnap;
-  }
-
-  const nearest = Math.round(normalized / 90) * 90;
-  return angularDistance(normalized, nearest) <= 3 ? nearest % 360 : null;
 }
 
 function getEventClientPoint(event: unknown): { x?: number; y?: number } {
@@ -4705,7 +4636,7 @@ export function useFabricCanvas(
 
   return {
     getCanvas, objects, selectedObject, zoom, penPoints,
-    dragInfo, isBrushActive, eyedropperActive,
+    dragInfo, smartGuides, isBrushActive, eyedropperActive,
     showTransformHud, hideTransformHud,
     // Shapes
     addRect, addCircle, addTriangle, addLine, addText, addImageFromFile,

@@ -1041,6 +1041,7 @@ export default function DesignEditor() {
         vpX={vpX}
         vpY={vpY}
         dragInfo={controller.dragInfo}
+        smartGuides={controller.smartGuides}
         brushActive={brushActive}
         eyedropperActive={controller.eyedropperActive}
         canvasWidth={state.canvasSize.width}

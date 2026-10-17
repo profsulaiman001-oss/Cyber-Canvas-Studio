@@ -184,11 +184,20 @@ export default function TopBar({
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => dispatch({ type: 'TOGGLE_SNAP' })} style={iconBtn(state.snapToGrid)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => dispatch({ type: 'TOGGLE_SNAP' })}
+              style={iconBtn(state.snapToGrid)}
+              aria-label={state.snapToGrid ? 'Disable smart snapping' : 'Enable smart snapping'}
+              aria-pressed={state.snapToGrid}
+              data-testid="button-snap"
+            >
               <Magnet size={15} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{state.snapToGrid ? 'Disable Snap' : 'Snap to Grid'}</TooltipContent>
+          <TooltipContent>{state.snapToGrid ? 'Disable smart snapping' : 'Enable smart snapping'}</TooltipContent>
         </Tooltip>
 
         <Tooltip>

@@ -14,12 +14,6 @@ interface TypographyPanelProps {
   controller: CanvasController;
 }
 
-interface GlowConfig {
-  enabled?: boolean;
-  color?: string;
-  intensity?: number;
-}
-
 const DEFAULT_VALUES = {
   fontSize: 48,
   letterSpacing: 0,
@@ -64,8 +58,6 @@ export default function TypographyPanel({ controller }: TypographyPanelProps) {
   const [fontFamily, setFontFamily] = useState('Inter');
   const [alignment, setAlignment] = useState<TypographyAlignment>('left');
   const [textTransform, setTextTransform] = useState<TypographyTransform>('none');
-  const [glowEnabled, setGlowEnabled] = useState(false);
-  const [neonEnabled, setNeonEnabled] = useState(false);
 
   useEffect(() => {
     if (!textObj) {
@@ -76,13 +68,10 @@ export default function TypographyPanel({ controller }: TypographyPanelProps) {
       setFontFamily('Inter');
       setAlignment('left');
       setTextTransform('none');
-      setGlowEnabled(false);
-      setNeonEnabled(false);
       return;
     }
 
     const size = Number(textObj.fontSize) || DEFAULT_VALUES.fontSize;
-    const glow = (textObj as IText & { _glow?: GlowConfig })._glow;
     setFontSize(size);
     setLetterSpacing(((Number(textObj.charSpacing) || 0) * size) / 1000);
     setLineHeight(Number(textObj.lineHeight) || DEFAULT_VALUES.lineHeight);
@@ -90,8 +79,6 @@ export default function TypographyPanel({ controller }: TypographyPanelProps) {
     setFontFamily(String(textObj.fontFamily || 'Inter'));
     setAlignment(getAlignment(String(textObj.textAlign || 'left')));
     setTextTransform(textObj.typographyTransform || 'none');
-    setGlowEnabled(!!glow?.enabled);
-    setNeonEnabled(!!textObj.typographyNeon);
   }, [textObj, state.activePanel]);
 
   usePanelOutsideDismissal({
@@ -165,42 +152,6 @@ export default function TypographyPanel({ controller }: TypographyPanelProps) {
     applyTextProps(properties);
   };
 
-  const applyGlow = (enabled: boolean, config?: GlowConfig) => {
-    if (!textObj) return;
-    controller.applyGlow(
-      textObj,
-      enabled
-        ? {
-            enabled: true,
-            color: config?.color || '#00F5FF',
-            intensity: config?.intensity || 20,
-          }
-        : null,
-    );
-    controller.getCanvas()?.renderAll();
-    controller.commitChange();
-  };
-
-  const handleGlowChange = (enabled: boolean) => {
-    setGlowEnabled(enabled);
-    if (!enabled) {
-      setNeonEnabled(false);
-      textObj?.set({ typographyNeon: false });
-      applyGlow(false);
-      return;
-    }
-    const currentGlow = (textObj as (IText & { _glow?: GlowConfig }) | null)?._glow;
-    applyGlow(true, currentGlow);
-  };
-
-  const handleNeonChange = (enabled: boolean) => {
-    if (!textObj) return;
-    setNeonEnabled(enabled);
-    setGlowEnabled(enabled);
-    textObj.set({ typographyNeon: enabled });
-    applyGlow(enabled, { color: '#00F5FF', intensity: 60 });
-  };
-
   if (state.activePanel !== 'typography') return null;
 
   return (
@@ -214,8 +165,6 @@ export default function TypographyPanel({ controller }: TypographyPanelProps) {
         fontFamily={fontFamily}
         alignment={alignment}
         textTransform={textTransform}
-        glowEnabled={glowEnabled}
-        neonEnabled={neonEnabled}
         onFontSizeChange={handleFontSizeChange}
         onLetterSpacingChange={handleLetterSpacingChange}
         onLineHeightChange={handleLineHeightChange}
@@ -223,8 +172,6 @@ export default function TypographyPanel({ controller }: TypographyPanelProps) {
         onFontFamilyChange={handleFontFamilyChange}
         onAlignmentChange={handleAlignmentChange}
         onTextTransformChange={handleTextTransformChange}
-        onGlowChange={handleGlowChange}
-        onNeonChange={handleNeonChange}
       />
     </div>
   );

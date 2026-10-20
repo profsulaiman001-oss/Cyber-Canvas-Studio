@@ -9,7 +9,6 @@
 - [Fabric canvas quirks](fabric-v6-quirks.md) — Fabric 7 stops contextmenu bubbling on its upper canvas, so app menus need ancestor capture handlers; retain documented cache and path caveats
 - [Inner shadow geometry](inner-shadow-geometry.md) — derive masks from Fabric-native local paths, including pathOffset and rx/ry, then composite the inverted blur with source-atop
 - [Canvas coordinate alignment](canvas-coordinate-alignment.md) — fitToContainer must size canvas to dw*zoom × dh*zoom (design area), NOT container dimensions; no vp translation
-- [Toolbar overlay pattern](toolbar-overlay.md) — brush color picker and zoom tray must be absolute-positioned (bottom-full) inside a relative wrapper div, NOT inline in toolbar flex flow — avoids canvas resize
 - [Pan mode](pan-mode.md) — touch-pan ONLY in Canvas.tsx handlers (never Fabric mouse:down/move — TouchEvent.clientX=undefined→NaN→black screen); touchAction:none+always-preventDefault blocks native scroll when tool is OFF
 - [Mask/clipPath](mask-clippath.md) — applyMaskFromSelection: topmost z-order object becomes clipPath of bottom; clone then set absolute-positioned offset relative to target; remove mask shape from canvas
 - [Image fill pattern](image-fill-pattern.md) — fillShapeWithImage: pre-render cover-fit to offscreen canvas at obj.width×obj.height; use patternTransform:[1,0,0,1,-w/2,-h/2]; accepts File|HTMLCanvasElement for pre-crop flow

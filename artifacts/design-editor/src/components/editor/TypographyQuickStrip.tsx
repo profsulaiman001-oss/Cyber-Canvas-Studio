@@ -62,7 +62,7 @@ export default function TypographyQuickStrip(props: TypographyQuickStripProps) {
   return (
     <div className="absolute bottom-full left-1/2 z-[9999] mb-2 w-[min(720px,calc(100vw-20px))] -translate-x-1/2" data-testid="typography-quick-strip">
       <div
-        className={`overflow-hidden rounded-2xl transition-all duration-300 ${expanded ? 'mb-2 max-h-[min(72vh,650px)] overflow-y-auto opacity-100' : 'pointer-events-none max-h-0 opacity-0'}`}
+        className={`overflow-hidden rounded-2xl transition-all duration-300 ${expanded ? 'mb-2 max-h-[min(72vh,650px)] opacity-100' : 'pointer-events-none max-h-0 opacity-0'}`}
         aria-hidden={!expanded}
       >
         {expanded && <TypographyStudio {...props} />}
@@ -81,7 +81,7 @@ export default function TypographyQuickStrip(props: TypographyQuickStripProps) {
             <button
               type="button"
               disabled={!props.hasTextSelection}
-              className="flex h-10 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-8 w-12 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40"
               aria-label={`Typography parameter: ${activeControl.label}`}
               title={activeControl.label}
             >
@@ -115,7 +115,7 @@ export default function TypographyQuickStrip(props: TypographyQuickStripProps) {
           />
         </div>
 
-        <label className="flex h-10 min-w-[76px] shrink-0 items-center justify-end gap-1 rounded-lg border border-white/10 bg-white/[0.035] px-2 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/40">
+        <label className="flex h-8 min-w-[64px] shrink-0 items-center justify-end gap-1 rounded-lg border border-white/10 bg-white/[0.035] px-2 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/40">
           <span className="sr-only">{activeControl.label} value</span>
           <input
             type="number"
@@ -145,7 +145,7 @@ export default function TypographyQuickStrip(props: TypographyQuickStripProps) {
           aria-expanded={expanded}
           aria-controls="typography-studio"
           aria-label={expanded ? 'Collapse typography controls' : 'Expand typography controls'}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {expanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
         </button>

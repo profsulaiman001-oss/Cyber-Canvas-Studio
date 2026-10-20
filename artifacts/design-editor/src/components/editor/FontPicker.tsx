@@ -103,9 +103,9 @@ export default function FontPicker({ value, onChange, systemFonts, customFonts, 
           </button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-[--radix-popover-trigger-width] p-0 overflow-hidden"
+          className="z-[10050] w-[--radix-popover-trigger-width] p-0 overflow-hidden"
           align="start"
-          style={{ width: 'var(--radix-popover-trigger-width)' }}
+          style={{ width: 'var(--radix-popover-trigger-width)', zIndex: 10050 }}
         >
           <div className="sticky top-0 z-10 p-2 border-b border-border bg-popover space-y-2">
             <div className="relative">

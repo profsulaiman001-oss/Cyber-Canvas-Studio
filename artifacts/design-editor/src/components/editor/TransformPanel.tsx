@@ -23,7 +23,7 @@ interface TransformPanelProps {
 type TransformProperty = 'scale' | 'rotation';
 
 const MIN_SCALE_PERCENT = 10;
-const MIN_DYNAMIC_SCALE_MAX = 3000;
+const MAX_TRANSFORM_DIMENSION = 3000;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -45,16 +45,18 @@ function readScalePercent(obj: FabricObject) {
   return Math.max(MIN_SCALE_PERCENT, Math.round(((scaleX + scaleY) / 2) * 100));
 }
 
-function readScaleMax(obj: FabricObject, canvas: ReturnType<CanvasController['getCanvas']>) {
-  const canvasWidth = canvas?.getWidth() ?? 0;
-  const canvasHeight = canvas?.getHeight() ?? 0;
-  const largestCanvasDimension = Math.max(canvasWidth, canvasHeight, MIN_DYNAMIC_SCALE_MAX);
-  const largestBaseDimension = Math.max(Math.abs(obj.width ?? 1), Math.abs(obj.height ?? 1), 1);
-  const canvasBasedMax = Math.ceil((largestCanvasDimension / largestBaseDimension) * 100);
+function readScaleMax(obj: FabricObject) {
   const currentScale = readScalePercent(obj);
-  // Keep the current value inside the range even when an object was already
-  // scaled beyond the canvas-sized suggestion.
-  return Math.max(MIN_DYNAMIC_SCALE_MAX, canvasBasedMax, currentScale + 100);
+  const currentLargestDimension = Math.max(obj.getScaledWidth(), obj.getScaledHeight(), 1);
+  const dimensionLimitedMax = Math.floor(
+    (currentScale * MAX_TRANSFORM_DIMENSION) / currentLargestDimension,
+  );
+  return Math.max(MIN_SCALE_PERCENT, dimensionLimitedMax);
+}
+
+function formatCoordinate(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
 function readAngle(obj: FabricObject) {
@@ -65,6 +67,9 @@ function NumericInput({
   label,
   value,
   unit,
+  min,
+  max,
+  step,
   onChange,
   onFocus,
   onBlur,
@@ -72,6 +77,9 @@ function NumericInput({
   label: string;
   value: string;
   unit: string;
+  min?: number;
+  max?: number;
+  step?: number;
   onChange: (value: string) => void;
   onFocus: () => void;
   onBlur: (value: string) => void;
@@ -81,9 +89,12 @@ function NumericInput({
       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className="flex items-center rounded-xl border border-white/10 bg-white/[0.04] px-2.5 transition-colors focus-within:border-primary/60 focus-within:bg-primary/[0.06]">
         <input
-          type="text"
+          type={max !== undefined ? 'number' : 'text'}
           inputMode="decimal"
           value={value}
+          min={min}
+          max={max}
+          step={step}
           onChange={(event) => onChange(event.target.value)}
           onFocus={(event) => {
             event.currentTarget.select();
@@ -134,10 +145,10 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
     }
     setWidthInput(String(readDimension(obj, 'width')));
     setHeightInput(String(readDimension(obj, 'height')));
-    setXInput(String(obj.left ?? 0));
-    setYInput(String(obj.top ?? 0));
+    setXInput(formatCoordinate(obj.left ?? 0));
+    setYInput(formatCoordinate(obj.top ?? 0));
     setRotationInput(String(readAngle(obj)));
-    setScalePercent(readScalePercent(obj));
+    setScalePercent(Math.min(readScalePercent(obj), readScaleMax(obj)));
     setRotation(readAngle(obj));
   }, [obj]);
 
@@ -181,10 +192,13 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
 
   const applyScale = (value: number) => {
     if (!obj) return;
-    const scaleMax = readScaleMax(obj, controller.getCanvas());
+    const scaleMax = readScaleMax(obj);
     const next = clamp(Math.round(value), MIN_SCALE_PERCENT, scaleMax);
     const currentScalePercent = Math.max(MIN_SCALE_PERCENT, readScalePercent(obj));
-    const relativeFactor = next / currentScalePercent;
+    const requestedFactor = next / currentScalePercent;
+    const currentLargestDimension = Math.max(obj.getScaledWidth(), obj.getScaledHeight(), 0.001);
+    const dimensionLimitedFactor = MAX_TRANSFORM_DIMENSION / currentLargestDimension;
+    const relativeFactor = Math.min(requestedFactor, dimensionLimitedFactor);
     const currentScaleX = obj.scaleX ?? 1;
     const currentScaleY = obj.scaleY ?? 1;
     setScalePercent(next);
@@ -216,21 +230,30 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
 
     const currentWidth = Math.max(0.001, obj.getScaledWidth());
     const currentHeight = Math.max(0.001, obj.getScaledHeight());
-    const nextWidth = axis === 'width' ? parsed : (aspectLocked ? parsed * (currentWidth / currentHeight) : currentWidth);
-    const nextHeight = axis === 'height' ? parsed : (aspectLocked ? parsed * (currentHeight / currentWidth) : currentHeight);
+    const maxInput = axis === 'width'
+      ? Math.min(MAX_TRANSFORM_DIMENSION, aspectLocked ? (MAX_TRANSFORM_DIMENSION * currentWidth) / currentHeight : MAX_TRANSFORM_DIMENSION)
+      : Math.min(MAX_TRANSFORM_DIMENSION, aspectLocked ? (MAX_TRANSFORM_DIMENSION * currentHeight) / currentWidth : MAX_TRANSFORM_DIMENSION);
+    const requestedDimension = clamp(parsed, 1, maxInput);
+    const nextWidth = axis === 'width'
+      ? requestedDimension
+      : (aspectLocked ? requestedDimension * (currentWidth / currentHeight) : Math.min(currentWidth, MAX_TRANSFORM_DIMENSION));
+    const nextHeight = axis === 'height'
+      ? requestedDimension
+      : (aspectLocked ? requestedDimension * (currentHeight / currentWidth) : Math.min(currentHeight, MAX_TRANSFORM_DIMENSION));
     const baseWidth = Math.max(0.001, Math.abs(obj.width || 1));
     const baseHeight = Math.max(0.001, Math.abs(obj.height || 1));
 
-    const scaleMax = readScaleMax(obj, controller.getCanvas());
+    const scaleMax = readScaleMax(obj);
     setScalePercent(clamp(Math.round(((nextWidth / baseWidth + nextHeight / baseHeight) / 2) * 100), MIN_SCALE_PERCENT, scaleMax));
     applyObjectTransform({
       scaleX: nextWidth / baseWidth,
       scaleY: nextHeight / baseHeight,
     });
     // Preserve draft text while the controller synchronizes the canvas state.
-    if (axis === 'width') setWidthInput(rawValue);
-    else setHeightInput(rawValue);
-    if (aspectLocked) {
+    const boundedDraft = parsed > maxInput ? String(Math.round(axis === 'width' ? nextWidth : nextHeight)) : rawValue;
+    if (axis === 'width') setWidthInput(boundedDraft);
+    else setHeightInput(boundedDraft);
+    if (aspectLocked || nextWidth !== currentWidth || nextHeight !== currentHeight) {
       if (axis === 'width') setHeightInput(String(Math.max(1, Math.round(nextHeight))));
       else setWidthInput(String(Math.max(1, Math.round(nextWidth))));
     }
@@ -238,7 +261,7 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
 
   const commitDimension = (axis: 'width' | 'height', rawValue: string) => {
     const parsed = Number(rawValue);
-    const normalized = String(Math.max(1, Number.isFinite(parsed) ? Math.round(parsed) : 1));
+    const normalized = String(clamp(Number.isFinite(parsed) ? Math.round(parsed) : 1, 1, MAX_TRANSFORM_DIMENSION));
     applyDimension(axis, normalized);
   };
 
@@ -258,11 +281,11 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
   const commitPosition = (axis: 'x' | 'y', rawValue: string) => {
     const parsed = Number(rawValue);
     if (!rawValue.trim() || !Number.isFinite(parsed)) {
-      if (axis === 'x') setXInput(String(obj?.left ?? 0));
-      else setYInput(String(obj?.top ?? 0));
+      if (axis === 'x') setXInput(formatCoordinate(obj?.left ?? 0));
+      else setYInput(formatCoordinate(obj?.top ?? 0));
       return;
     }
-    applyPosition(axis, String(parsed));
+    applyPosition(axis, formatCoordinate(parsed));
   };
 
   const applyRotationInput = (rawValue: string) => {
@@ -305,7 +328,7 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
 
   const isScale = activeProperty === 'scale';
   const activeLabel = isScale ? 'Size' : 'Rotation';
-  const scaleMax = readScaleMax(obj, controller.getCanvas());
+  const scaleMax = readScaleMax(obj);
 
   return (
     <div
@@ -346,6 +369,9 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
               label="Width"
               value={widthInput}
               unit="px"
+              min={1}
+              max={MAX_TRANSFORM_DIMENSION}
+              step={1}
               onChange={(value) => applyDimension('width', value)}
               onFocus={showHud}
               onBlur={(value) => {
@@ -372,6 +398,9 @@ export default function TransformPanel({ controller }: TransformPanelProps) {
               label="Height"
               value={heightInput}
               unit="px"
+              min={1}
+              max={MAX_TRANSFORM_DIMENSION}
+              step={1}
               onChange={(value) => applyDimension('height', value)}
               onFocus={showHud}
               onBlur={(value) => {

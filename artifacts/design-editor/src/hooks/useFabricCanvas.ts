@@ -3,6 +3,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import {
   Canvas,
+  StaticCanvas,
   Rect,
   Circle,
   Triangle,
@@ -332,6 +333,16 @@ function createAngularGradientCanvas(
 }
 
 export type LayerTag = 'red' | 'cyan' | 'yellow' | 'green' | 'purple';
+export type LayerLockMode = 'unlocked' | 'movement' | 'full';
+export type LayerBlendMode =
+  | 'source-over'
+  | 'multiply'
+  | 'screen'
+  | 'overlay'
+  | 'darken'
+  | 'lighten'
+  | 'color-dodge';
+export type LayerExportFormat = 'png' | 'svg';
 
 export interface ObjectMeta {
   id: string;
@@ -345,6 +356,8 @@ export interface ObjectMeta {
   imgSrc?: string;
   thumbnailSrc?: string;
   tag?: LayerTag;
+  lockMode: LayerLockMode;
+  blendMode: LayerBlendMode;
   parentId?: string;
   children?: ObjectMeta[];
 }
@@ -463,6 +476,13 @@ const EXTRA_PROPS = [
   '_name',
   '_isCustomName',
   '_layerTag',
+  'globalCompositeOperation',
+  'lockMovementX',
+  'lockMovementY',
+  'lockRotation',
+  'lockScaling',
+  'lockScalingX',
+  'lockScalingY',
   '_sourceName',
   '_origFill',
   '_innerShadow',
@@ -489,7 +509,7 @@ function autoLayerName(obj: FabricObject, kind = obj.type): string {
     triangle: 'Triangle Shape',
     line: 'Line Shape',
     path: 'Vector Shape',
-    image: 'Image',
+    image: 'Hero Image',
     group: 'Group Folder',
     'i-text': 'Heading Text',
     text: 'Heading Text',
@@ -1299,6 +1319,18 @@ export function useFabricCanvas(
           rawTag === 'red' || rawTag === 'cyan' || rawTag === 'yellow' || rawTag === 'green' || rawTag === 'purple'
             ? rawTag
             : undefined;
+        const lockMode: LayerLockMode = obj.selectable === false || obj.evented === false
+          ? 'full'
+          : o.lockMovementX === true && o.lockMovementY === true && o.lockRotation === true
+            && o.lockScalingX === true && o.lockScalingY === true
+              ? 'movement'
+              : 'unlocked';
+        const supportedBlendModes: LayerBlendMode[] = [
+          'source-over', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge',
+        ];
+        const blendMode = supportedBlendModes.includes(obj.globalCompositeOperation as LayerBlendMode)
+          ? obj.globalCompositeOperation as LayerBlendMode
+          : 'source-over';
         return {
           id: objId(obj),
           name,
@@ -1311,6 +1343,8 @@ export function useFabricCanvas(
           imgSrc,
           thumbnailSrc: renderLayerThumbnail(obj),
           tag,
+          lockMode,
+          blendMode,
           parentId,
           children: childObjects.length > 0
             ? [...childObjects].reverse().map((child) => buildMeta(child, objId(obj)))
@@ -4136,6 +4170,7 @@ export function useFabricCanvas(
   const cloneObjectWithEditorState = useCallback(async (source: FabricObject): Promise<FabricObject> => {
     const cloned = await source.clone(EXTRA_PROPS);
     const customStateProps = [
+      '_layerTag',
       '_origFill',
       '_innerShadow',
       '_textureKey',
@@ -4170,6 +4205,60 @@ export function useFabricCanvas(
     cloned.setCoords();
     return cloned;
   }, []);
+
+  const exportLayer = useCallback(async (source: FabricObject, format: LayerExportFormat): Promise<string> => {
+    if (typeof document === 'undefined') throw new Error('Layer export is only available in a browser canvas environment.');
+
+    const cloned = await cloneObjectWithEditorState(source);
+    const worldTransform = source.calcTransformMatrix();
+    // A child inside a Fabric group stores local coordinates. Apply its full
+    // canvas-space transform to the clone so the isolated export looks exactly
+    // like the layer did in the design.
+    (cloned as FabricObject & { group?: Group }).group = undefined;
+    util.applyTransformToObject(cloned, worldTransform);
+    cloned.set('visible', true);
+    cloned.setCoords();
+
+    const bounds = cloned.getBoundingRect();
+    const shadow = cloned.shadow;
+    const shadowPadding = shadow
+      ? Math.ceil(Math.max(0, shadow.blur * 2 + Math.abs(shadow.offsetX) + Math.abs(shadow.offsetY)))
+      : 0;
+    const depth3d = (cloned as FabricObject & { _depth3d?: { enabled?: boolean; steps?: number } })._depth3d;
+    const extrusionPadding = depth3d?.enabled ? Math.ceil(Math.max(1, depth3d.steps ?? 1) * 3 + 4) : 0;
+    const padding = Math.max(2, shadowPadding, extrusionPadding);
+    const width = Math.max(1, Math.ceil(bounds.width + padding * 2));
+    const height = Math.max(1, Math.ceil(bounds.height + padding * 2));
+    const center = cloned.getCenterPoint();
+    cloned.setPositionByOrigin(
+      new Point(center.x - bounds.left + padding, center.y - bounds.top + padding),
+      'center',
+      'center',
+    );
+    cloned.setCoords();
+
+    const element = document.createElement('canvas');
+    let exportCanvas: StaticCanvas | null = null;
+    try {
+      exportCanvas = new StaticCanvas(element, {
+        width,
+        height,
+        backgroundColor: 'rgba(0,0,0,0)',
+        enableRetinaScaling: false,
+        renderOnAddRemove: false,
+      });
+      exportCanvas.add(cloned);
+      exportCanvas.renderAll();
+
+      // 1× is the editor's standard pixel density; no CSS zoom or device-pixel
+      // scaling is applied to the downloadable artwork.
+      return format === 'png'
+        ? exportCanvas.toDataURL({ format: 'png', multiplier: 1, left: 0, top: 0, width, height })
+        : exportCanvas.toSVG({ suppressPreamble: false });
+    } finally {
+      if (exportCanvas) await exportCanvas.dispose();
+    }
+  }, [cloneObjectWithEditorState]);
 
   const deleteSelected = useCallback(() => {
     const c = canvasRef.current; if (!c) return;
@@ -4455,6 +4544,54 @@ export function useFabricCanvas(
     syncObjects();
   }, [pushUndo, syncObjects]);
 
+  const setLayerLockMode = useCallback((obj: FabricObject, mode: LayerLockMode) => {
+    const c = canvasRef.current;
+    if (!c) return;
+
+    if (mode === 'full') {
+      obj.set({ selectable: false, evented: false });
+      if (c.getActiveObject() === obj || c.getActiveObjects().includes(obj)) {
+        c.discardActiveObject();
+        setSelectedObject(null);
+        options.onSelectionChange([]);
+      }
+    } else {
+      const movementLocked = mode === 'movement';
+      obj.set({
+        selectable: true,
+        evented: true,
+        lockMovementX: movementLocked,
+        lockMovementY: movementLocked,
+        lockRotation: movementLocked,
+        lockScaling: movementLocked,
+        lockScalingX: movementLocked,
+        lockScalingY: movementLocked,
+      });
+    }
+
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [options, pushUndo, syncObjects]);
+
+  const setLayerBlendMode = useCallback((obj: FabricObject, mode: LayerBlendMode) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    obj.set('globalCompositeOperation', mode);
+
+    let parent = (obj as FabricObject & { group?: FabricObject }).group;
+    while (parent) {
+      const group = parent as FabricObject & { setDirty?: (dirty?: boolean) => void; group?: FabricObject };
+      group.dirty = true;
+      group.setDirty?.(true);
+      parent = group.group;
+    }
+
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [pushUndo, syncObjects]);
+
   const deleteObject = useCallback((obj: FabricObject) => {
     const c = canvasRef.current; if (!c) return;
     if (c.getActiveObject() === obj || c.getActiveObjects().includes(obj)) {
@@ -4665,7 +4802,8 @@ export function useFabricCanvas(
     deleteSelected, duplicateSelected, copySelected, pasteSelected, selectAll, clearSelection,
     copyStyle, pasteStyle, resetRotation, resetScale, hasClipboard, hasStyleClipboard,
     bringForward, sendBackward, bringToFront, sendToBack,
-    toggleVisibility, toggleLock, renameObject, setLayerTag, toggleSolo, soloObjectId,
+    toggleVisibility, toggleLock, setLayerLockMode, setLayerBlendMode, renameObject, setLayerTag, toggleSolo, soloObjectId,
+    exportLayer,
     deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
     groupSelected, ungroupSelected,
     moveObjectToIndex, reorderObjects, reorderLayerTree,

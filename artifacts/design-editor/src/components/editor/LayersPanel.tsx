@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Layers2, Ungroup, X } from 'lucide-react';
 import { Sheet, SheetClose, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,7 +14,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useEditor } from '@/store/editorStore';
-import type { CanvasController, LayerOrderNode, ObjectMeta } from '@/hooks/useFabricCanvas';
+import { Capacitor } from '@capacitor/core';
+import type {
+  CanvasController,
+  LayerBlendMode,
+  LayerExportFormat,
+  LayerLockMode,
+  LayerOrderNode,
+  ObjectMeta,
+} from '@/hooks/useFabricCanvas';
 import LayerCard, { type LayerZOrderAction } from './LayerCard';
 import { ResponsiveDrawerWrapper } from './ResponsiveDrawerWrapper';
 
@@ -127,6 +136,7 @@ function hasSameLayerOrder(first: ObjectMeta[], second: ObjectMeta[]): boolean {
 
 export default function LayersPanel({ controller }: LayersPanelProps) {
   const { state, dispatch } = useEditor();
+  const { toast } = useToast();
   const isOpen = state.activePanel === 'layers';
   const { objects, getObjectById } = controller;
   const selectedIds = state.selectedObjectIds;
@@ -345,9 +355,63 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
     if (fabricObj) controller.toggleVisibility(fabricObj);
   };
 
-  const handleToggleLock = (obj: ObjectMeta) => {
+  const handleLockModeChange = (obj: ObjectMeta, mode: LayerLockMode) => {
     const fabricObj = getObjectById(obj.id);
-    if (fabricObj) controller.toggleLock(fabricObj);
+    if (fabricObj) controller.setLayerLockMode(fabricObj, mode);
+  };
+
+  const handleBlendModeChange = (obj: ObjectMeta, mode: LayerBlendMode) => {
+    const fabricObj = getObjectById(obj.id);
+    if (fabricObj) controller.setLayerBlendMode(fabricObj, mode);
+  };
+
+  const handleLayerExport = async (obj: ObjectMeta, format: LayerExportFormat) => {
+    const fabricObj = getObjectById(obj.id);
+    if (!fabricObj) return;
+    const safeName = obj.name.trim().replace(/[^a-z0-9_-]+/gi, '_').replace(/^_+|_+$/g, '') || 'layer';
+    const filename = `${safeName}.${format}`;
+    try {
+      const content = await controller.exportLayer(fabricObj, format);
+      if (Capacitor.isNativePlatform()) {
+        const [{ Filesystem, Directory, Encoding }, { Share }] = await Promise.all([
+          import('@capacitor/filesystem'),
+          import('@capacitor/share'),
+        ]);
+        const written = await Filesystem.writeFile({
+          path: filename,
+          data: format === 'png' ? content.split(',')[1] : content,
+          directory: Directory.Cache,
+          ...(format === 'svg' ? { encoding: Encoding.UTF8 } : {}),
+        });
+        const { uri } = await Filesystem.getUri({ path: filename, directory: Directory.Cache });
+        await Share.share({
+          title: `Export ${obj.name}`,
+          text: filename,
+          url: uri || written.uri,
+          dialogTitle: 'Export layer',
+        });
+        toast({ title: 'Layer export ready', description: 'Choose where to save or share the file.' });
+        return;
+      }
+
+      const href = format === 'png'
+        ? content
+        : URL.createObjectURL(new Blob([content], { type: 'image/svg+xml;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      if (format === 'svg') window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+      toast({ title: 'Layer exported', description: filename });
+    } catch (error) {
+      toast({
+        title: 'Layer export failed',
+        description: error instanceof Error ? error.message : 'Could not export this layer.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleDeleteConfirm = () => {
@@ -451,6 +515,8 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                   <LayerCard
                     key={obj.id}
                     obj={obj}
+                    lockMode={obj.lockMode}
+                    blendMode={obj.blendMode}
                     depth={depth}
                     selected={isSelected}
                     selectedCount={selectedIds.length}
@@ -467,7 +533,9 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                     onDragStart={(event) => handlePointerDown(event, obj.id)}
                     onSelectChecked={(checked) => handleToggleSelected(obj.id, checked)}
                     onToggleVisibility={() => handleToggleVisibility(obj)}
-                    onToggleLock={() => handleToggleLock(obj)}
+                    onLockModeChange={(mode) => handleLockModeChange(obj, mode)}
+                    onBlendModeChange={(mode) => handleBlendModeChange(obj, mode)}
+                    onExport={(format) => void handleLayerExport(obj, format)}
                     onToggleSolo={() => {
                       const fabricObj = getObjectById(obj.id);
                       if (fabricObj) controller.toggleSolo(fabricObj);

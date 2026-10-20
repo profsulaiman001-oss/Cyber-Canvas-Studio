@@ -7,20 +7,20 @@ import {
   ChevronsDown,
   ChevronsUp,
   Copy,
+  Download,
   Eye,
   EyeOff,
+  FileCode2,
   Folder,
   GripVertical,
   Layers2,
-  Lock,
   MoreHorizontal,
   Pencil,
   Target,
   Trash2,
-  Unlock,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { LayerTag, ObjectMeta } from '@/hooks/useFabricCanvas';
+import type { LayerBlendMode, LayerExportFormat, LayerLockMode, LayerTag, ObjectMeta } from '@/hooks/useFabricCanvas';
 
 const TAG_COLORS: Record<LayerTag, string> = {
   red: '#FF4D6D',
@@ -42,6 +42,8 @@ export type LayerZOrderAction = 'front' | 'back' | 'forward' | 'backward';
 
 export interface LayerCardProps {
   obj: ObjectMeta;
+  lockMode: LayerLockMode;
+  blendMode: LayerBlendMode;
   depth: number;
   selected: boolean;
   selectedCount: number;
@@ -56,7 +58,9 @@ export interface LayerCardProps {
   onDragStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSelectChecked: (checked: boolean) => void;
   onToggleVisibility: () => void;
-  onToggleLock: () => void;
+  onLockModeChange: (mode: LayerLockMode) => void;
+  onBlendModeChange: (mode: LayerBlendMode) => void;
+  onExport: (format: LayerExportFormat) => void;
   onToggleSolo: () => void;
   onToggleCollapse: () => void;
   onTagChange: (tag?: LayerTag) => void;
@@ -261,6 +265,8 @@ function ShelfButton({
 
 export default function LayerCard({
   obj,
+  lockMode,
+  blendMode,
   depth,
   selected,
   selectedCount,
@@ -275,7 +281,9 @@ export default function LayerCard({
   onDragStart,
   onSelectChecked,
   onToggleVisibility,
-  onToggleLock,
+  onLockModeChange,
+  onBlendModeChange,
+  onExport,
   onToggleSolo,
   onToggleCollapse,
   onTagChange,
@@ -312,6 +320,13 @@ export default function LayerCard({
       }}
       data-testid={`layer-item-${obj.id}`}
     >
+      {obj.tag && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-2 left-0 top-2 w-[3px] rounded-r-full"
+          style={{ background: TAG_COLORS[obj.tag] }}
+        />
+      )}
       {isGroup && (
         <button
           type="button"
@@ -415,15 +430,6 @@ export default function LayerCard({
           </button>
           <button
             type="button"
-            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-white/[0.07] ${obj.selectable ? 'text-slate-500' : 'text-cyan-200'}`}
-            onClick={onToggleLock}
-            aria-label={obj.selectable ? `Lock ${obj.name}` : `Unlock ${obj.name}`}
-            title={obj.selectable ? 'Lock layer' : 'Unlock layer'}
-          >
-            {obj.selectable ? <Unlock size={14} /> : <Lock size={14} />}
-          </button>
-          <button
-            type="button"
             className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-cyan-300/[0.08] ${actionsOpen ? 'bg-cyan-300/[0.08] text-cyan-100' : 'text-slate-400 hover:text-cyan-100'}`}
             onClick={() => setActionsOpen((open) => !open)}
             aria-label={actionsOpen ? `Hide actions for ${obj.name}` : `More actions for ${obj.name}`}
@@ -441,7 +447,7 @@ export default function LayerCard({
         id={`layer-actions-${obj.id}`}
         aria-hidden={!actionsOpen}
         className={`overflow-hidden transition-[max-height,opacity,margin] duration-200 ease-out ${
-          actionsOpen ? 'mt-2 max-h-[240px] opacity-100' : 'pointer-events-none mt-0 max-h-0 opacity-0'
+          actionsOpen ? 'mt-2 max-h-[440px] opacity-100' : 'pointer-events-none mt-0 max-h-0 opacity-0'
         }`}
         onClick={(event) => event.stopPropagation()}
       >
@@ -476,6 +482,48 @@ export default function LayerCard({
             </ShelfButton>
             <ShelfButton label="Delete" onClick={onDelete} destructive>
               <Trash2 size={14} />
+            </ShelfButton>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 border-t border-white/[0.06] pt-2">
+            <label className="flex min-w-0 flex-col gap-1 text-[9px] font-medium text-slate-400">
+              Lock mode
+              <select
+                value={lockMode}
+                onChange={(event) => onLockModeChange(event.target.value as LayerLockMode)}
+                className="h-8 min-w-0 rounded-md border border-white/10 bg-[#151922] px-2 text-[10px] text-slate-100 outline-none focus:border-cyan-300/50"
+                aria-label={`Lock mode for ${obj.name}`}
+              >
+                <option value="unlocked">Unlocked</option>
+                <option value="movement">Movement lock</option>
+                <option value="full">Full lock</option>
+              </select>
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-[9px] font-medium text-slate-400">
+              Blend mode
+              <select
+                value={blendMode}
+                onChange={(event) => onBlendModeChange(event.target.value as LayerBlendMode)}
+                className="h-8 min-w-0 rounded-md border border-white/10 bg-[#151922] px-2 text-[10px] text-slate-100 outline-none focus:border-cyan-300/50"
+                aria-label={`Blend mode for ${obj.name}`}
+              >
+                <option value="source-over">Normal</option>
+                <option value="multiply">Multiply</option>
+                <option value="screen">Screen</option>
+                <option value="overlay">Overlay</option>
+                <option value="darken">Darken</option>
+                <option value="lighten">Lighten</option>
+                <option value="color-dodge">Color Dodge</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1" aria-label="Export this layer">
+            <ShelfButton label="Export PNG" onClick={() => onExport('png')}>
+              <Download size={14} />
+            </ShelfButton>
+            <ShelfButton label="Export SVG" onClick={() => onExport('svg')}>
+              <FileCode2 size={14} />
             </ShelfButton>
           </div>
 

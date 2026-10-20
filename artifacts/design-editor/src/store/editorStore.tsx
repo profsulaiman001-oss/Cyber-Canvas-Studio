@@ -11,6 +11,26 @@ export type ActivePanel =
   | 'opacity-tool' | 'radius-tool'
   | null;
 
+const MODAL_PANELS: ReadonlySet<Exclude<ActivePanel, null>> = new Set([
+  'layers',
+  'properties',
+  'add',
+  'export',
+  'project',
+  'canvasSize',
+  'alignment',
+  'canvasBg',
+  'colorStudio',
+  'text',
+  'shapeModifiers',
+  'vectors',
+  'grid',
+]);
+
+export function isModalPanel(panel: ActivePanel): boolean {
+  return panel !== null && MODAL_PANELS.has(panel);
+}
+
 export type ActiveTool = 'select' | 'pan' | 'pen' | 'brush' | 'zoom' | '3d';
 
 export interface CanvasBgConfig {
@@ -65,6 +85,7 @@ type EditorAction =
   | { type: 'SET_TOOL'; payload: ActiveTool }
   | { type: 'TOGGLE_PANEL'; payload: ActivePanel }
   | { type: 'CLOSE_PANEL' }
+  | { type: 'DISMISS_OVERLAYS' }
   | { type: 'SET_SELECTED'; payload: string[] }
   | { type: 'SET_CANVAS_SIZE'; payload: { width: number; height: number } }
   | { type: 'SET_PROJECT_NAME'; payload: string }
@@ -159,10 +180,18 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case 'SET_TOOL':
       return { ...state, activeTool: action.payload };
-    case 'TOGGLE_PANEL':
-      return { ...state, activePanel: state.activePanel === action.payload ? null : action.payload };
+    case 'TOGGLE_PANEL': {
+      const nextPanel = state.activePanel === action.payload ? null : action.payload;
+      return {
+        ...state,
+        activePanel: nextPanel,
+        activeTool: isModalPanel(nextPanel) ? 'select' : state.activeTool,
+      };
+    }
     case 'CLOSE_PANEL':
       return { ...state, activePanel: null };
+    case 'DISMISS_OVERLAYS':
+      return { ...state, activePanel: null, activeTool: 'select' };
     case 'SET_SELECTED':
       return { ...state, selectedObjectIds: action.payload };
     case 'SET_CANVAS_SIZE':

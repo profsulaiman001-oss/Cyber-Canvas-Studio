@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useFabricCanvas } from '@/hooks/useFabricCanvas';
 import { getActiveProjectId, loadProjectById, useProjects } from '@/hooks/useProjects';
-import { useEditor } from '@/store/editorStore';
+import { isModalPanel, useEditor } from '@/store/editorStore';
 import { loadStoredFonts } from '@/components/editor/FontUploader';
 import CanvasWorkspace from '@/components/editor/Canvas';
 import TopBar from '@/components/editor/TopBar';
@@ -155,6 +155,15 @@ export default function DesignEditor() {
   const rasterScaleX     = useRef(1 / RASTER_MULT);
   const rasterScaleY     = useRef(1 / RASTER_MULT);
 
+  const blockingModalOpen =
+    cropOpen || exitDialogOpen || shortcutsOpen || isModalPanel(state.activePanel);
+
+  const openCropModal = useCallback((mode: CropMode) => {
+    dispatch({ type: 'DISMISS_OVERLAYS' });
+    setCropMode(mode);
+    setCropOpen(true);
+  }, [dispatch]);
+
   const handleSelectionChange = useCallback(
     (ids: string[]) => { dispatch({ type: 'SET_SELECTED', payload: ids }); },
     [dispatch]
@@ -300,6 +309,7 @@ export default function DesignEditor() {
     }
     if (state.isDirty) {
       pendingProjectActionRef.current = null;
+      dispatch({ type: 'DISMISS_OVERLAYS' });
       setExitDialogOpen(true);
       return;
     }
@@ -309,11 +319,12 @@ export default function DesignEditor() {
   const requestProjectNavigation = useCallback((action: () => Promise<void>) => {
     if (state.isDirty) {
       pendingProjectActionRef.current = action;
+      dispatch({ type: 'DISMISS_OVERLAYS' });
       setExitDialogOpen(true);
       return;
     }
     void action();
-  }, [state.isDirty]);
+  }, [dispatch, state.isDirty]);
 
   const handleExitChoice = useCallback(async (save: boolean) => {
     if (exitBusy) return;
@@ -420,6 +431,21 @@ export default function DesignEditor() {
     controller.setPanMode(state.activeTool === 'pan');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activeTool]);
+
+  const previousActiveToolRef = useRef(state.activeTool);
+  useEffect(() => {
+    const previousTool = previousActiveToolRef.current;
+    if (blockingModalOpen && previousTool === 'pen' && state.activeTool !== 'pen') {
+      controller.cancelPenTool();
+    }
+    previousActiveToolRef.current = state.activeTool;
+  }, [blockingModalOpen, controller, state.activeTool]);
+
+  useEffect(() => {
+    if (!blockingModalOpen || !controller.isVectorEditActive) return;
+    controller.deactivateVectorEdit();
+    controller.setSelectedVectorAnchorIdx(null);
+  }, [blockingModalOpen, controller]);
 
   const penActive    = state.activeTool === 'pen';
   const brushActive  = state.activeTool === 'brush';
@@ -876,9 +902,8 @@ export default function DesignEditor() {
     if (!obj) return;
     pendingFillTargetRef.current = obj;
     setPendingFillFile(file);
-    setCropMode('fill');
-    setCropOpen(true);
-  }, [controller]);
+    openCropModal('fill');
+  }, [controller, openCropModal]);
 
   /* ── Universal crop handler ── */
   const handleCropImage = useCallback(() => {
@@ -902,8 +927,7 @@ export default function DesignEditor() {
       rasterDesignTop.current = obj.top ?? 0;
       rasterScaleX.current = (obj.getScaledWidth() || sourceW) / sourceW;
       rasterScaleY.current = (obj.getScaledHeight() || sourceH) / sourceH;
-      setCropMode('image');
-      setCropOpen(true);
+      openCropModal('image');
       return;
     }
 
@@ -930,12 +954,11 @@ export default function DesignEditor() {
       setRasterDataUrl(offscreen.toDataURL('image/png'));
       setRasterSrcW(offscreen.width);
       setRasterSrcH(offscreen.height);
-      setCropMode('raster');
-      setCropOpen(true);
+      openCropModal('raster');
     } catch {
       toast({ title: 'Cannot prepare selection', description: 'This object could not be rendered for cropping', variant: 'destructive' });
     }
-  }, [controller, toast]);
+  }, [controller, openCropModal, toast]);
 
   /* ── Crop apply callbacks ── */
   const handleApplyImage = useCallback((

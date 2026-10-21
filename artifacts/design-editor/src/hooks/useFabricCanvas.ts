@@ -2825,12 +2825,10 @@ export function useFabricCanvas(
     }
   }, [pushUndo]);
 
-  /* ─── Decoupled Fill Opacity (encodes alpha into fill color, never touches obj.opacity) ─── */
-  const applyFillOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
-    if (!obj) return;
-    const c = canvasRef.current; if (!c) return;
+  const applyFillOpacityToTargets = useCallback((targets: FabricObject[], fraction: number) => {
+    const c = canvasRef.current;
+    if (!c || targets.length === 0) return;
     const alpha = Math.max(0, Math.min(1, fraction));
-
     const applyToObject = (target: FabricObject) => {
       const extended = target as FabricObject & {
         _gradientConfig?: {
@@ -2909,11 +2907,6 @@ export function useFabricCanvas(
       children.forEach(applyToObject);
     };
 
-    // Use Fabric's active object list when available. For an ActiveSelection
-    // this updates every selected child directly; for a group it still walks
-    // the group's child tree through applyToObject.
-    const activeObjects = c.getActiveObjects();
-    const targets = activeObjects.length > 0 ? activeObjects : [obj];
     targets.forEach(applyToObject);
     // requestRenderAll is the normal path; renderAll immediately flushes the
     // bitmap cache for Android WebView and Electron slider updates.
@@ -2921,6 +2914,15 @@ export function useFabricCanvas(
     c.requestRenderAll();
     pushUndo();
   }, [applyGradientFill, pushUndo]);
+
+  /* ─── Decoupled Fill Opacity (encodes alpha into fill color, never touches obj.opacity) ─── */
+  const applyFillOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
+    if (!obj) return;
+    const c = canvasRef.current;
+    if (!c) return;
+    const activeObjects = c.getActiveObjects();
+    applyFillOpacityToTargets(activeObjects.length > 0 ? activeObjects : [obj], fraction);
+  }, [applyFillOpacityToTargets]);
 
   /* ─── Object opacity for raster selections ─── */
   const applyObjectOpacity = useCallback((obj: FabricObject | null, fraction: number) => {
@@ -4618,6 +4620,116 @@ export function useFabricCanvas(
     return find(c.getObjects());
   }, []);
 
+  const setLayersVisibility = useCallback((ids: string[], visible: boolean) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const targets = [...new Set(ids)]
+      .map((id) => getObjectById(id))
+      .filter((obj): obj is FabricObject => Boolean(obj));
+    if (targets.length === 0) return;
+
+    targets.forEach((obj) => obj.set('visible', visible));
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [getObjectById, pushUndo, syncObjects]);
+
+  const setLayersLockMode = useCallback((ids: string[], mode: LayerLockMode) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const targets = [...new Set(ids)]
+      .map((id) => getObjectById(id))
+      .filter((obj): obj is FabricObject => Boolean(obj));
+    if (targets.length === 0) return;
+
+    targets.forEach((obj) => {
+      if (mode === 'full') {
+        obj.set({ selectable: false, evented: false });
+      } else {
+        const movementLocked = mode === 'movement';
+        obj.set({
+          selectable: true,
+          evented: true,
+          lockMovementX: movementLocked,
+          lockMovementY: movementLocked,
+          lockRotation: movementLocked,
+          lockScaling: movementLocked,
+          lockScalingX: movementLocked,
+          lockScalingY: movementLocked,
+        });
+      }
+    });
+
+    if (mode === 'full' && targets.some((obj) => c.getActiveObjects().includes(obj))) {
+      c.discardActiveObject();
+      setSelectedObject(null);
+      options.onSelectionChange([]);
+    }
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [getObjectById, options, pushUndo, syncObjects]);
+
+  const deleteObjectsByIds = useCallback((ids: string[]) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const targets = [...new Set(ids)]
+      .map((id) => getObjectById(id))
+      .filter((obj): obj is FabricObject => Boolean(obj));
+    if (targets.length === 0) return;
+
+    const targetSet = new Set(targets);
+    const topmostTargets = targets.filter((obj) => {
+      let parent = (obj as FabricObject & { group?: FabricObject }).group;
+      while (parent) {
+        if (targetSet.has(parent)) return false;
+        parent = (parent as FabricObject & { group?: FabricObject }).group;
+      }
+      return true;
+    });
+
+    c.discardActiveObject();
+    topmostTargets.forEach((obj) => {
+      const parent = (obj as FabricObject & { group?: Group }).group;
+      if (parent) {
+        parent.remove(obj);
+        parent.dirty = true;
+        (parent as Group & { setDirty?: (dirty?: boolean) => void }).setDirty?.(true);
+      } else {
+        c.remove(obj);
+      }
+    });
+    setSelectedObject(null);
+    options.onSelectionChange([]);
+    c.requestRenderAll();
+    pushUndo();
+    syncObjects();
+  }, [getObjectById, options, pushUndo, syncObjects]);
+
+  const applyLayerOpacityToIds = useCallback((ids: string[], fraction: number) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const targets = [...new Set(ids)]
+      .map((id) => getObjectById(id))
+      .filter((obj): obj is FabricObject => Boolean(obj));
+    if (targets.length === 0) return;
+    const alpha = Math.max(0, Math.min(1, fraction));
+    const applyStrokeOpacityToTree = (target: FabricObject) => {
+      if (typeof target.stroke === 'string' && target.stroke) {
+        target.set('stroke', withAlpha(target.stroke, alpha));
+        invalidateFabricObject(target);
+      }
+      const children = (target as FabricObject & { getObjects?: () => FabricObject[] }).getObjects?.() ?? [];
+      children.forEach(applyStrokeOpacityToTree);
+    };
+    targets.forEach(applyStrokeOpacityToTree);
+
+    // Keep shape/text fill alpha independent from stroke alpha; images still
+    // use Fabric object opacity through the existing fill-opacity handler.
+    applyFillOpacityToTargets(targets, alpha);
+    syncObjects();
+  }, [applyFillOpacityToTargets, getObjectById, syncObjects]);
+
   const selectObjectById = useCallback((id: string) => {
     const c = canvasRef.current; if (!c) return;
     const find = (items: FabricObject[]): FabricObject | null => {
@@ -4663,18 +4775,37 @@ export function useFabricCanvas(
 
     // Keep the original Fabric children: flattening them to one path here would
     // discard per-object paints, shadows, 3D depth, and other editor effects.
-    const originalOrder = c.getObjects();
+    c.discardActiveObject();
+    const parent = (selected[0] as FabricObject & { group?: Group }).group ?? null;
+    if (selected.some((obj) => ((obj as FabricObject & { group?: Group }).group ?? null) !== parent)) {
+      c.setActiveObject(new ActiveSelection(selected, { canvas: c }));
+      c.requestRenderAll();
+      return;
+    }
+
+    const collection = parent ?? c;
+    const originalOrder = parent ? parent.getObjects() : c.getObjects();
     const selectedSet = new Set(selected);
     const topmostSelectedIndex = Math.max(...selected.map((obj) => originalOrder.indexOf(obj)));
-    const groupIndex = topmostSelectedIndex < 0
-      ? -1
-      : originalOrder.slice(0, topmostSelectedIndex + 1).filter((obj) => !selectedSet.has(obj)).length;
-
-    c.discardActiveObject();
+    if (topmostSelectedIndex < 0) {
+      c.setActiveObject(new ActiveSelection(selected, { canvas: c }));
+      c.requestRenderAll();
+      return;
+    }
+    const groupIndex = originalOrder
+      .slice(0, topmostSelectedIndex + 1)
+      .filter((obj) => !selectedSet.has(obj))
+      .length;
+    if (parent) parent.remove(...selected);
+    else c.remove(...selected);
     const group = new Group(selected);
-    c.remove(...selected);
-    if (groupIndex >= 0) c.insertAt(Math.min(groupIndex, c.size()), group);
-    else c.add(group);
+    if (parent) {
+      parent.insertAt(Math.min(groupIndex, parent.size()), group);
+      parent.dirty = true;
+      (parent as Group & { setDirty?: (dirty?: boolean) => void }).setDirty?.(true);
+    } else {
+      c.insertAt(Math.min(groupIndex, c.size()), group);
+    }
     tagObj(group, 'group');
     c.setActiveObject(group);
     c.requestRenderAll();
@@ -4802,9 +4933,11 @@ export function useFabricCanvas(
     deleteSelected, duplicateSelected, copySelected, pasteSelected, selectAll, clearSelection,
     copyStyle, pasteStyle, resetRotation, resetScale, hasClipboard, hasStyleClipboard,
     bringForward, sendBackward, bringToFront, sendToBack,
-    toggleVisibility, toggleLock, setLayerLockMode, setLayerBlendMode, renameObject, setLayerTag, toggleSolo, soloObjectId,
+    toggleVisibility, toggleLock, setLayerLockMode, setLayersVisibility, setLayersLockMode,
+    setLayerBlendMode, renameObject, setLayerTag, toggleSolo, soloObjectId,
     exportLayer,
-    deleteObject, getObjectById, selectObjectById, selectObjectsByIds,
+    deleteObject, deleteObjectsByIds, getObjectById, selectObjectById, selectObjectsByIds,
+    applyLayerOpacityToIds,
     groupSelected, ungroupSelected,
     moveObjectToIndex, reorderObjects, reorderLayerTree,
     // Image transforms

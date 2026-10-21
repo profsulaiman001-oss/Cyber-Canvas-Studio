@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Layers2, Ungroup, X } from 'lucide-react';
+import { Eye, EyeOff, Layers2, Lock, Search, Trash2, Unlock, Ungroup, X } from 'lucide-react';
 import { Sheet, SheetClose, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -35,6 +36,33 @@ interface FlatLayer {
   parentId: string | null;
   index: number;
   depth: number;
+}
+
+type LayerTypeFilter = 'All' | 'Text' | 'Shapes' | 'Images' | 'Groups';
+
+function matchesLayerType(obj: ObjectMeta, filter: LayerTypeFilter): boolean {
+  if (filter === 'All') return true;
+  if (filter === 'Text') return ['textbox', 'i-text', 'text'].includes(obj.type);
+  if (filter === 'Images') return obj.type === 'image';
+  if (filter === 'Groups') return obj.type === 'group';
+  return obj.type !== 'group' && obj.type !== 'image' &&
+    !['textbox', 'i-text', 'text'].includes(obj.type);
+}
+
+function matchingLayerIds(
+  nodes: ObjectMeta[],
+  query: string,
+  filter: LayerTypeFilter,
+): Set<string> {
+  const matches = new Set<string>();
+  const visit = (node: ObjectMeta): boolean => {
+    const ownMatch = node.name.toLocaleLowerCase().includes(query) && matchesLayerType(node, filter);
+    const childMatch = node.children?.some(visit) ?? false;
+    if (ownMatch || childMatch) matches.add(node.id);
+    return ownMatch || childMatch;
+  };
+  nodes.forEach(visit);
+  return matches;
 }
 
 function cloneLayerTree(nodes: ObjectMeta[]): ObjectMeta[] {
@@ -139,11 +167,15 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   const { toast } = useToast();
   const isOpen = state.activePanel === 'layers';
   const { objects, getObjectById } = controller;
-  const selectedIds = state.selectedObjectIds;
-  const [pendingDelete, setPendingDelete] = useState<ObjectMeta | null>(null);
+  const [checkedIds, setCheckedIds] = useState<string[]>(state.selectedObjectIds);
+  const preserveCheckboxesRef = useRef(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<LayerTypeFilter>('All');
+  const [bulkOpacity, setBulkOpacity] = useState(100);
   const [dragTree, setDragTree] = useState<ObjectMeta[] | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropId, setDropId] = useState<string | null>(null);
@@ -158,8 +190,81 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   const pointerUpHandlerRef = useRef<(event: PointerEvent) => void>(() => {});
   const listRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    if (preserveCheckboxesRef.current) {
+      preserveCheckboxesRef.current = false;
+      return;
+    }
+    setCheckedIds(state.selectedObjectIds);
+  }, [state.selectedObjectIds]);
+
   const displayedTree = dragTree || objects;
-  const flatLayers = flattenLayers(displayedTree, collapsedGroups);
+  const filteredMode = Boolean(searchQuery.trim()) || typeFilter !== 'All';
+  const getVisibleLayerRows = (tree: ObjectMeta[]): FlatLayer[] => {
+    const rows = flattenLayers(tree, filteredMode ? {} : collapsedGroups);
+    if (!filteredMode) return rows;
+    const visibleIds = matchingLayerIds(tree, searchQuery.trim().toLocaleLowerCase(), typeFilter);
+    return rows.filter((row) => visibleIds.has(row.obj.id));
+  };
+  const flatLayers = getVisibleLayerRows(displayedTree);
+  const selectedLayers = checkedIds
+    .map((id) => findLayer(objects, id))
+    .filter((obj): obj is ObjectMeta => Boolean(obj));
+  const selectedRows = flattenLayers(objects, {})
+    .filter((row) => checkedIds.includes(row.obj.id));
+  const activeSelectionMatches = checkedIds.length === state.selectedObjectIds.length &&
+    checkedIds.every((id) => state.selectedObjectIds.includes(id));
+  const canGroupSelected = selectedRows.length >= 2 &&
+    selectedRows.length === checkedIds.length &&
+    selectedRows.every((row) => row.parentId === selectedRows[0].parentId) &&
+    activeSelectionMatches &&
+    selectedLayers.every((obj) => obj.lockMode !== 'full');
+  const allSelectedVisible = selectedLayers.length > 0 && selectedLayers.every((obj) => obj.visible);
+  const allSelectedLocked = selectedLayers.length > 0 && selectedLayers.every((obj) => obj.lockMode !== 'unlocked');
+  const selectedSignature = checkedIds.join('|');
+
+  useEffect(() => {
+    if (checkedIds.length < 2) return;
+    const firstMeta = findLayer(objects, checkedIds[0]);
+    const firstObject = getObjectById(checkedIds[0]);
+    if (!firstMeta || !firstObject) return;
+    const opacity = firstMeta.type === 'image' || firstMeta.fill
+      ? controller.getFillOpacity(firstObject)
+      : controller.getStrokeOpacity(firstObject);
+    setBulkOpacity(Math.round(opacity * 100));
+  // A new selection should resync the bulk control; slider edits keep the
+  // current selection signature stable while the values are applied.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSignature]);
+
+  const handleBulkOpacityChange = (value: number) => {
+    setBulkOpacity(value);
+    controller.applyLayerOpacityToIds(checkedIds, value / 100);
+  };
+
+  const handleBulkLockToggle = () => {
+    const nextMode = allSelectedLocked ? 'unlocked' : 'full';
+    preserveCheckboxesRef.current = nextMode === 'full' &&
+      checkedIds.some((id) => state.selectedObjectIds.includes(id));
+    controller.setLayersLockMode(checkedIds, nextMode);
+    if (nextMode === 'unlocked' && selectedRows.length === checkedIds.length &&
+      selectedRows.every((row) => row.parentId === selectedRows[0]?.parentId)) {
+      controller.selectObjectsByIds(checkedIds);
+    }
+  };
+
+  const handleGroupSelected = () => {
+    if (!canGroupSelected) {
+      toast({
+        title: 'Select layers from the same folder',
+        description: 'To preserve folder hierarchy and stacking, group sibling layers together.',
+      });
+      return;
+    }
+    controller.groupSelected();
+    setSearchQuery('');
+    setTypeFilter('All');
+  };
 
   useLayoutEffect(() => {
     if (draggingId && dragTree) renderedTreeRef.current = dragTree;
@@ -205,7 +310,7 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
     if (!session || !currentTree) return null;
     const currentDraggingId = session.id;
 
-    const flat = flattenLayers(currentTree, collapsedGroups);
+    const flat = getVisibleLayerRows(currentTree);
     const positionedRows = flat.flatMap((row) => {
       const card = cardRefs.current[row.obj.id];
       if (!card) return [];
@@ -415,10 +520,9 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
   };
 
   const handleDeleteConfirm = () => {
-    if (!pendingDelete) return;
-    const fabricObj = getObjectById(pendingDelete.id);
-    if (fabricObj) controller.deleteObject(fabricObj);
-    setPendingDelete(null);
+    if (!pendingDeleteIds?.length) return;
+    controller.deleteObjectsByIds(pendingDeleteIds);
+    setPendingDeleteIds(null);
   };
 
   const handleZOrder = (obj: ObjectMeta, action: 'front' | 'back' | 'forward' | 'backward') => {
@@ -437,12 +541,16 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
 
   const handleToggleSelected = (id: string, checked: boolean) => {
     const nextIds = checked
-      ? [...new Set([...selectedIds, id])]
-      : selectedIds.filter((selectedId) => selectedId !== id);
+      ? [...new Set([...checkedIds, id])]
+      : checkedIds.filter((selectedId) => selectedId !== id);
+    setCheckedIds(nextIds);
     controller.selectObjectsByIds(nextIds);
   };
 
-  const selectedGroup = selectedIds.length === 1 && findLayer(objects, selectedIds[0])?.type === 'group';
+  const selectedGroup = checkedIds.length === 1 &&
+    state.selectedObjectIds.includes(checkedIds[0]) &&
+    findLayer(objects, checkedIds[0])?.type === 'group';
+  const filterOptions: LayerTypeFilter[] = ['All', 'Text', 'Shapes', 'Images', 'Groups'];
 
   return (
     <>
@@ -473,24 +581,125 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
               <X className="h-4 w-4" />
             </button>
           </SheetClose>
-          <SheetHeader className="px-4 pb-3 pt-5">
+          <SheetHeader className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#0d1117]/95 px-4 pb-3 pt-5 backdrop-blur">
             <div className="relative flex items-start justify-between gap-3 pr-10">
               <div>
                 <SheetTitle className="text-sm font-semibold text-foreground">Layers</SheetTitle>
                 <p className="mt-1 text-xs text-muted-foreground">Drag to reorder · Drop on folders to organize</p>
               </div>
-              {selectedIds.length > 0 && (
+              {checkedIds.length > 0 && (
                 <span className="whitespace-nowrap rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
-                  {selectedIds.length} selected
+                  {checkedIds.length} selected
                 </span>
               )}
             </div>
-            {selectedIds.length >= 2 && (
-              <Button className="mt-3 h-10 w-full gap-2" onClick={() => controller.groupSelected()} data-testid="button-group-selected">
-                <Layers2 size={16} />
-                Group Selected
-              </Button>
+
+            <label className="relative mt-3 block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                placeholder="Search layers"
+                aria-label="Search layers by name"
+                className="h-9 w-full rounded-lg border border-white/10 bg-white/[0.035] pl-9 pr-3 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-300/40 focus:ring-1 focus:ring-cyan-300/20"
+                data-testid="layers-search"
+              />
+            </label>
+
+            <div className="mt-2 flex gap-1 overflow-x-auto pb-0.5" role="group" aria-label="Filter layers by type">
+              {filterOptions.map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setTypeFilter(filter)}
+                  aria-pressed={typeFilter === filter}
+                  className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                    typeFilter === filter
+                      ? 'border-cyan-300/35 bg-cyan-300/10 text-cyan-100'
+                      : 'border-white/[0.08] bg-white/[0.025] text-slate-400 hover:text-slate-200'
+                  }`}
+                  data-testid={`layers-filter-${filter.toLowerCase()}`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+
+            {checkedIds.length >= 2 && (
+              <div
+                className="mt-3 rounded-xl border border-cyan-300/20 bg-[#111820]/95 p-2 shadow-[0_8px_24px_rgba(0,0,0,0.28)]"
+                data-testid="layers-bulk-toolbar"
+                aria-label={`Bulk actions for ${selectedLayers.length} selected layers`}
+              >
+                <div className="flex items-center gap-1.5 overflow-x-auto">
+                  <span className="mr-auto shrink-0 px-1 text-[10px] font-semibold text-cyan-100">
+                    {selectedLayers.length} selected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 gap-1.5 px-2 text-[10px]"
+                    onClick={handleGroupSelected}
+                    disabled={!canGroupSelected}
+                    title={canGroupSelected ? 'Group selected layers' : 'Group sibling layers together'}
+                    data-testid="button-group-selected"
+                  >
+                    <Layers2 size={14} />
+                    Group
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => controller.setLayersVisibility(checkedIds, !allSelectedVisible)}
+                    aria-label={allSelectedVisible ? 'Hide selected layers' : 'Show selected layers'}
+                    title={allSelectedVisible ? 'Hide selected layers' : 'Show selected layers'}
+                    data-testid="button-bulk-visibility"
+                  >
+                    {allSelectedVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={handleBulkLockToggle}
+                    aria-label={allSelectedLocked ? 'Unlock selected layers' : 'Lock selected layers'}
+                    title={allSelectedLocked ? 'Unlock selected layers' : 'Lock selected layers'}
+                    data-testid="button-bulk-lock"
+                  >
+                    {allSelectedLocked ? <Unlock size={15} /> : <Lock size={15} />}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => setPendingDeleteIds([...checkedIds])}
+                    aria-label="Delete selected layers"
+                    title="Delete selected layers"
+                    data-testid="button-bulk-delete"
+                  >
+                    <Trash2 size={15} />
+                  </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2 px-1">
+                  <span className="shrink-0 text-[10px] text-slate-400">Opacity</span>
+                  <Slider
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={[bulkOpacity]}
+                    onValueChange={([value]) => handleBulkOpacityChange(value)}
+                    className="flex-1"
+                    aria-label="Set opacity for selected layers"
+                    data-testid="slider-bulk-opacity"
+                  />
+                  <span className="w-8 shrink-0 text-right font-mono text-[10px] text-cyan-100">{bulkOpacity}%</span>
+                </div>
+              </div>
             )}
+
             {selectedGroup && (
               <Button
                 variant="outline"
@@ -506,10 +715,34 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
 
           {objects.length === 0 ? (
             <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">No layers yet</div>
+          ) : flatLayers.length === 0 ? (
+            <div className="flex h-24 flex-col items-center justify-center gap-1 px-4 text-center text-sm text-muted-foreground">
+              <span>No layers match this search or filter.</span>
+              <button
+                type="button"
+                className="text-xs text-cyan-200 hover:text-cyan-100"
+                onClick={() => {
+                  setSearchQuery('');
+                  setTypeFilter('All');
+                }}
+              >
+                Clear filters
+              </button>
+            </div>
           ) : (
-            <div ref={listRef} className="overflow-y-auto px-3 pb-5" style={{ maxHeight: 'calc(82vh - 132px)' }}>
+            <div
+              ref={listRef}
+              className="overflow-y-auto px-3 pb-5"
+              style={{
+                maxHeight: checkedIds.length >= 2
+                  ? 'calc(82vh - 300px)'
+                  : selectedGroup
+                    ? 'calc(82vh - 230px)'
+                    : 'calc(82vh - 190px)',
+              }}
+            >
               {flatLayers.map(({ obj, parentId, index, depth }) => {
-                const isSelected = selectedIds.includes(obj.id);
+                const isSelected = checkedIds.includes(obj.id);
                 const isSolo = controller.soloObjectId === obj.id;
                 return (
                   <LayerCard
@@ -519,9 +752,9 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                     blendMode={obj.blendMode}
                     depth={depth}
                     selected={isSelected}
-                    selectedCount={selectedIds.length}
+                    selectedCount={checkedIds.length}
                     solo={isSolo}
-                    collapsed={Boolean(collapsedGroups[obj.id])}
+                    collapsed={!filteredMode && Boolean(collapsedGroups[obj.id])}
                     dropTarget={dropId === obj.id}
                     dragging={draggingId === obj.id}
                     editing={editingId === obj.id}
@@ -540,7 +773,11 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                       const fabricObj = getObjectById(obj.id);
                       if (fabricObj) controller.toggleSolo(fabricObj);
                     }}
-                    onToggleCollapse={() => setCollapsedGroups((current) => ({ ...current, [obj.id]: !current[obj.id] }))}
+                    onToggleCollapse={() => {
+                      if (!filteredMode) {
+                        setCollapsedGroups((current) => ({ ...current, [obj.id]: !current[obj.id] }));
+                      }
+                    }}
                     onTagChange={(tag) => {
                       const fabricObj = getObjectById(obj.id);
                       if (fabricObj) controller.setLayerTag(fabricObj, tag);
@@ -555,8 +792,8 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
                     }}
                     onTargetSelect={() => controller.selectObjectById(obj.id)}
                     onDuplicate={() => handleDuplicate(obj)}
-                    onGroup={() => controller.groupSelected()}
-                    onDelete={() => setPendingDelete(obj)}
+                    onGroup={handleGroupSelected}
+                    onDelete={() => setPendingDeleteIds([obj.id])}
                   />
                 );
               })}
@@ -565,11 +802,15 @@ export default function LayersPanel({ controller }: LayersPanelProps) {
         </ResponsiveDrawerWrapper>
       </Sheet>
 
-      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+      <AlertDialog open={Boolean(pendingDeleteIds)} onOpenChange={(open) => !open && setPendingDeleteIds(null)}>
         <AlertDialogContent className="w-[calc(100vw-32px)] max-w-md rounded-2xl border-border bg-[#11141A]">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete layer?</AlertDialogTitle>
-            <AlertDialogDescription>Are you sure you want to delete this layer?</AlertDialogDescription>
+            <AlertDialogTitle>{pendingDeleteIds?.length === 1 ? 'Delete layer?' : `Delete ${pendingDeleteIds?.length ?? 0} layers?`}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteIds?.length === 1
+                ? 'Are you sure you want to delete this layer?'
+                : 'Are you sure you want to delete all selected layers?'}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel>Cancel</AlertDialogCancel>

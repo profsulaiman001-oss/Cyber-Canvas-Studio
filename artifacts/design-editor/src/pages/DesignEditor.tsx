@@ -164,6 +164,11 @@ export default function DesignEditor() {
     setCropOpen(true);
   }, [dispatch]);
 
+  const openShortcutsDialog = useCallback(() => {
+    dispatch({ type: 'DISMISS_OVERLAYS' });
+    setShortcutsOpen(true);
+  }, [dispatch]);
+
   const handleSelectionChange = useCallback(
     (ids: string[]) => { dispatch({ type: 'SET_SELECTED', payload: ids }); },
     [dispatch]
@@ -684,7 +689,7 @@ export default function DesignEditor() {
     onOpenProject: requestProjectManager,
     onQuickExport: handleQuickExport,
     onEyedropper: handleKeyboardEyedropper,
-    onShowHelp: () => setShortcutsOpen(true),
+    onShowHelp: openShortcutsDialog,
     onNudge: handleNudgeElement,
   });
 
@@ -1108,8 +1113,9 @@ export default function DesignEditor() {
         onChange={(e) => { if (e.target.files?.[0]) { handleFillImageFile(e.target.files[0]); e.target.value = ''; } }}
       />
 
-      {/* ── Toolbar wrapper ── */}
-      <div className="relative flex-shrink-0">
+      {/* Tool panels and the toolbar must not remain mounted under blocking dialogs. */}
+      {!blockingModalOpen && (
+      <div className="relative flex-shrink-0" data-testid="toolbar-overlays">
         <ShadowsPanel controller={controller} />
         <ThreeDPanel controller={controller} />
         <TypographyPanel controller={controller} />
@@ -1269,6 +1275,7 @@ export default function DesignEditor() {
           onCropImage={handleCropImage}
         />
       </div>
+      )}
 
       {/* ── Unified Crop Modal — handles image, fill, and any-object (raster) modes ── */}
       <CropModal
